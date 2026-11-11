@@ -127,7 +127,8 @@ In build order. Each is framed in its own session first.
   and `--trim-tolerance`, written only when given. Not an optional-value `--trim[=COLOR]`: clap then
   swallows the input path (driven). `trim`'s whole-match message names `'color'`/`'tolerance'`, so
   `edit` words it with the flag names. Consider folding the `parse_color` sign entry, since this adds
-  two CLI routes into `parse_color`. **This entry closes STAGE-058.** SPEC-153's Frame records the
+  two CLI routes into `parse_color`. **This entry closes STAGE-058.** **Ruled 2026-11-10: reserved SPEC-160,
+  after SPEC-159 (transparent pad), and the `parse_color` sign entry folds in.** SPEC-153's Frame records the
   syntax, the sizing and the replay matrix.
   Also reword the stale "single image" text, since `edit` takes one image or a batch (SPEC-153 design
   correction 1; a pixel `--crop` with `--save-recipe` needs one input): `src/cli/mod.rs:453` (the `--help`
@@ -210,6 +211,9 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-06 (SPEC-151's Q1 and Q4): split, and refuse.** `transparent` into a format with
   no alpha is refused per input, exit 4, naming the step and the format. Drive GIF (1-bit
   transparency) too.
+  **Ruled 2026-11-10: ships before `edit --pad`/`--trim`, reserved SPEC-159,** so `--pad-color` takes
+  `transparent` the day the flag ships and STAGE-058 delivers the `pad` it promises ("filled with a colour or
+  transparent").
 
 - [ ] (not yet written) — [S] **Pin `watermark`'s nine gravities, with a margin.** Found at SPEC-151's
   design (mutation M2): with `north` placed as `south` in `Gravity::placement`
@@ -250,6 +254,8 @@ In build order. Each is framed in its own session first.
   non-ASCII case SPEC-152 fixed, so the explicit non-ASCII check can go. Test: a refusal row for `+f+f+f` in `pad`, `trim` and `watermark`, and a mutation that puts
   `from_str_radix` back on the raw pair; the refusal message stays as it is.
   Search first found no entry in STAGE-058 or `guidance/questions.yaml` that covers it.
+  **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
+  entry folded.
 
 **Count:** 10 shipped / 0 active / 8 pending — re-derived 2026-11-10 at SPEC-153's ship, with `/usr/bin/grep -c '^- \[x\]'` (10: 6 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8) and `/usr/bin/grep -c '^- \[~\]'` (0)
 
