@@ -199,7 +199,7 @@ In build order. Each is framed in its own session first.
   records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
   alone triggers it. A warning changes no output bytes. After SPEC-147.
 
-- [ ] (not yet written) — [S] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
+- [ ] **SPEC-159** (framed 2026-11-10) — [M] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
   Split out of SPEC-151 at its frame (2026-11-06); after SPEC-151. Lifts SPEC-151's "opaque only"
   refusal so `color` takes `transparent` (and `#RRGGBBAA` below `ff`), widening RGB to RGBA and grey
   to grey-with-alpha (DEC-095's narrow rule already keeps a channel with non-opaque samples). ⚠ The
@@ -214,6 +214,9 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: ships before `edit --pad`/`--trim`, reserved SPEC-159,** so `--pad-color` takes
   `transparent` the day the flag ships and STAGE-058 delivers the `pad` it promises ("filled with a colour or
   transparent").
+  **Framed 2026-11-10: GO at [M], one DEC (DEC-115).** `transparent` = `#00000000`; a static recipe × format
+  check before the pipeline on `apply`, `build` and wasm `transform`; JPEG refuses any fill alpha, GIF only
+  01-fe. No entry folded. SPEC-159's Frame records the format table and the four maintainer questions.
 
 - [ ] (not yet written) — [S] **Pin `watermark`'s nine gravities, with a margin.** Found at SPEC-151's
   design (mutation M2): with `north` placed as `south` in `Gravity::placement`
@@ -257,7 +260,7 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
   entry folded.
 
-**Count:** 10 shipped / 0 active / 8 pending — re-derived 2026-11-10 at SPEC-153's ship, with `/usr/bin/grep -c '^- \[x\]'` (10: 6 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8) and `/usr/bin/grep -c '^- \[~\]'` (0)
+**Count:** 10 shipped / 1 active / 7 pending — re-derived 2026-11-10 at SPEC-159's frame, with `/usr/bin/grep -c '^- \[x\]'` (10: 6 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active, SPEC-159), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[~\]'` (0)
 
 ## Design Notes
 

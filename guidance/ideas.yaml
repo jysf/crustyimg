@@ -357,6 +357,36 @@ ideas:
       ...`, so a recipe with two steps of the same op can't say which one failed. Both exit 1.
       Changing the wording touches every op's apply message, not bytes.
 
+  - id: alpha-dropped-silently-on-encode
+    title: "Writing an image with alpha to JPEG drops the alpha with no warning"
+    status: idea
+    source: "SPEC-159 frame (2026-11-10), driven on main at 9bbdaf1"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      An RGBA PNG through `apply` (`-o out.jpg`, and a batch with `--format jpeg`) exits 0 with
+      nothing on stderr: alpha-0 green came out (0,255,7), alpha-128 blue (0,17,255), both opaque.
+      Every op and verb shares the sink, so it is not geometry. SPEC-159 refuses only alpha a `pad`
+      fill introduces and leaves this on purpose (changing it changes existing exit codes). A stderr
+      warning like JPEG's existing 16-to-8-bit one (`eight_bit_downgrade_warning`) would change no
+      bytes; a refusal would.
+
+  - id: tiff-alpha-extrasamples
+    title: "RGBA TIFF output has no ExtraSamples tag, so libtiff readers show it opaque"
+    status: idea
+    source: "SPEC-159 frame (2026-11-10), driven on main at 9bbdaf1"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      `crustyimg apply -o o.tiff` on an RGBA8 PNG writes 4 samples per pixel, Photometric RGB, and no
+      ExtraSamples tag. crustyimg, macOS `sips` (hasAlpha yes) and ffmpeg (pix_fmt rgba) read the
+      alpha; `tiffinfo` and ImageMagick warn "Sum of Photometric type-related color channels and
+      ExtraSamples doesn't match SamplesPerPixel" and show it opaque. ImageMagick's own RGBA TIFF
+      carries `Extra Samples: 1<unassoc-alpha>`. The encoder is `image`'s; check its current release
+      and upstream before patching around it.
+
   # ── Declined: kept so they are not re-proposed ───────────────────────────
   - id: lightroom-preset-import
     title: "Import Lightroom presets"
