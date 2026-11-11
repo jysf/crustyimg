@@ -332,6 +332,14 @@ pub(super) fn run_pixel_op(
     auto: Option<AutoQuality>,
     never_bigger: bool,
 ) -> Result<(), CliError> {
+    // A forced format is the same for every input, so a step that writes alpha
+    // it can't store is refused once, before any input is read. The only
+    // caller whose pipeline can carry such a step forces its format; a caller
+    // that resolves the format per input must check there.
+    if let Some(refused) = forced_format.and_then(|fmt| pipeline.unstorable_alpha(fmt)) {
+        return Err(refused.into());
+    }
+
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
     // NOT partial-batch (exit 6). Partial-batch applies only to per-input

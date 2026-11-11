@@ -741,6 +741,14 @@ pub enum CliError {
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
 
+    /// A recipe step writes alpha the output format can't store (a `pad`
+    /// filled with `transparent` into JPEG). Checked once the format is known
+    /// and before the pipeline runs; nothing is written. Exit 4, like an
+    /// unsupported format. In a batch that keeps each input's format, this is
+    /// that input's failure (exit 6).
+    #[error(transparent)]
+    UnstorableAlpha(#[from] crate::operation::UnstorableAlpha),
+
     /// `meta` keeps each input's own container, so it refuses, before writing
     /// anything, when the output's name (`-o`, or the `--out-dir` name
     /// template) asks for a different format: writing the source's bytes under
@@ -875,6 +883,7 @@ impl CliError {
             CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(_)) => 4,
             // `meta` cannot change the format an output name asks for → 4.
             CliError::MetaFormatMismatch { .. } => 4,
+            CliError::UnstorableAlpha(_) => 4,
             CliError::Metadata(crate::metadata::MetadataError::Container(_)) => 1,
             CliError::Metadata(crate::metadata::MetadataError::Exif(_)) => 1,
         }
@@ -1601,6 +1610,21 @@ mod tests {
         assert_eq!(
             CliError::Metadata(crate::metadata::MetadataError::Exif("bad tag".into())).code(),
             1
+        );
+        // A step writing alpha the output format can't store → 4.
+        assert_eq!(
+            CliError::UnstorableAlpha(crate::operation::UnstorableAlpha {
+                step: 0,
+                op: "pad",
+                introduced: crate::operation::IntroducedAlpha {
+                    alpha: 0,
+                    key: "color",
+                    written: "transparent".into(),
+                },
+                format: ::image::ImageFormat::Jpeg,
+            })
+            .code(),
+            4
         );
         // `meta` refusing an output name that asks for another format → 4.
         assert_eq!(

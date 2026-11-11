@@ -85,10 +85,17 @@ pub(super) fn encode_one(
     // Build a fresh pipeline (Operation is not Send; each task rebuilds its own).
     let pipeline = recipe.build_pipeline(registry)?;
 
+    // The format is known before the run (the override, else this input's own),
+    // so a step that writes alpha it can't store is refused for this input
+    // before any work is done.
+    let fmt = format_override.unwrap_or_else(|| img.source_format());
+    if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+        return Err(refused.into());
+    }
+
     // Run.
     let run = pipeline.run_with(img.clone(), OnRefusal::Skip)?;
 
-    let fmt = format_override.unwrap_or_else(|| img.source_format());
     let bytes = crate::sink::encode_to_bytes(&run.image, fmt, quality)?;
 
     Ok((crate::sink::extension_for_format(fmt), bytes, run.skipped))
