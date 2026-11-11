@@ -58,7 +58,20 @@ value_link: "Delivers STAGE-058's promised `pad` 'filled with a colour or transp
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-10
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5736088
+      tokens_breakdown:
+        input: 86
+        cache_creation: 148478
+        cache_read: 5547638
+        output: 39886
+      estimated_usd: 4.70
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "From the session JSONL, deduped by message.id (43 messages), measured after the frame push"
   totals:
     tokens_total: 0
     estimated_usd: 0
