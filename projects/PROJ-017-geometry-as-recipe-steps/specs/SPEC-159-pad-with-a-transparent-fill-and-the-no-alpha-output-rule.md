@@ -1113,10 +1113,13 @@ not in the prototype; their column is *reasoned*.
   - `tests/pad.rs` — FT-4 to FT-17, FT-19; FT-7 edits; P29-P32 and the old translucent `apply` test removed
   - `tests/trim.rs` — FT-18; T19 moved to accepted (refusal count 23 → 22, accepted 7 → 8)
   - `tests/ddphotos_parity.mjs` — FT-21 `alphaRows()`
+  - `tests/wasm_roundtrip.rs` — row P30 removed, a translucent-fill test added (see Deviations)
   - `docs/recipes.md`, `docs/api-contract.md`, `docs/data-model.md`, `docs/cli-reference.md`, `recipes/README.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md`, `docs/backlog.md` — the AC-22 rows
   - No change to `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION`, the lockfile format or `scripts/lib/wasm-artifact.mjs` (`git diff --stat origin/main...HEAD` on the two Cargo files is empty).
 - **Deviations from spec:**
   - AC-1: DEC-115's `affected_scope` lacks `src/cli/mod.rs` (the new `CliError` arm) and `src/operation/trim.rs`. Not edited, per the build prompt; verify/ship should add them.
+  - `tests/wasm_roundtrip.rs` (not in the spec's file list): its row P30 asserted the old load refusal of `#ff000080`, which CI's wasm leg caught (`just wasm-test` is not in `just check`). The row is removed and `transform_refuses_a_fill_alpha_the_format_cannot_store` added; 56 passed locally.
+  - `tests/pad.rs` FT-14: the `build` input label is built with the platform's path separator (the Windows leg printed `in\src.jpg`).
   - Tests that call the new API (FT-3) live in `src/pipeline/mod.rs`, not `tests/pad.rs`, so stage 1 could run on `main`.
   - Mutation edits differ in spelling only: my variable is `refused`, not `e`; M14's arm is `(ImageLuma8, false, true)` (my tuple's third element is "translucent").
 - **Follow-up work identified:**

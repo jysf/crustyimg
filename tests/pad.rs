@@ -2109,9 +2109,11 @@ fn build_refuses_pinned_once_and_kept_formats_per_input() {
     let dir = project("out = \"b2\"");
     let r = bin(dir.path(), &["build"]);
     assert_eq!(r.code, Some(6), "stderr: {}", r.stderr);
+    // The label is the path as the platform spells it.
+    let label = Path::new("in").join("src.jpg");
     assert!(
         r.stderr
-            .starts_with(&format!("error: in/src.jpg: {line}\n")),
+            .starts_with(&format!("error: {}: {line}\n", label.display())),
         "stderr: {}",
         r.stderr
     );
