@@ -224,11 +224,9 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   size or scale on the CLI, cap a text mark's size) ships **before 0.8.0** (maintainer ruling
   2026-10-27); the rest does not hold the tag.
 
-- [ ] **STAGE-041 — launch content and publication.** ⚠ **CARRIED, NOT THESIS WORK.** Moved from
-  PROJ-010 on 2026-08-23 so it can be continued in the active project. It does **not** advance this
-  project's thesis and must not be counted toward it at reflection. ⚠ Its repo status understates
-  reality — three of its four items are reported substantially done **outside** the repo, unreported
-  since 2026-08-16. **Get the real status before re-planning it.**
+- [→] **STAGE-041 — launch content and publication.** **Moved out to its own project, PROJ-019,
+  on 2026-11-11** (maintainer request). It never shared this project's thesis and was parked here
+  since 2026-11-05; it no longer counts toward PROJ-011 at all.
 
 - [ ] **STAGE-053 — guards that cover this project.** ⚠ **Carried forward from PROJ-013 because
   this project needs them**, not because they share its thesis. No CI leg runs `just wasm-test`,
@@ -238,9 +236,11 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   `wasm::transform` has two sources of truth for format and that needs deciding regardless. The
   cost gate is hygiene, not a live hazard.
 
-**Count:** 0 shipped / 0 active / **3 pending** (of which STAGE-053 is guard work and STAGE-041 is
-carried non-thesis work — **1 stage genuinely delivers the thesis today**, plus STAGE-050) — re-derive with a grep you just ran; never restate
-a tally you carried forward.
+**Count:** 2 shipped / 2 active / 1 proposed — re-derived 2026-11-11 from the `status:` line of
+each file in `stages/` (STAGE-049, 050 shipped; STAGE-054, 063 active; STAGE-053 proposed). STAGE-041
+moved to PROJ-019 the same day and is no longer counted. ⚠ The checklist above lags the stage
+files: it doesn't tick 049/050 or list STAGE-063. Re-derive with a grep you just ran; never
+restate a tally you carried forward.
 
 ## Dependencies
 
