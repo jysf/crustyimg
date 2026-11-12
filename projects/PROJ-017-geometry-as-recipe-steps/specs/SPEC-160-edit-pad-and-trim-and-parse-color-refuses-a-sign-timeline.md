@@ -13,7 +13,7 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
   a two-place alpha check in `run_pixel_op` gated on `introduces_alpha()`, and `parse_color` refusing any non-hex byte.
 - [x] **rulings** (2026-11-11, maintainer) — all three recommendations: entries 1–4 moved (ideas.yaml ×3,
   STAGE-060 ×1), nine-gravities entry folded in, so this spec closes STAGE-058; [M] uncut; one `--pad N|W:H`.
-- [x] **design** (2026-11-11, Opus) — `prompts/SPEC-160-design.md`. [M] holds, no DEC. Prototype-driven: 18 FTs,
+- [x] **design** (2026-11-11, Opus, $14.47) — `prompts/SPEC-160-design.md`. [M] holds, no DEC. Prototype-driven: 18 FTs,
   22 mutation rows (all driven). Corrections: `--pad N` past the long edge fails at apply (`border` <= 1);
   `edit`'s alpha line names `--pad-color` via `IntroducedAlpha.flag`; the batch-wide format is `--format` or the
   template only; one `FlagWorded` wrapper for the aspect pad and `trim`. No wasm row.
