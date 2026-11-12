@@ -313,7 +313,7 @@ when — as here — the destination is the right one.
 
 - **PROJ-011** took the invocation-consistency defects and the recipe-reach gap.
 - **PROJ-012** took animated output and ICC transforms — the two rules `lint` can name but not fix.
-- **STAGE-041** was carried to PROJ-011 for continuity; ⚠ **it does not share that project's
+- **STAGE-041** was carried to PROJ-011 for continuity (and moved on to its own project, PROJ-019, on 2026-11-11); ⚠ **it does not share that project's
   thesis** and must not be counted toward it.
 - **All 53 remaining items were re-homed to PROJ-013** on 2026-08-23 — five stages moved whole
   (036, 037, 038, 047, 048) and two continuation stages created (**STAGE-051** from STAGE-042,

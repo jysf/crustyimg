@@ -122,7 +122,7 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
   needs no threshold at all.
 - **The `--name-template` pin ruling** — warn / honour-the-template / document-and-keep. Same family
   as the `-o`-extension pin ruling, which moved to PROJ-013 STAGE-037. Worth ruling together.
-- **STAGE-041's real status.** The repo has understated it since 2026-08-16. **Do not re-plan it
+- **STAGE-041's real status** (moved to PROJ-019 on 2026-11-11). The repo has understated it since 2026-08-16. **Do not re-plan it
   against what the repo says.**
 - **`mp4-atom` DEC** — blocks PROJ-012 from being specced at all.
 - **The two GitHub Action releases are still DRAFTS.** `v1.0.1` on `jysf/setup-crustyimg` and
