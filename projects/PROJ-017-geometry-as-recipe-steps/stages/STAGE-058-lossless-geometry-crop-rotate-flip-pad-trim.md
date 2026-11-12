@@ -145,7 +145,7 @@ In build order. Each is framed in its own session first.
   / aspect **[planned — PROJ-006]**" as `crustyimg crop …`, and smart crop the same way. The verb
   set is frozen at 14 (STAGE-030), and PROJ-017 delivers crop as a recipe step plus an `edit`
   flag. Fold it into the `crop` spec's docs entries, or fix it on its own if `crop` slips.
-- [ ] (not yet written) — [S] **Recipe-output guard: report the file-set and line-count failures together.**
+- [x] (moved to `guidance/ideas.yaml` as `recipe-output-guard-reports-both-failures`, 2026-11-11) — [S] **Recipe-output guard: report the file-set and line-count failures together.**
   Found at SPEC-141's ship. `every_golden_line_is_checked_and_no_golden_is_stray` stops at the
   file-set assertion, so a change that also breaks the golden line count (`GOLDEN_LINES`) reports
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
@@ -164,7 +164,7 @@ In build order. Each is framed in its own session first.
   a test read them. This is a different gap from the entry above (that one is about reporting two
   failures together), so it is a separate entry.
 
-- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
+- [x] (moved to STAGE-060, 2026-11-11) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
   orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
   tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
   photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
@@ -176,7 +176,7 @@ In build order. Each is framed in its own session first.
   SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
   tall as crop's does, and this entry's spec adds the key to both ops with one rule.
 
-- [ ] (not yet written) — [S] **The batch summary says "watermark skipped" for any refusing op.**
+- [x] (moved to `guidance/ideas.yaml` as `refusal-summary-names-the-op`, 2026-11-11) — [S] **The batch summary says "watermark skipped" for any refusing op.**
   Found at SPEC-145's verify. `report_skipped_images` (`src/cli/common.rs:40`) and `build.rs:864`
   print "watermark skipped on K of N images" for every step that refuses through the refusal hook.
   Only `watermark` uses the hook today, so nothing shipped is mislabelled. `pad` or `trim` may be
@@ -192,7 +192,7 @@ In build order. Each is framed in its own session first.
   only if the wording is made checkable. Distinct from the entry above, which is about the
   batch message's text. Before `pad` or `trim` ships.
 
-- [ ] (not yet written) — [S] **`apply` and `build` warn when a recipe with no `auto-orient` step meets a tagged input.**
+- [x] (moved to `guidance/ideas.yaml` as `warn-tagged-input-without-auto-orient`, 2026-11-11) — [S] **`apply` and `build` warn when a recipe with no `auto-orient` step meets a tagged input.**
   Found at SPEC-147's frame. The pixel lane writes no EXIF (DEC-003), so a recipe that doesn't start
   with `auto-orient` drops the tag without applying it: an `invert` recipe on a 60×40 PNG tagged
   Orientation 6 wrote the stored 60×40 pixels with no tag, so a portrait displays sideways, exit 0.
@@ -221,7 +221,7 @@ In build order. Each is framed in its own session first.
   check before the pipeline on `apply`, `build` and wasm `transform`; JPEG refuses any fill alpha, GIF only
   01-fe. No entry folded. SPEC-159's Frame records the format table and the four maintainer questions.
 
-- [ ] (not yet written) — [S] **Pin `watermark`'s nine gravities, with a margin.** Found at SPEC-151's
+- [x] (folded into SPEC-160) — [S] **Pin `watermark`'s nine gravities, with a margin.** Found at SPEC-151's
   design (mutation M2): with `north` placed as `south` in `Gravity::placement`
   (`src/operation/mod.rs`), every `watermark` test stays green. `crop` and `pad` pin all nine at
   margin 0, but the margin path (`x_left`/`x_right`/`y_top`/`y_bottom` inset by `margin`) has no
@@ -263,7 +263,7 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
   entry folded.
 
-**Count:** 12 shipped / 1 active / 5 pending — re-derived 2026-11-11 at SPEC-160's frame, with `/usr/bin/grep -c '^- \[x\]'` (12: 7 `**SPEC-` entries and 5 folded), `/usr/bin/grep -c '^- \[ \]'` (6), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-160), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5) and `/usr/bin/grep -c '^- \[~\]'` (0)
+**Count:** 17 resolved (7 shipped specs, 6 folded, 4 moved) / 1 active (SPEC-160) / 0 pending — re-derived 2026-11-11 after the SPEC-160 frame rulings, with `/usr/bin/grep -c '^- \[x\]'` (17), `/usr/bin/grep -c '^- \[x\] (folded'` (6), `/usr/bin/grep -c '^- \[x\] (moved'` (4), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (0)
 
 ## Design Notes
 

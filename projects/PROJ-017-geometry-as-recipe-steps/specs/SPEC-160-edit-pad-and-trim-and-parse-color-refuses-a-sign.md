@@ -418,6 +418,19 @@ recipe that loads today will throw the recipe message. No export, row or count c
 2. **Size:** accept [M] rather than cutting the replay matrix or the `parse_color` fold? *Recommend: [M].*
 3. **One `--pad` (N or W:H) rather than two flags?** *Recommend: one, to match `--crop`.*
 
+### Maintainer rulings (2026-11-11)
+
+The maintainer accepted all three recommendations:
+- **Q1, stage close:** move entries 1–4 and fold entry 5, so this spec closes STAGE-058. Done on
+  `main` by the orchestrator: entry 1 is `guidance/ideas.yaml` `recipe-output-guard-reports-both-failures`
+  (deferred), entry 2 moved to STAGE-060's backlog, entry 3 is `refusal-summary-names-the-op`
+  (deferred), entry 4 is `warn-tagged-input-without-auto-orient` (idea). Entry 5 (`watermark`'s nine
+  gravities with a margin, test-only) is `- [x] (folded into SPEC-160)`: design adds its rows and
+  mutants to this spec.
+- **Q2, size:** [M], uncut. The `parse_color` fold and the 16-bit and grey replay rows stay.
+- **Q3, `--pad`:** one flag, `--pad N|W:H`, matching `--crop`; `--pad-gravity` with the aspect form
+  only.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why

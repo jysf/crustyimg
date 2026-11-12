@@ -387,6 +387,46 @@ ideas:
       carries `Extra Samples: 1<unassoc-alpha>`. The encoder is `image`'s; check its current release
       and upstream before patching around it.
 
+  - id: recipe-output-guard-reports-both-failures
+    title: "The recipe-output guard reports a file-set and a line-count failure together"
+    status: deferred
+    source: "STAGE-058 backlog (found at SPEC-141's ship); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-017
+    gate: "a spec trips the file-set and the line-count checks of `tests/recipe_corpus_output.rs` at once"
+    notes: >
+      `every_golden_line_is_checked_and_no_golden_is_stray` stops at the file-set assertion, so a
+      change that also breaks `GOLDEN_LINES` reports only the first (SPEC-141 mutation M4).
+      Test-only, no product change. STAGE-058 closed without it.
+
+  - id: refusal-summary-names-the-op
+    title: "The batch summary says 'watermark skipped' for any op that refuses through the hook"
+    status: deferred
+    source: "STAGE-058 backlog (found at SPEC-145's verify); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-017
+    gate: "a second op uses `Operation::refusal`"
+    notes: >
+      `report_skipped_images` (`src/cli/common.rs`) and `build.rs` print "watermark skipped on K of
+      N images" for every step that refuses through the refusal hook. Only `watermark` uses the hook,
+      so nothing shipped is mislabelled; `pad` and `trim` both fail at apply instead (driven at
+      SPEC-160's frame). Name the op that refused when a second one adopts the hook.
+
+  - id: warn-tagged-input-without-auto-orient
+    title: "`apply` and `build` warn when a recipe with no `auto-orient` step meets an EXIF-tagged input"
+    status: idea
+    source: "STAGE-058 backlog (found at SPEC-147's frame); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      The pixel lane writes no EXIF (DEC-003), so a recipe that doesn't start with `auto-orient`
+      drops the orientation tag without applying it: an `invert` recipe on a 60×40 PNG tagged
+      Orientation 6 wrote the stored pixels with no tag, so a portrait displays sideways, exit 0.
+      Every recipe op does this, not only geometry; `edit --save-recipe` already records
+      `auto-orient`. Undecided: warn, refuse or stay silent, and whether a geometry step alone
+      triggers it. A warning changes no output bytes.
+
   # ── Declined: kept so they are not re-proposed ───────────────────────────
   - id: lightroom-preset-import
     title: "Import Lightroom presets"

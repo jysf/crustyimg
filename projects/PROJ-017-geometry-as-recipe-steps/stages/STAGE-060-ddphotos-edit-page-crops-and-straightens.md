@@ -108,8 +108,21 @@ In build order.
   which recipe text moved. A comment in `tests/ddphotos_parity.mjs` also says "P1-P5" though there
   is no P1. Give each check its own label and fix the comment; no behaviour change. Found by
   SPEC-142's re-verify. Do it alongside the crop spec's first harness rows, not on its own.
+- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
+  orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
+  tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
+  photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
+  key (for example `orientation = "match"`). Leaving it off keeps SPEC-145's meaning, so no
+  existing recipe or golden changes. Design decides what a square image gets, the key's name, and
+  the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
+  frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
+  unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
+  SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
+  tall as crop's does, and this entry's spec adds the key to both ops with one rule.
+  **Moved here from STAGE-058 on 2026-11-11** (maintainer ruling at SPEC-160's frame): the page's aspect
+  presets are this key's first user, and it changes no shipped output, so STAGE-058 closes without it.
 
-**Count:** 1 shipped / 0 active / 4 pending
+**Count:** 1 shipped / 0 active / 5 pending
 
 ## Design Notes
 
