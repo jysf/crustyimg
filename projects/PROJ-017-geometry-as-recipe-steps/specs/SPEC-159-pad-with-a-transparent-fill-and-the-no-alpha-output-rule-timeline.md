@@ -33,6 +33,10 @@ Cycle prompts live in `prompts/SPEC-159-<cycle>.md`.
   but a kept-format batch gives exit 6 — on the PR. Cleanups: A/B wasm asserts (declined), C AVIF
   "approximately" too loose (taken into the punch list). Table cells for ship: M1–M3 add FT-2; M13
   file; M9, M11 now driven; M16 adds `introduces_alpha_is_any_translucent_step`, FT-5/FT-7 driven.
-- [ ] **punch list** — `prompts/SPEC-159-punchlist.md`
+- [x] **punch list** (2026-11-11, Sonnet, $0.56) — `ad8b76d`, 4 files (+56/−4): `docs/recipes.md`,
+  `recipes/README.md` and `CHANGELOG.md` now give exit 4 for one input or a one-format batch and exit 6
+  for the failing input when each keeps its own format; the AVIF sentence names the 5/255 small-image
+  error. Driven: mixed batch exit 6 with `rgb.png` only; `--format jpeg` exit 4, no out-dir; 4×4 AVIF
+  corner alpha 0.0196. `docs_ops` green. DEC-115 and the mutation table are left for ship.
 - [ ] **merge**
 - [ ] **ship**
