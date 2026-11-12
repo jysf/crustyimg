@@ -591,16 +591,9 @@ op = "identity"
     fn transform_refuses_a_bad_pad_with_the_native_message() {
         let rows = [
             (
-                "P30",
+                "P22",
                 120u32,
                 80u32,
-                "aspect = \"1:1\"\ncolor = \"#ff000080\"",
-                "recipe step 0 ('pad'): a fill with transparency is not supported yet; 'color' must be opaque, such as \"#ffffff\", got \"#ff000080\"",
-            ),
-            (
-                "P22",
-                120,
-                80,
                 "aspect = \"1:1\"",
                 "recipe step 0 ('pad'): missing required key 'color'; a pad needs a fill colour such as \"#ffffff\"",
             ),
@@ -622,6 +615,26 @@ op = "identity"
             let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
             assert!(!ok.is_empty(), "{id}: identity after the refusal");
         }
+    }
+
+    /// A pad with a fill that has alpha runs into an output that can store it,
+    /// and is refused, with the line the CLI prints, into one that can't.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_fill_alpha_the_format_cannot_store() {
+        let src = png_unique(120, 80);
+        let recipe =
+            "version = \"2\"\n\n[[step]]\nop = \"pad\"\nborder = 0.05\ncolor = \"transparent\"\n";
+        let png = transform(&src, recipe, "png").expect("PNG stores the alpha");
+        assert!(!png.is_empty());
+
+        let err = transform(&src, recipe, "jpeg").expect_err("JPEG can't store it");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        let want = "recipe step 0 ('pad'): 'color' = \"transparent\" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque";
+        assert!(msg.contains(want), "wanted {want:?}, got {msg}");
+        assert!(!msg.contains("error: "), "no CLI prefix: {msg}");
+
+        let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+        assert!(!ok.is_empty());
     }
 
     /// A trim copies pixels and computes none, so a pad followed by a trim

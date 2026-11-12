@@ -396,12 +396,13 @@ axis = "horizontal"
 | `aspect` | string | `"W:H"`, whole numbers 1 to 65535 |
 | `gravity` | string | one of the nine names, default `center`; aspect form only |
 | `border` | number | `> 0` and `<= 1`, a fraction of the long edge |
-| `color` | string | required: `RRGGBB`, `#RRGGBB`, or `RRGGBBAA` with alpha `ff` |
+| `color` | string | required: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or `transparent` |
 
 A pad is an aspect (`aspect`, `gravity`) or a border (`border`), never both. The canvas
 grows around the image and every input pixel is copied unchanged; the new pixels are
-the fill. A border that rounds to 0 px on an image, or a canvas past the size caps,
-fails that image.
+the fill, alpha included. An image with no alpha gains it for a fill below `ff` (grey plus
+alpha for a grey fill such as `transparent`, RGBA otherwise). A border that rounds to 0 px on
+an image, or a canvas past the size caps, fails that image.
 
 ```toml
 version = "2"
@@ -425,7 +426,7 @@ color = "#ffffff"
 
 | Key | Type | Range |
 |---|---|---|
-| `color` | string | optional: `RRGGBB`, `#RRGGBB`, or `RRGGBBAA` (any alpha); default the top-left pixel |
+| `color` | string | optional: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or `transparent`; default the top-left pixel |
 | `tolerance` | integer | 0 to 255, default 0, in 8-bit steps per channel (× 257 at 16 bits) |
 
 A trim removes the outer rows and columns in which every pixel matches the colour

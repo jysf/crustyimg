@@ -241,6 +241,12 @@ pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Ve
     }
 
     let pipeline = pixel_recipe.build_pipeline(&registry).map_err(js_err)?;
+    // The format is resolved above, before any pixel work, so a step that
+    // writes alpha this format can't store is refused with the same line the
+    // CLI prints (without its `error: ` prefix).
+    if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+        return Err(JsError::new(&refused.to_string()));
+    }
     let out = pipeline.run(img).map_err(js_err)?;
 
     sink::encode_to_bytes(&out, fmt, quality).map_err(js_err)

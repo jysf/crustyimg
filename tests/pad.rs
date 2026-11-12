@@ -277,8 +277,6 @@ fn aspect_canvas(a: u64, b: u64, w: u64, h: u64) -> (u32, u32) {
 // ── Load refusals ───────────────────────────────────────────────────────────
 
 const BORDER: &str = "'border' must be a number > 0 and <= 1";
-const TRANSLUCENT: &str =
-    "a fill with transparency is not supported yet; 'color' must be opaque, such as \"#ffffff\"";
 const NOT_HEX: &str = "'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA";
 const ASPECT: &str =
     "'aspect' must be two whole numbers from 1 to 65535 written W:H, such as \"16:9\"";
@@ -417,24 +415,9 @@ fn every_pad_refusal_names_its_reason() {
             format!("{NOT_HEX}, got \"Transparent\""),
         ),
         (
-            "P29",
-            "aspect = \"1:1\"\ncolor = \"transparent\"".into(),
-            format!("{TRANSLUCENT}, got \"transparent\""),
-        ),
-        (
-            "P30",
-            "aspect = \"1:1\"\ncolor = \"#ff000080\"".into(),
-            format!("{TRANSLUCENT}, got \"#ff000080\""),
-        ),
-        (
-            "P31",
-            "border = 0.1\ncolor = \"ff000000\"".into(),
-            format!("{TRANSLUCENT}, got \"ff000000\""),
-        ),
-        (
-            "P32",
-            "aspect = \"1:1\"\ncolor = \"#ffffffFE\"".into(),
-            format!("{TRANSLUCENT}, got \"#ffffffFE\""),
+            "P28b",
+            "aspect = \"1:1\"\ncolor = \"TRANSPARENT\"".into(),
+            format!("{NOT_HEX}, got \"TRANSPARENT\""),
         ),
         (
             "P33",
@@ -476,7 +459,7 @@ fn every_pad_refusal_names_its_reason() {
             }
         }
     }
-    assert_no_mismatches(rows.len(), 37, mismatches);
+    assert_no_mismatches(rows.len(), 34, mismatches);
 }
 
 #[test]
@@ -488,6 +471,10 @@ fn accepted_colour_and_value_spellings_load() {
         "aspect = \"1:1\"\ncolor = \"123456FF\"",
         "border = 1\ncolor = \"#ffffff\"",
         "aspect = \"65535:1\"\ncolor = \"#ffffff\"",
+        "aspect = \"1:1\"\ncolor = \"transparent\"",
+        "aspect = \"1:1\"\ncolor = \"#ff000080\"",
+        "border = 0.1\ncolor = \"ff000000\"",
+        "aspect = \"1:1\"\ncolor = \"#ffffffFE\"",
     ];
     let mut mismatches = Vec::new();
     for body in bodies {
@@ -495,7 +482,7 @@ fn accepted_colour_and_value_spellings_load() {
             mismatches.push(format!("{:?} was refused: {e}", body.replace('\n', " ")));
         }
     }
-    assert_no_mismatches(bodies.len(), 6, mismatches);
+    assert_no_mismatches(bodies.len(), 10, mismatches);
 }
 
 // ── Exactness in every colour type ──────────────────────────────────────────
@@ -1182,23 +1169,6 @@ fn apply_no_op_pad_writes_the_input_pixels() {
 }
 
 #[test]
-fn apply_refuses_a_translucent_fill_and_writes_nothing() {
-    let dir = TempDir::new().unwrap();
-    let input = write_png(dir.path(), "in.png", &seeded("rgb8", 7, 5));
-    let r = apply(
-        dir.path(),
-        &recipe(&[&pad_step("aspect = \"1:1\"\ncolor = \"#ff000080\"")]),
-        &input,
-    );
-    assert_eq!(r.code, Some(1), "stderr: {}", r.stderr);
-    assert_eq!(
-        r.stderr.trim_end(),
-        format!("error: recipe step 0 ('pad'): {TRANSLUCENT}, got \"#ff000080\"")
-    );
-    assert!(!dir.path().join("out.png").exists(), "no file is written");
-}
-
-#[test]
 fn apply_refuses_a_pixel_width_key_and_writes_nothing() {
     let dir = TempDir::new().unwrap();
     let input = write_png(dir.path(), "in.png", &seeded("rgb8", 7, 5));
@@ -1386,4 +1356,853 @@ fn pad_writes_no_orientation_tag_and_keeps_the_bundle() {
         (7, 9),
         "pad dropped the metadata bundle, so the later auto-orient found no tag"
     );
+}
+
+// ── The byte pin: an opaque pad's output does not change ───────────────────
+
+/// FNV-1a 64 of a byte string.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// A 5×3 PNG whose samples come from a 64-bit xorshift, one draw per sample in
+/// pixel-then-channel order, masked to the sample width. Built from raw samples
+/// by `image`'s encoder: no crustyimg code is involved.
+fn pin_fixture(kind: &str, seed: u64) -> DynamicImage {
+    let mut r = XorShift(seed);
+    let (channels, bits, _) = shape_of(kind);
+    let count = 5 * 3 * channels;
+    match bits {
+        8 => {
+            let raw: Vec<u8> = (0..count).map(|_| r.next() as u8).collect();
+            match kind {
+                "l8" => DynamicImage::ImageLuma8(GrayImage::from_raw(5, 3, raw).unwrap()),
+                "rgb8" => DynamicImage::ImageRgb8(ImageBuffer::from_raw(5, 3, raw).unwrap()),
+                _ => DynamicImage::ImageRgba8(ImageBuffer::from_raw(5, 3, raw).unwrap()),
+            }
+        }
+        _ => {
+            let raw: Vec<u16> = (0..count).map(|_| r.next() as u16).collect();
+            DynamicImage::ImageRgb16(ImageBuffer::from_raw(5, 3, raw).unwrap())
+        }
+    }
+}
+
+#[test]
+fn opaque_pad_byte_pin() {
+    // (kind, seed, fill, byte length, FNV-1a 64 of the output's samples),
+    // recorded from the output of a build that predates translucent fills and
+    // matched there by an independent model of the expected bytes.
+    let rows: [(&str, u64, &str, usize, u64); 4] = [
+        ("l8", 0x159_0000, "#808080", 35, 0xc9a6_1194_fef5_1c54),
+        ("rgb8", 0x159_0001, "#123456", 105, 0xd66d_9899_5f85_0ac0),
+        ("rgba8", 0x159_0002, "#123456", 140, 0xb8cb_45d4_dd54_0cc3),
+        ("rgb16", 0x159_0003, "#123456", 210, 0x3107_3686_7184_2126),
+    ];
+    let mut mismatches = Vec::new();
+    for (kind, seed, color, len, want) in rows {
+        let dir = TempDir::new().unwrap();
+        let input = write_png(dir.path(), "n.png", &pin_fixture(kind, seed));
+        let out = dir.path().join("n.out.png");
+        let toml = recipe(&[&pad_step(&format!("border = 0.2\ncolor = \"{color}\""))]);
+        let r = run_apply(&[&input, Path::new("-o"), &out], dir.path(), &toml);
+        if r.code != Some(0) {
+            mismatches.push(format!("{kind}: exit {:?}, stderr {}", r.code, r.stderr));
+            continue;
+        }
+        let img = image::open(&out).expect("output decodes");
+        let bytes = img.as_bytes();
+        if kind_of(&img) != kind || (img.width(), img.height()) != (7, 5) {
+            mismatches.push(format!("{kind}: came out {}", kind_of(&img)));
+        }
+        if bytes.len() != len || fnv1a64(bytes) != want {
+            mismatches.push(format!(
+                "{kind}: {} bytes, hash {:#018x}; expected {len} bytes, {want:#018x}",
+                bytes.len(),
+                fnv1a64(bytes)
+            ));
+        }
+    }
+    assert_no_mismatches(rows.len(), 4, mismatches);
+}
+
+// ── Translucent fills: the fill, the widening, the rule ────────────────────
+
+/// A fill as `[r, g, b, a]`, written from the spec's rules, never parsed by the
+/// crate under test.
+type Fill4 = [u8; 4];
+
+/// The five fills every colour type is driven with: `transparent` as the
+/// keyword, a coloured alpha-0 fill, a coloured half-alpha fill, an opaque
+/// colour, and a grey half-alpha fill (the one that splits grey + alpha from
+/// RGBA).
+const FILLS: [(&str, Fill4); 5] = [
+    ("transparent", [0, 0, 0, 0]),
+    ("#ff000000", [255, 0, 0, 0]),
+    ("#ff000080", [255, 0, 0, 128]),
+    ("#ff0000", [255, 0, 0, 255]),
+    ("#80808080", [128, 128, 128, 128]),
+];
+
+/// The output kind: a grey input widens to RGB(A) only for a fill that is not
+/// grey; an input without alpha gains it only for a fill below `ff`; an alpha
+/// input keeps it. A grey image with a grey translucent fill is grey + alpha.
+fn out_kind4(kind: &str, fill: Fill4) -> &'static str {
+    let chromatic = fill[0] != fill[1] || fill[1] != fill[2];
+    let translucent = fill[3] != 255;
+    match (kind, chromatic, translucent) {
+        ("l8", false, false) => "l8",
+        ("l8", true, false) => "rgb8",
+        ("l8", false, true) => "la8",
+        ("l8", true, true) => "rgba8",
+        ("l16", false, false) => "l16",
+        ("l16", true, false) => "rgb16",
+        ("l16", false, true) => "la16",
+        ("l16", true, true) => "rgba16",
+        ("la8", false, _) => "la8",
+        ("la8", true, _) => "rgba8",
+        ("la16", false, _) => "la16",
+        ("la16", true, _) => "rgba16",
+        ("rgb8", _, false) => "rgb8",
+        ("rgb8", _, true) => "rgba8",
+        ("rgb16", _, false) => "rgb16",
+        ("rgb16", _, true) => "rgba16",
+        ("rgb32f", _, false) => "rgb32f",
+        ("rgb32f", _, true) => "rgba32f",
+        ("rgba8", _, _) => "rgba8",
+        ("rgba16", _, _) => "rgba16",
+        ("rgba32f", _, _) => "rgba32f",
+        other => panic!("unknown colour type {other:?}"),
+    }
+}
+
+/// The samples of one new pixel of kind `out`: the fill's own alpha, not the
+/// type's maximum.
+fn fill_px4(out: &str, fill: Fill4) -> Vec<u64> {
+    let (channels, bits, has_alpha) = shape_of(out);
+    let colour = channels - usize::from(has_alpha);
+    let mut px = if colour == 1 {
+        vec![scale(fill[0], bits)]
+    } else {
+        vec![
+            scale(fill[0], bits),
+            scale(fill[1], bits),
+            scale(fill[2], bits),
+        ]
+    };
+    if has_alpha {
+        px.push(scale(fill[3], bits));
+    }
+    px
+}
+
+/// One input pixel as `out`'s samples: the colour copied (a grey luma
+/// replicated when the output is RGB), and alpha carried over or, where the
+/// input had none, at the type's maximum.
+fn widen4(px: &[u64], in_kind: &str, out: &str) -> Vec<u64> {
+    if in_kind == out {
+        return px.to_vec();
+    }
+    let (in_ch, _, in_alpha) = shape_of(in_kind);
+    let (out_ch, bits, out_alpha) = shape_of(out);
+    let in_colour = in_ch - usize::from(in_alpha);
+    let out_colour = out_ch - usize::from(out_alpha);
+    let mut v: Vec<u64> = if in_colour == 1 {
+        vec![px[0]; out_colour]
+    } else {
+        px[..3].to_vec()
+    };
+    if out_alpha {
+        v.push(if in_alpha {
+            px[in_ch - 1]
+        } else {
+            alpha_max(bits)
+        });
+    }
+    v
+}
+
+#[test]
+fn translucent_fill_by_colour_type() {
+    let mut mismatches = Vec::new();
+    let mut cells = 0;
+    for kind in KINDS {
+        for (text, fill) in FILLS {
+            cells += 1;
+            let src = seeded(kind, 3, 3);
+            // 0.34 of a 3 px edge rounds to 1 px: a 5×5 canvas, the source at (1, 1).
+            let step = pad_step(&format!("border = 0.34\ncolor = \"{text}\""));
+            let pipeline = load(&recipe(&[&step]));
+            let out = match pipeline {
+                Ok(p) => p.run(wrap(src.clone())).expect("runs").pixels().clone(),
+                Err(e) => {
+                    mismatches.push(format!("{kind} + {text}: did not load: {e}"));
+                    continue;
+                }
+            };
+            let want_kind = out_kind4(kind, fill);
+            if kind_of(&out) != want_kind {
+                mismatches.push(format!(
+                    "{kind} + {text}: {}, expected {want_kind}",
+                    kind_of(&out)
+                ));
+                continue;
+            }
+            let (in_ch, _, _) = shape_of(kind);
+            let (out_ch, _, _) = shape_of(want_kind);
+            let (sin, sout) = (samples(&src), samples(&out));
+            let fill_px = fill_px4(want_kind, fill);
+            let mut wrong = 0;
+            for y in 0..5usize {
+                for x in 0..5usize {
+                    let inside = (1..4).contains(&x) && (1..4).contains(&y);
+                    let want = if inside {
+                        let i = ((y - 1) * 3 + (x - 1)) * in_ch;
+                        widen4(&sin[i..i + in_ch], kind, want_kind)
+                    } else {
+                        fill_px.clone()
+                    };
+                    let o = (y * 5 + x) * out_ch;
+                    if sout[o..o + out_ch] != want[..] {
+                        wrong += 1;
+                    }
+                }
+            }
+            if wrong > 0 {
+                mismatches.push(format!(
+                    "{kind} + {text}: {wrong} of 25 pixels wrong (fill expected {fill_px:?})"
+                ));
+            }
+        }
+    }
+    assert_no_mismatches(cells, 50, mismatches);
+}
+
+#[test]
+fn at_aspect_translucent_fill_keeps_type_and_bytes() {
+    let mut mismatches = Vec::new();
+    for kind in KINDS {
+        let src = seeded(kind, 4, 4);
+        let step = pad_step("aspect = \"1:1\"\ncolor = \"transparent\"");
+        let out = match load(&recipe(&[&step])) {
+            Ok(p) => p.run(wrap(src.clone())).expect("runs").pixels().clone(),
+            Err(e) => {
+                mismatches.push(format!("{kind}: did not load: {e}"));
+                continue;
+            }
+        };
+        if kind_of(&out) != kind || out.as_bytes() != src.as_bytes() {
+            mismatches.push(format!("{kind}: came out {}", kind_of(&out)));
+        }
+    }
+    assert_no_mismatches(KINDS.len(), 10, mismatches);
+}
+
+// ── Pad, then trim, with a translucent fill ─────────────────────────────────
+
+/// A 3×3 RGB buffer of `bits` width whose every channel is odd, so no sample
+/// equals a fill channel of 0 and none equals 65535 at 16 bits.
+fn odd_rgb(bits: u32) -> DynamicImage {
+    let mut r = XorShift(0x5EED_0159);
+    if bits == 8 {
+        DynamicImage::ImageRgb8(ImageBuffer::from_fn(3, 3, |_, _| {
+            let n = r.next();
+            Rgb([(n as u8) | 1, ((n >> 8) as u8) | 1, ((n >> 16) as u8) | 1])
+        }))
+    } else {
+        DynamicImage::ImageRgb16(ImageBuffer::from_fn(3, 3, |_, _| {
+            let n = r.next();
+            Rgb([
+                ((n as u16) | 1) & 0x7fff,
+                (((n >> 16) as u16) | 1) & 0x7fff,
+                (((n >> 32) as u16) | 1) & 0x7fff,
+            ])
+        }))
+    }
+}
+
+/// The colour channels of every pixel, alpha dropped.
+fn colour_samples(img: &DynamicImage) -> Vec<u64> {
+    let (channels, _, has_alpha) = shape_of(kind_of(img));
+    let colour = channels - usize::from(has_alpha);
+    samples(img)
+        .chunks_exact(channels)
+        .flat_map(|px| px[..colour].to_vec())
+        .collect()
+}
+
+#[test]
+fn pad_then_trim_transparent_round_trip() {
+    // (source bits, colour written to both steps, the output kind)
+    let cases = [(8, "transparent", "rgba8"), (16, "#ff000080", "rgba16")];
+    let mut mismatches = Vec::new();
+    for (bits, color, want_kind) in cases {
+        let src = odd_rgb(bits);
+        let steps = [
+            pad_step(&format!("border = 0.67\ncolor = \"{color}\"")),
+            format!("op = \"trim\"\ncolor = \"{color}\""),
+        ];
+        let toml = recipe(&[&steps[0], &steps[1]]);
+        let out = match load(&toml) {
+            Ok(p) => p.run(wrap(src.clone())).expect("runs").pixels().clone(),
+            Err(e) => {
+                mismatches.push(format!("{bits}-bit {color}: did not load: {e}"));
+                continue;
+            }
+        };
+        if kind_of(&out) != want_kind || (out.width(), out.height()) != (3, 3) {
+            mismatches.push(format!(
+                "{bits}-bit {color}: {} {}x{}",
+                kind_of(&out),
+                out.width(),
+                out.height()
+            ));
+            continue;
+        }
+        if colour_samples(&out) != samples(&src) {
+            mismatches.push(format!("{bits}-bit {color}: the colour channels changed"));
+        }
+    }
+    assert_no_mismatches(cases.len(), 2, mismatches);
+}
+
+// ── The binary: the output format rule ──────────────────────────────────────
+
+struct Ran {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+/// Run the binary with `dir` as its working directory, so relative paths (and
+/// so input labels) are the ones a user types.
+fn bin(dir: &Path, args: &[&str]) -> Ran {
+    let output = Command::new(BIN)
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .expect("run crustyimg");
+    Ran {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+/// Write `recipe.toml` into `dir` and run `apply --recipe recipe.toml <args> -y`.
+fn apply_in(dir: &Path, toml: &str, args: &[&str]) -> Ran {
+    std::fs::write(dir.join("recipe.toml"), toml).expect("write recipe");
+    let mut all = vec!["apply", "--recipe", "recipe.toml"];
+    all.extend_from_slice(args);
+    all.push("-y");
+    bin(dir, &all)
+}
+
+/// The recipe with a top-level `format`.
+fn with_format(toml: &str, format: &str) -> String {
+    toml.replacen(
+        "version = \"2\"\n",
+        &format!("version = \"2\"\nformat = \"{format}\"\n"),
+        1,
+    )
+}
+
+fn rgb4() -> DynamicImage {
+    DynamicImage::ImageRgb8(ImageBuffer::from_fn(4, 4, |x, y| {
+        Rgb([(x * 50) as u8, (y * 50) as u8, 90])
+    }))
+}
+
+/// A 4×4 RGBA8: the left half opaque red, the right half alpha 0.
+fn rgba4() -> DynamicImage {
+    DynamicImage::ImageRgba8(ImageBuffer::from_fn(4, 4, |x, _| {
+        if x < 2 {
+            Rgba([255, 0, 0, 255])
+        } else {
+            Rgba([0, 255, 0, 0])
+        }
+    }))
+}
+
+/// A 64×48 RGB8 xorshift photo.
+fn photo() -> DynamicImage {
+    let mut r = XorShift(0x159a070);
+    DynamicImage::ImageRgb8(ImageBuffer::from_fn(64, 48, |_, _| {
+        let n = r.next();
+        Rgb([n as u8, (n >> 8) as u8, (n >> 16) as u8])
+    }))
+}
+
+fn write_as(path: &Path, img: &DynamicImage, format: ImageFormat) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, format).expect("encode fixture");
+    std::fs::write(path, out.into_inner()).expect("write fixture");
+}
+
+/// `rgb.png`, `src.jpg` (both 4×4 RGB8) and `rgba.png` in `dir`.
+fn fixtures(dir: &Path) {
+    write_as(&dir.join("rgb.png"), &rgb4(), ImageFormat::Png);
+    write_as(&dir.join("src.jpg"), &rgb4(), ImageFormat::Jpeg);
+    write_as(&dir.join("rgba.png"), &rgba4(), ImageFormat::Png);
+}
+
+/// A border pad with a fill, as a one-step recipe.
+fn pad_recipe(color: &str) -> String {
+    recipe(&[&pad_step(&format!("border = 0.25\ncolor = \"{color}\""))])
+}
+
+/// The refusal text for a fill into JPEG, written out from the spec.
+fn jpeg_line(step: usize, written: &str, aa: &str) -> String {
+    format!("recipe step {step} ('pad'): 'color' = \"{written}\" has alpha {aa}, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque")
+}
+
+/// The refusal text for a fill into GIF, written out from the spec.
+fn gif_line(step: usize, written: &str, aa: &str) -> String {
+    format!("recipe step {step} ('pad'): 'color' = \"{written}\" has alpha {aa}, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead")
+}
+
+#[test]
+fn apply_one_input_refuses_on_every_format_rung() {
+    let transparent = pad_recipe("transparent");
+    let half = pad_recipe("#ff000080");
+    let rows: Vec<(&str, Vec<&str>, String, String, &str)> = vec![
+        (
+            "-o with a .jpg extension",
+            vec!["rgb.png", "-o", "o.jpg"],
+            transparent.clone(),
+            jpeg_line(0, "transparent", "00"),
+            "o.jpg",
+        ),
+        (
+            "--format jpeg over a .bin name",
+            vec!["rgb.png", "--format", "jpeg", "-o", "o.bin"],
+            half.clone(),
+            jpeg_line(0, "#ff000080", "80"),
+            "o.bin",
+        ),
+        (
+            "recipe.format with a bare -o",
+            vec!["rgb.png", "-o", "o2"],
+            with_format(&transparent, "jpeg"),
+            jpeg_line(0, "transparent", "00"),
+            "o2",
+        ),
+        (
+            "a JPEG source keeps its format",
+            vec!["src.jpg", "-o", "o3"],
+            transparent.clone(),
+            jpeg_line(0, "transparent", "00"),
+            "o3",
+        ),
+        (
+            "-o with a .gif extension",
+            vec!["rgb.png", "-o", "o.gif"],
+            half.clone(),
+            gif_line(0, "#ff000080", "80"),
+            "o.gif",
+        ),
+    ];
+    let mut mismatches = Vec::new();
+    for (label, args, toml, line, written) in &rows {
+        let dir = TempDir::new().unwrap();
+        fixtures(dir.path());
+        let r = apply_in(dir.path(), toml, args);
+        if r.code != Some(4) || r.stderr != format!("error: {line}\n") {
+            mismatches.push(format!(
+                "{label}: exit {:?}, stderr {:?}, expected exit 4 and {line:?}",
+                r.code, r.stderr
+            ));
+        }
+        if dir.path().join(written).exists() {
+            mismatches.push(format!("{label}: {written} was written"));
+        }
+    }
+    assert_no_mismatches(rows.len(), 5, mismatches);
+}
+
+#[test]
+fn gif_takes_alpha_00_and_ff_only() {
+    let mut mismatches = Vec::new();
+    let mut rows = 0;
+    for aa in ["00", "01", "80", "fe", "ff"] {
+        rows += 1;
+        let dir = TempDir::new().unwrap();
+        fixtures(dir.path());
+        let color = format!("#ff0000{aa}");
+        let out = format!("g{aa}.gif");
+        let r = apply_in(dir.path(), &pad_recipe(&color), &["rgb.png", "-o", &out]);
+        let stored = aa == "00" || aa == "ff";
+        let wrote = dir.path().join(&out).exists();
+        if stored {
+            if r.code != Some(0) || !wrote {
+                mismatches.push(format!(
+                    "{aa}: exit {:?}, wrote {wrote}: {}",
+                    r.code, r.stderr
+                ));
+            }
+        } else if r.code != Some(4)
+            || r.stderr != format!("error: {}\n", gif_line(0, &color, aa))
+            || wrote
+        {
+            mismatches.push(format!(
+                "{aa}: exit {:?}, wrote {wrote}: {}",
+                r.code, r.stderr
+            ));
+        }
+    }
+    // The keyword is alpha 00 and is stored.
+    rows += 1;
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let r = apply_in(
+        dir.path(),
+        &pad_recipe("transparent"),
+        &["rgb.png", "-o", "t.gif"],
+    );
+    if r.code != Some(0) || !dir.path().join("t.gif").exists() {
+        mismatches.push(format!("transparent: exit {:?}: {}", r.code, r.stderr));
+    }
+    assert_no_mismatches(rows, 6, mismatches);
+
+    // Read back: a `#ff000000` border is (255, 0, 0, 0) in the GIF, and
+    // trimming `transparent` gives the 4×4 original's colour back.
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let made = apply_in(
+        dir.path(),
+        &pad_recipe("#ff000000"),
+        &["rgb.png", "-o", "g.gif"],
+    );
+    assert_eq!(made.code, Some(0), "stderr: {}", made.stderr);
+    let gif = image::open(dir.path().join("g.gif")).expect("gif decodes");
+    assert_eq!((gif.width(), gif.height()), (6, 6));
+    assert_eq!(gif.to_rgba8().get_pixel(0, 0).0, [255, 0, 0, 0]);
+    let trim = recipe(&["op = \"trim\"\ncolor = \"transparent\""]);
+    let back = apply_in(dir.path(), &trim, &["g.gif", "-o", "t.png"]);
+    assert_eq!(back.code, Some(0), "stderr: {}", back.stderr);
+    let out = image::open(dir.path().join("t.png")).expect("trimmed decodes");
+    assert_eq!((out.width(), out.height()), (4, 4));
+    assert_eq!(out.to_rgb8().as_raw(), rgb4().to_rgb8().as_raw());
+}
+
+#[test]
+fn batch_with_one_format_refuses_before_reading() {
+    let transparent = pad_recipe("transparent");
+    let line = jpeg_line(0, "transparent", "00");
+    let rows: Vec<(&str, String, Vec<&str>)> = vec![
+        (
+            "--format jpeg",
+            transparent.clone(),
+            vec!["src.jpg", "rgb.png", "--format", "jpeg", "--out-dir", "out"],
+        ),
+        (
+            "--name-template with .jpg",
+            transparent.clone(),
+            vec![
+                "src.jpg",
+                "rgb.png",
+                "--name-template",
+                "{stem}.jpg",
+                "--out-dir",
+                "out",
+            ],
+        ),
+        (
+            "recipe.format",
+            with_format(&transparent, "jpeg"),
+            vec!["src.jpg", "rgb.png", "--out-dir", "out"],
+        ),
+    ];
+    let mut mismatches = Vec::new();
+    for (label, toml, args) in &rows {
+        let dir = TempDir::new().unwrap();
+        fixtures(dir.path());
+        let r = apply_in(dir.path(), toml, args);
+        if r.code != Some(4) || r.stderr != format!("error: {line}\n") {
+            mismatches.push(format!("{label}: exit {:?}, stderr {:?}", r.code, r.stderr));
+        }
+        if dir.path().join("out").exists() {
+            mismatches.push(format!("{label}: the out dir was created"));
+        }
+    }
+    assert_no_mismatches(rows.len(), 3, mismatches);
+}
+
+#[test]
+fn batch_keeping_formats_fails_that_input() {
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let r = apply_in(
+        dir.path(),
+        &pad_recipe("transparent"),
+        &["src.jpg", "rgb.png", "--out-dir", "out"],
+    );
+    let line = jpeg_line(0, "transparent", "00");
+    assert_eq!(r.code, Some(6), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: src.jpg: {line}\nerror: 1 of 2 inputs failed\n")
+    );
+    assert!(
+        dir.path().join("out/rgb.png").exists(),
+        "the PNG is written"
+    );
+    assert!(!dir.path().join("out/src.jpg").exists(), "the JPEG is not");
+}
+
+/// A recipe that pads, then ends in the terminal `optimize` step.
+fn pad_then_optimize(pad_body: &str) -> String {
+    recipe(&[&pad_step(pad_body), "op = \"optimize\""])
+}
+
+#[test]
+fn terminal_optimize_pinned_refuses() {
+    let toml = pad_then_optimize("border = 0.25\ncolor = \"transparent\"");
+    let line = jpeg_line(0, "transparent", "00");
+
+    let one = TempDir::new().unwrap();
+    fixtures(one.path());
+    let r = apply_in(one.path(), &toml, &["rgb.png", "-o", "p.jpg"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(r.stderr, format!("error: {line}\n"));
+    assert!(!one.path().join("p.jpg").exists(), "nothing is written");
+
+    let two = TempDir::new().unwrap();
+    fixtures(two.path());
+    let r = apply_in(
+        two.path(),
+        &toml,
+        &["src.jpg", "rgb.png", "--format", "jpeg", "--out-dir", "tb"],
+    );
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(r.stderr, format!("error: {line}\n"));
+    assert!(
+        !two.path().join("tb").exists(),
+        "the out dir is not created"
+    );
+}
+
+/// The one file in `dir`, or a panic naming what is there.
+fn only_file(dir: &Path) -> PathBuf {
+    let names: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(
+        names.len(),
+        1,
+        "expected one output in {}: {names:?}",
+        dir.display()
+    );
+    names[0].clone()
+}
+
+/// The decided output keeps the alpha the pad brought: not a JPEG, a colour
+/// type with alpha, and the corner pixel fully transparent.
+fn assert_alpha_output(path: &Path) {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    assert_ne!(ext, "jpg", "{} must not be a JPEG", path.display());
+    let img = image::open(path).expect("output decodes");
+    assert!(img.color().has_alpha(), "{} has no alpha", path.display());
+    assert_eq!(
+        img.to_rgba8().get_pixel(0, 0).0[3],
+        0,
+        "corner is transparent"
+    );
+}
+
+#[test]
+fn auto_decided_format_keeps_the_alpha() {
+    let padded = pad_then_optimize("border = 0.25\ncolor = \"transparent\"");
+    let at_aspect = pad_then_optimize("aspect = \"4:3\"\ncolor = \"transparent\"");
+
+    // apply: the format is chosen after the pipeline.
+    let dir = TempDir::new().unwrap();
+    write_as(&dir.path().join("photo.jpg"), &photo(), ImageFormat::Jpeg);
+    let r = apply_in(dir.path(), &padded, &["photo.jpg", "--out-dir", "ao"]);
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    assert_alpha_output(&only_file(&dir.path().join("ao")));
+
+    // An image already at the aspect ships unchanged: no fill pixel, no alpha.
+    let r = apply_in(dir.path(), &at_aspect, &["photo.jpg", "--out-dir", "ap"]);
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    let kept = only_file(&dir.path().join("ap"));
+    assert_eq!(kept.extension().and_then(|e| e.to_str()), Some("jpg"));
+    assert_eq!(
+        std::fs::read(&kept).unwrap(),
+        std::fs::read(dir.path().join("photo.jpg")).unwrap()
+    );
+    assert!(
+        format!("{}{}", r.stdout, r.stderr).contains("kept jpeg"),
+        "stdout {:?} stderr {:?}",
+        r.stdout,
+        r.stderr
+    );
+
+    // build: a fresh project each time, because a stale cache replays old bytes.
+    for (toml, label) in [(&padded, "padded"), (&at_aspect, "at-aspect")] {
+        let dir = TempDir::new().unwrap();
+        write_as(
+            &dir.path().join("in/photo.jpg"),
+            &photo(),
+            ImageFormat::Jpeg,
+        );
+        std::fs::write(dir.path().join("t.toml"), toml).unwrap();
+        std::fs::write(
+            dir.path().join("crustyimg.build.toml"),
+            "version = 1\n\n[[target]]\nsource = \"in/*.jpg\"\nrecipe = \"t.toml\"\nout = \"bd\"\n",
+        )
+        .unwrap();
+        let r = bin(dir.path(), &["build"]);
+        assert_eq!(r.code, Some(0), "{label}: stderr: {}", r.stderr);
+        let out = only_file(&dir.path().join("bd"));
+        if label == "padded" {
+            assert_alpha_output(&out);
+        } else {
+            assert_eq!(
+                std::fs::read(&out).unwrap(),
+                std::fs::read(dir.path().join("in/photo.jpg")).unwrap(),
+                "an at-aspect image is shipped unchanged"
+            );
+        }
+    }
+}
+
+#[test]
+fn build_refuses_pinned_once_and_kept_formats_per_input() {
+    let line = jpeg_line(0, "transparent", "00");
+    let project = |target: &str| {
+        let dir = TempDir::new().unwrap();
+        fixtures(dir.path());
+        write_as(&dir.path().join("in/src.jpg"), &rgb4(), ImageFormat::Jpeg);
+        write_as(&dir.path().join("in/rgb.png"), &rgb4(), ImageFormat::Png);
+        std::fs::write(dir.path().join("t.toml"), pad_recipe("transparent")).unwrap();
+        std::fs::write(
+            dir.path().join("crustyimg.build.toml"),
+            format!(
+                "version = 1\n\n[[target]]\nsource = \"in/*\"\nrecipe = \"t.toml\"\n{target}\n"
+            ),
+        )
+        .unwrap();
+        dir
+    };
+
+    // Pinned by the name's extension: refused once, before any input.
+    let dir = project("out = \"b1\"\nname = \"{stem}.jpg\"");
+    let r = bin(dir.path(), &["build"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: target #0 (recipe t.toml, out b1)\nerror: {line}\n")
+    );
+    assert!(!dir.path().join("b1").exists(), "nothing is created");
+
+    // Each input keeps its format: the JPEG fails, the PNG is written.
+    let dir = project("out = \"b2\"");
+    let r = bin(dir.path(), &["build"]);
+    assert_eq!(r.code, Some(6), "stderr: {}", r.stderr);
+    // The label is the path as the platform spells it.
+    let label = Path::new("in").join("src.jpg");
+    assert!(
+        r.stderr
+            .starts_with(&format!("error: {}: {line}\n", label.display())),
+        "stderr: {}",
+        r.stderr
+    );
+    assert!(dir.path().join("b2/rgb.png").exists(), "the PNG is written");
+    assert!(!dir.path().join("b2/src.jpg").exists(), "the JPEG is not");
+}
+
+#[test]
+fn static_rule_at_aspect_and_two_pads() {
+    // An image already at the aspect writes no fill pixel, and is refused anyway.
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let at = recipe(&[&pad_step("aspect = \"1:1\"\ncolor = \"transparent\"")]);
+    let r = apply_in(dir.path(), &at, &["rgb.png", "-o", "a.jpg"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: {}\n", jpeg_line(0, "transparent", "00"))
+    );
+    assert!(!dir.path().join("a.jpg").exists());
+    let r = apply_in(dir.path(), &at, &["rgb.png", "-o", "a.png"]);
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    let out = image::open(dir.path().join("a.png")).unwrap();
+    assert_eq!(
+        kind_of(&out),
+        "rgb8",
+        "no fill pixel, so the type is unchanged"
+    );
+
+    // Two pads: the first step the format cannot store is the one named.
+    let pad = |c: &str| pad_step(&format!("border = 0.25\ncolor = \"{c}\""));
+    let opaque_then_clear = recipe(&[&pad("#ffffff"), &pad("transparent")]);
+    let r = apply_in(dir.path(), &opaque_then_clear, &["rgb.png", "-o", "s.jpg"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: {}\n", jpeg_line(1, "transparent", "00"))
+    );
+
+    let clear_then_half = recipe(&[&pad("#ff000000"), &pad("#ff000080")]);
+    let r = apply_in(dir.path(), &clear_then_half, &["rgb.png", "-o", "s.gif"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: {}\n", gif_line(1, "#ff000080", "80"))
+    );
+    let r = apply_in(dir.path(), &clear_then_half, &["rgb.png", "-o", "s2.jpg"]);
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        format!("error: {}\n", jpeg_line(0, "#ff000000", "00"))
+    );
+}
+
+#[test]
+fn format_is_resolved_before_the_pipeline() {
+    // A border that rounds to 0 px AND a format that is wrong: the format is
+    // reported first, with its own exit code.
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let zero = recipe(&[&pad_step("border = 0.001\ncolor = \"#ffffff\"")]);
+    let r = apply_in(
+        dir.path(),
+        &zero,
+        &["--format", "bogus", "-o", "z.png", "rgb.png"],
+    );
+    assert_eq!(r.code, Some(4), "stderr: {}", r.stderr);
+    assert_eq!(r.stderr, "error: unsupported output extension: bogus\n");
+    assert!(!dir.path().join("z.png").exists());
+}
+
+#[test]
+fn source_alpha_and_opaque_pad_into_jpeg_unchanged() {
+    // Alpha the SOURCE carries is dropped by the JPEG encoder, silently, as
+    // before: only alpha a pad brings is refused.
+    let dir = TempDir::new().unwrap();
+    fixtures(dir.path());
+    let flip = recipe(&["op = \"flip\"\naxis = \"horizontal\""]);
+    let r = apply_in(dir.path(), &flip, &["rgba.png", "-o", "f.jpg"]);
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    assert_eq!(r.stderr, "");
+    assert!(dir.path().join("f.jpg").exists());
+
+    let r = apply_in(
+        dir.path(),
+        &pad_recipe("#ffffff"),
+        &["rgb.png", "-o", "o.jpg"],
+    );
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    assert_eq!(r.stderr, "");
+    assert!(dir.path().join("o.jpg").exists());
 }

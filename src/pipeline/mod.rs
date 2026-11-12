@@ -16,7 +16,8 @@
 //! `clap`, `recipe`, `source`, `sink`, `std::fs`, or `std::path`.
 
 use crate::image::Image;
-use crate::operation::{Operation, OperationError, Refusal};
+use crate::operation::alpha::{alpha_capacity, stores};
+use crate::operation::{Operation, OperationError, Refusal, UnstorableAlpha};
 
 // ─── Refusal policy ─────────────────────────────────────────────────────────
 
@@ -59,6 +60,32 @@ impl Pipeline {
     /// Create an empty pipeline (no operations queued).
     pub fn new() -> Self {
         Pipeline { ops: Vec::new() }
+    }
+
+    /// Whether any step adds pixels with alpha below fully opaque.
+    pub fn introduces_alpha(&self) -> bool {
+        self.ops.iter().any(|op| op.introduced_alpha().is_some())
+    }
+
+    /// The first step, in order, whose introduced alpha an output of `format`
+    /// can't store, or `None`. Static: reads the steps, not any pixels.
+    ///
+    /// The index is the recipe step's index, because a recipe builds one
+    /// operation per step in order.
+    pub fn unstorable_alpha(&self, format: ::image::ImageFormat) -> Option<UnstorableAlpha> {
+        let capacity = alpha_capacity(format);
+        self.ops.iter().enumerate().find_map(|(step, op)| {
+            let introduced = op.introduced_alpha()?;
+            if stores(capacity, introduced.alpha) {
+                return None;
+            }
+            Some(UnstorableAlpha {
+                step,
+                op: op.name(),
+                introduced,
+                format,
+            })
+        })
     }
 
     /// Append an operation; returns `self` for builder-style chaining.
@@ -150,6 +177,60 @@ mod tests {
     use super::*;
     use crate::image::Image;
     use crate::operation::{Identity, Invert, OperationError, OperationParams};
+
+    /// A pipeline of border pads, one per fill, built from recipe text.
+    fn pads(fills: &[&str]) -> Pipeline {
+        let mut toml = String::from("version = \"2\"\n");
+        for fill in fills {
+            toml.push_str(&format!(
+                "\n[[step]]\nop = \"pad\"\nborder = 0.25\ncolor = \"{fill}\"\n"
+            ));
+        }
+        crate::recipe::Recipe::from_toml(&toml)
+            .expect("recipe parses")
+            .build_pipeline(&crate::operation::OperationRegistry::with_builtins())
+            .expect("pipeline builds")
+    }
+
+    #[test]
+    fn unstorable_alpha_names_the_first_step() {
+        let two = pads(&["#ff000000", "#ff000080"]);
+        // GIF stores alpha 00, so the second pad is the first one refused.
+        let gif = two.unstorable_alpha(ImageFormat::Gif).expect("refused");
+        assert_eq!((gif.step, gif.op), (1, "pad"));
+        assert_eq!(gif.introduced.written, "#ff000080");
+        // JPEG stores neither, so the first one is.
+        let jpeg = two.unstorable_alpha(ImageFormat::Jpeg).expect("refused");
+        assert_eq!(jpeg.step, 0);
+        assert_eq!(jpeg.introduced.written, "#ff000000");
+
+        let opaque_then_clear = pads(&["#ffffff", "transparent"]);
+        let jpeg = opaque_then_clear
+            .unstorable_alpha(ImageFormat::Jpeg)
+            .expect("refused");
+        assert_eq!(jpeg.step, 1);
+        assert!(opaque_then_clear
+            .unstorable_alpha(ImageFormat::Gif)
+            .is_none());
+        assert!(opaque_then_clear
+            .unstorable_alpha(ImageFormat::Png)
+            .is_none());
+
+        assert!(pads(&["#ffffff"])
+            .unstorable_alpha(ImageFormat::Jpeg)
+            .is_none());
+        assert!(Pipeline::new()
+            .unstorable_alpha(ImageFormat::Jpeg)
+            .is_none());
+    }
+
+    #[test]
+    fn introduces_alpha_is_any_translucent_step() {
+        assert!(pads(&["#ffffff", "#ff000080"]).introduces_alpha());
+        assert!(pads(&["transparent"]).introduces_alpha());
+        assert!(!pads(&["#ffffff", "#123456ff"]).introduces_alpha());
+        assert!(!Pipeline::new().introduces_alpha());
+    }
 
     /// Build a small in-memory RGBA `Image` for testing.
     fn make_image(w: u32, h: u32) -> Image {

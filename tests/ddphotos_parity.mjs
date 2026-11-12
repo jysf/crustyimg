@@ -545,6 +545,77 @@ function selfTest(ctx) {
   return good;
 }
 
+// ── The alpha rule (a pad with a transparent fill) ───────────────────────────
+//
+// Not rows of TABLE (the editor's recipe.js has no `pad`, so the text is written here), so
+// ROW_COUNT and the self-test's expected-red lists do not move.
+//   A. `transform(..., "png")` and native `apply -o A.png` both succeed and decode to the
+//      same RGBA bytes. Padded pixels are copied, so the match is exact, not within 1/255.
+//   B. `transform(..., "jpeg")` throws the refusal line, and native `apply -o B.jpg` exits 4
+//      with that line after `error: `. JPEG has no alpha channel to hold the fill.
+const ALPHA_RECIPE = 'version = "2"\n[[step]]\nop = "pad"\nborder = 0.05\ncolor = "transparent"\n';
+const ALPHA_JPEG_LINE =
+  "recipe step 0 ('pad'): 'color' = \"transparent\" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque";
+
+function alphaRows({ transform, bin, python }) {
+  const failures = [];
+  const dir = mkdtempSync(join(tmpdir(), "ddphotos-alpha-"));
+  const inputPath = join(FIXTURES, INPUTS.W);
+  const inputBytes = readFileSync(inputPath);
+  const recipeFile = join(dir, "alpha.toml");
+  writeFileSync(recipeFile, ALPHA_RECIPE);
+
+  // Row A.
+  const wasmOut = join(dir, "A.wasm.png");
+  const nativeOut = join(dir, "A.native.png");
+  try {
+    writeFileSync(wasmOut, transform(inputBytes, ALPHA_RECIPE, "png"));
+  } catch (e) {
+    failures.push(`alpha-A: transform to png threw: ${e.message}`);
+  }
+  const apply = spawnSync(bin, ["apply", "--recipe", recipeFile, inputPath, "-o", nativeOut, "-y"], {
+    encoding: "utf8",
+  });
+  if (apply.error) fatal(`native binary could not run: ${apply.error.message}`);
+  if (apply.status !== 0) failures.push(`alpha-A: native apply exited ${apply.status}: ${apply.stderr.trim()}`);
+  if (existsSync(wasmOut) && existsSync(nativeOut)) {
+    const dims = decode(python, [wasmOut, nativeOut]);
+    const [w, n] = [image(dims, wasmOut), image(dims, nativeOut)];
+    if (w.width !== n.width || w.height !== n.height) {
+      failures.push(`alpha-A: sizes differ, wasm ${w.width}x${w.height}, native ${n.width}x${n.height}`);
+    } else if (Buffer.compare(w.rgba, n.rgba) !== 0) {
+      failures.push("alpha-A: wasm and native RGBA bytes differ");
+    }
+    // Not vacuous: the corner is fill, so its alpha is 0 on both sides.
+    for (const [side, img] of [["wasm", w], ["native", n]]) {
+      if (img.rgba[3] !== 0) failures.push(`alpha-A: the ${side} corner alpha is ${img.rgba[3]}, expected 0`);
+    }
+  }
+
+  // Row B.
+  let thrown = null;
+  try {
+    transform(inputBytes, ALPHA_RECIPE, "jpeg");
+  } catch (e) {
+    thrown = e.message;
+  }
+  if (thrown === null) failures.push("alpha-B: transform to jpeg did not throw");
+  else if (thrown !== ALPHA_JPEG_LINE) failures.push(`alpha-B: transform threw ${JSON.stringify(thrown)}`);
+  const jpegOut = join(dir, "B.jpg");
+  const refused = spawnSync(bin, ["apply", "--recipe", recipeFile, inputPath, "-o", jpegOut, "-y"], {
+    encoding: "utf8",
+  });
+  if (refused.error) fatal(`native binary could not run: ${refused.error.message}`);
+  if (refused.status !== 4) failures.push(`alpha-B: native apply exited ${refused.status}, expected 4`);
+  if (refused.stderr !== `error: ${ALPHA_JPEG_LINE}\n`) {
+    failures.push(`alpha-B: native stderr was ${JSON.stringify(refused.stderr)}`);
+  }
+  if (existsSync(jpegOut)) failures.push("alpha-B: native wrote a JPEG");
+
+  if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  return failures;
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv.slice(2));
@@ -567,7 +638,7 @@ if (args.selfTest) {
 
 const table = runTable(ctx);
 report(table);
-const failures = tableChecks(table);
+const failures = [...tableChecks(table), ...alphaRows(ctx)];
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
 // Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each

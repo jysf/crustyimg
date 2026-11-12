@@ -130,7 +130,7 @@ pub(super) fn run_apply(
     // Step 4: probe the pipeline now so a bad recipe/op fails BEFORE we touch any
     // inputs (exit 1 rather than exit 6 per-input). `registry` was already built,
     // and `recipe` already resolved, above (Step 3).
-    recipe.build_pipeline(&registry)?;
+    let probe = recipe.build_pipeline(&registry)?;
 
     // Step 5: resolve every positional input via source::resolve, flattening to
     // one Vec<Input>. Resolution errors (missing path / empty glob) are HARD errors
@@ -159,7 +159,6 @@ pub(super) fn run_apply(
         // (or `Sink::Stdout`'s `UnknownFormat`).
         let source_format = img.source_format();
         let pipeline = recipe.build_pipeline(&registry)?;
-        let out_img = pipeline.run(img)?;
         let output_path = global.output.as_deref().map(Path::new);
         // The template names the output only when it goes into --out-dir.
         let template = if output_path.is_none() && global.out_dir.is_some() {
@@ -174,6 +173,13 @@ pub(super) fn run_apply(
             recipe.format.as_deref(),
             source_format,
         )?;
+        // The format is known before the pipeline runs (none of its inputs
+        // reads the processed image), so a recipe step that writes alpha this
+        // format can't store is refused before any work is done.
+        if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+            return Err(refused.into());
+        }
+        let out_img = pipeline.run(img)?;
         let sink = build_sink(global, fmt);
         let sink_input = SinkInput {
             stem: input.stem(),
@@ -217,6 +223,13 @@ pub(super) fn run_apply(
             None => resolve_format(recipe.format.as_deref())?,
         },
     };
+    // A format shared by every input is known now, so a recipe that writes
+    // alpha it can't store is refused once, before any input is read and
+    // before the output directory exists. A batch that keeps each input's own
+    // format is checked per input, in `encode_one`.
+    if let Some(refused) = format_override.and_then(|fmt| probe.unstorable_alpha(fmt)) {
+        return Err(refused.into());
+    }
     // Quality precedence (SPEC-127, Call 2): `-q` > `recipe.quality` > the
     // format's own default. Resolved once for the whole batch, same reasoning
     // as `format_override` above.
@@ -1158,7 +1171,9 @@ fn optimize_decide_one(
     // passthrough is only faithful when the pipeline changed nothing `optimize`
     // promised to change (see `pipeline_altered_source` below).
     let source_info = img.info();
-    let has_alpha = source_info.has_alpha;
+    // The source's alpha, or alpha a step adds (a translucent pad): the format
+    // is chosen after the pipeline, so it must not offer one that drops it.
+    let has_alpha = source_info.has_alpha || pipeline.introduces_alpha();
 
     // Compute the analysis verdict from the SOURCE image, before the pipeline
     // resizes it (SPEC-108, DEC-084): classification must describe the image the

@@ -322,7 +322,16 @@ fn prepare_target<'a>(
     // an asset is/isn't resolvable. A missing/unreadable asset surfaces here,
     // once per TARGET, before a single input is touched (Call 2).
     let recipe = resolve_recipe_assets(&recipe, registry)?;
-    recipe.build_pipeline(registry)?;
+    let probe = recipe.build_pipeline(registry)?;
+    // A target whose format is pinned (a literal name extension or the
+    // recipe's `format`) is checked once, before any input is read. A target
+    // that keeps each input's format is checked per input in `encode_one`, and
+    // one that auto-decides keeps any alpha a step adds.
+    if let OutputFormatPlan::Pinned(fmt) = format_plan {
+        if let Some(refused) = probe.unstorable_alpha(fmt) {
+            return Err(refused.into());
+        }
+    }
     let recipe_hash = target_recipe_hash(&recipe, format_plan, registry)?;
 
     let inputs = source::resolve_all(

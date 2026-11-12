@@ -56,7 +56,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
 | `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
-| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
+| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. Also a recipe step that writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG), refused before anything is written. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
@@ -474,15 +474,21 @@ wasm `transform` throws the same line. The pixel lane writes no Orientation tag 
 either, so a recipe meant as the photo is displayed starts with `auto-orient`.
 
 **Pad in a recipe.** `op = "pad"` grows the canvas to an aspect (`aspect`, `gravity`) or by
-a border (`border`, a fraction of the long edge), filled with a required opaque `color`.
-A bad key or value, a translucent colour and `transparent` are refused when the recipe
-loads (exit **1**, nothing read or written). A border that rounds to 0 px or a canvas
+a border (`border`, a fraction of the long edge), filled with a required `color`: hex with
+any alpha (`#RRGGBBAA`) or `transparent`. A bad key or value is refused when the recipe
+loads (exit **1**, nothing read or written). A fill alpha the output format can't store (any
+alpha below `ff` into JPEG, any alpha but `00` and `ff` into GIF) is refused once the
+format is known and before the pipeline runs: exit **4** for one input or for a batch with
+one format (`--format`, a name template's extension or `recipe.format`), nothing written;
+exit **6**, that input only, when each input keeps its own format; wasm `transform` throws
+the same line. The auto-decided format of a terminal `optimize` always keeps the alpha.
+A border that rounds to 0 px or a canvas
 past the size caps fails at apply (`operation 'pad' failed: …`, exit **1** for one input,
 exit **6** in a batch, with nothing written for that input); wasm `transform` throws the
 same line. The pixel lane writes no Orientation tag after it.
 
 **Trim in a recipe.** `op = "trim"` removes the outer rows and columns that match one colour
-(the stated `color` or the top-left pixel) within `tolerance`. A bad key or value is refused
+(the stated `color`, which may be `transparent`, or the top-left pixel) within `tolerance`. A bad key or value is refused
 when the recipe loads (exit **1**, nothing read or written). An image in which every pixel
 matches fails at apply (`operation 'trim' failed: …`, exit **1** for one input, exit **6** in
 a batch, with nothing written for that input); an image with nothing to trim is written

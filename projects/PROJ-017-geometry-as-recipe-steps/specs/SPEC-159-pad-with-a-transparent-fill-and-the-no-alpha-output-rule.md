@@ -7,7 +7,7 @@
 task:
   id: SPEC-159
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -89,6 +89,32 @@ cost:
       estimated_usd: 12.84
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "From the session JSONL, deduped by message.id (94 messages, max output_tokens per id), no subagents, measured after the design push (748283c)"
+    - cycle: build
+      date: 2026-11-11
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 16370565
+      tokens_breakdown:
+        input: 172
+        cache_creation: 237625
+        cache_read: 16051754
+        output: 81014
+      estimated_usd: 6.92
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "From the session JSONL, deduped by message.id (81 messages, max output_tokens per id), no subagents, measured before the final push; a few later turns are not counted"
+    - cycle: punchlist
+      date: 2026-11-11
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1014658
+      tokens_breakdown:
+        input: 28
+        cache_creation: 50299
+        cache_read: 958846
+        output: 5485
+      estimated_usd: 0.56
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "From the session JSONL, deduped by message.id (14 messages, max output_tokens per id), no subagents, measured before the final commit; the last few turns are not counted"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1081,37 +1107,135 @@ not in the prototype; their column is *reasoned*.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-159-pad-transparent`
+- **PR (if applicable):** #262 (draft; a separate verify session approves it)
+- **All acceptance criteria met?** yes (22 of 22; two notes under AC-1 and AC-22)
+- **New decisions emitted:** none in build. `DEC-115` was written at design and is untouched.
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`: 22 files, 21 without this spec file; this spec's own edits land in the final commit and make it 22 / 23):
+  - `src/operation/alpha.rs` (new) — `AlphaCapacity`, `alpha_capacity`, `stores`, `IntroducedAlpha`, `UnstorableAlpha` with its `Display`; FT-1, FT-2
+  - `src/operation/mod.rs` — `pub mod alpha` and re-exports, `Operation::introduced_alpha`, `parse_fill_color`, a unit test for it
+  - `src/operation/pad.rs` — 4-channel fill, widening arms, fill alpha written, load refusal removed, `introduced_alpha`, doc comments
+  - `src/operation/trim.rs` — reads `color` through `parse_fill_color`; module doc
+  - `src/pipeline/mod.rs` — `introduces_alpha`, `unstorable_alpha`; FT-3 and an `introduces_alpha` test
+  - `src/cli/mod.rs` — `CliError::UnstorableAlpha`, exit 4; FT-20
+  - `src/cli/optimize.rs` — sites 1 (format before the run), 2 (batch pre-check, `probe`), 7 (`has_alpha`)
+  - `src/cli/common.rs` — site 3, `encode_one`
+  - `src/cli/ops.rs` — site 4, `run_pixel_op`
+  - `src/cli/build.rs` — site 5, `prepare_target` for `Pinned`
+  - `src/wasm.rs` — site 6, `transform`
+  - `tests/pad.rs` — FT-4 to FT-17, FT-19; FT-7 edits; P29-P32 and the old translucent `apply` test removed
+  - `tests/trim.rs` — FT-18; T19 moved to accepted (refusal count 23 → 22, accepted 7 → 8)
+  - `tests/ddphotos_parity.mjs` — FT-21 `alphaRows()`
+  - `scripts/wasm-ci-check.sh` — the wasm test counts, 55 → 56 and 53 → 54
+  - `tests/wasm_roundtrip.rs` — row P30 removed, a translucent-fill test added (see Deviations)
+  - `docs/recipes.md`, `docs/api-contract.md`, `docs/data-model.md`, `docs/cli-reference.md`, `recipes/README.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md`, `docs/backlog.md` — the AC-22 rows
+  - No change to `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION`, the lockfile format or `scripts/lib/wasm-artifact.mjs` (`git diff --stat origin/main...HEAD` on the two Cargo files is empty).
 - **Deviations from spec:**
-  - [list]
+  - AC-1: DEC-115's `affected_scope` lacks `src/cli/mod.rs` (the new `CliError` arm) and `src/operation/trim.rs`. Not edited, per the build prompt; verify/ship should add them.
+  - `tests/wasm_roundtrip.rs` (not in the spec's file list): its row P30 asserted the old load refusal of `#ff000080`, which CI's wasm leg caught (`just wasm-test` is not in `just check`). The row is removed and `transform_refuses_a_fill_alpha_the_format_cannot_store` added; 56 passed locally.
+  - `scripts/wasm-ci-check.sh` (not in the spec's file list): `FULL_COUNT` 55 → 56 and `SLIM_COUNT` 53 → 54 for the added wasm test; CI's count guard caught it.
+  - `tests/pad.rs` FT-14: the `build` input label is built with the platform's path separator (the Windows leg printed `in\src.jpg`).
+  - Tests that call the new API (FT-3) live in `src/pipeline/mod.rs`, not `tests/pad.rs`, so stage 1 could run on `main`.
+  - Mutation edits differ in spelling only: my variable is `refused`, not `e`; M14's arm is `(ImageLuma8, false, true)` (my tuple's third element is "translucent").
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `run_pixel_op`'s per-input check for an unforced format belongs to SPEC-160 (M18, unchanged).
+  - Stray `*.txt` files from this session remain in the system temp dir (a delete there was blocked by the safety check); harmless.
+
+**FT-6 (byte pin).** On `main`'s unchanged code, before any source edit: `test opaque_pad_byte_pin ... ok`, `test result: ok. 1 passed`. After the last change (full suite, default features): the same test passes, and again in the lean and `webp-lossy` legs.
+
+**Baseline on `main` (stage 1):** the translucent rows failed at load with `a fill with transparency is not supported yet; 'color' must be opaque, such as "#ffffff", got "transparent"`; FT-16 exited 1 with `operation 'pad' failed: the border rounds to 0 px …` where 4 is due; FT-17 and FT-6 were green.
+
+**ACs.**
+- AC-1: met except the `affected_scope` gap above; `just decisions-audit` not re-run by build.
+- AC-2 FT-7, AC-3/AC-4 FT-4 and FT-5 (50 + 10 cells), AC-5 FT-6 + corpus guard, AC-6 FT-1 (40 cells), AC-7 FT-2 + FT-8, AC-8 FT-8, AC-9 FT-9 (00/01/80/fe/ff, keyword, GIF read-back `(255,0,0,0)`, trim back to the 4×4), AC-10 FT-10 (3 variants), AC-11 FT-11, AC-12 FT-12, AC-13 FT-13 (apply, build, at-aspect `kept jpeg`), AC-14 FT-14, AC-15 FT-21, AC-16 FT-3 + FT-15, AC-17 FT-16, AC-18 FT-17, AC-19 FT-18, AC-20 FT-19, AC-21 FT-20: met.
+- AC-22: docs done at every row (the stored line numbers had shifted; each found by content). `WASM_BROTLI_BASELINE` unchanged.
+
+**Docs, each driven on a release build** (all as written):
+- JPEG refuses `transparent`: `exit 4`, the JPEG line, `a.jpg` absent.
+- GIF: `transparent` exit 0; `#ff000080` exit 4 with the GIF line.
+- Colour types after padding: RGB + `transparent` → `rgba8`; grey + `#80808080` → `la8`; grey + `#ff000080` → `rgba8`; RGB + opaque `#808080ff` → `rgb8`, `alpha: no`.
+- Source alpha into JPEG, `flip` only: exit 0, stderr empty.
+- AVIF "approximately": `#ff000080` read back as alpha 0.4549 at the corner on a 4×4 image (128 would be 0.502), 0.976 at the far corner.
+- TIFF: crustyimg `info` says `alpha: yes`; ImageMagick warns about ExtraSamples and shows `srgb(255,0,0)` (opaque).
+- Pad then trim with `transparent`: back to 4×4, `rgba8`.
+- Batch with one format: exit 4, `b1` absent. Kept formats: exit 6, only `rgb.png` written.
+- Terminal `optimize`, auto-decided, JPEG source: `jpeg → png`, output `src.png`.
+- `build` pinned `{stem}.jpg`: exit 4, `error: target #0 (recipe bt.toml, out bo1)` then the line.
+- `Transparent` refused at load, exit 1, hex message.
+
+**Mutations** (one at a time, scratch worktree and target dir, clean rebuild, full suite `--no-fail-fast`; red = test names; the unit tests are `unittests::`). The edits were the quoted ones except as noted in Deviations.
+- M1 GIF full: red FT-1, FT-2, FT-3, FT-8, FT-9, FT-15 (6). Spec: FT-1/3/8/9/15; FT-2 is extra, because `Display` reads the capacity.
+- M2 GIF none: the same six. Matches, FT-2 extra.
+- M3 JPEG binary: red FT-1, FT-2, FT-3, FT-8, FT-10, FT-11, FT-12, FT-14, FT-15 (9). Confirms the reasoned FT-11 red; FT-2 extra; FT-9, FT-13 etc. green.
+- M4 `< 2`: red FT-1, FT-9 only. Matches.
+- M5 `<= 0xfe`: red FT-1, FT-3, FT-8, FT-9, FT-15. Matches.
+- M6 no single-input check: red FT-8, FT-9, FT-15. Matches.
+- M7 no `encode_one` check: red FT-11, FT-14. Matches.
+- M8 no batch pre-check: red FT-10 only. Matches.
+- M9 no `run_pixel_op` check: red FT-12 (one test holds the single and batch rows). Confirms the reasoned single-input red.
+- M10 no build pinned check: red FT-14 only. Matches.
+- M11 no wasm check: all Rust tests green (0 red); the parity harness against a wasm build of the mutant: `FAIL alpha-B: transform to jpeg did not throw`, `16 rows, 0 row failures, 1 table failure (alpha-B)`, exit 1. Reasoned cell confirmed.
+- M12 pixel-based check: red FT-15 only. Matches.
+- M13 `<< 8`: red FT-4, FT-19, `colour_type_table_row_by_row`, `every_colour_type_pads_exactly`, `sixteen_bit_fill_is_times_257`, `recipe_corpus_output::every_recipe_output_matches_its_golden`, and `trim::pad_then_trim_is_the_identity` (7). Matches (the spec lists `pad_then_trim_is_the_identity` under `tests/pad.rs`; it is in `tests/trim.rs`).
+- M14 L8 grey to RGBA8: red FT-4 only. Matches.
+- M15 `trim` not on the helper: red FT-18 (both tests), FT-19, FT-9 (4). Matches; the FT-19 and moved-row reds are confirmed.
+- M16 `main`'s `pad.rs`: red FT-3, FT-4, FT-5, FT-7, FT-8 to FT-15, FT-19 (14, plus the `introduces_alpha` unit test). FT-6, FT-16, FT-17, FT-18 and the existing suites green. Confirms FT-5 and FT-7.
+- M17 decided path: red FT-13 only. Matches.
+- M18: driven as a search. `/usr/bin/grep -n "run_pixel_op(" src/cli/*.rs` lists nine call sites (`ops.rs:299,1401,1503,1527,1791`, `optimize.rs:95,620,751,872`); only `optimize.rs:95` can carry a pad and it forces the format. There is no per-input check to remove, so all green holds.
+- Every mutant's worktree was reverted; the restored head was green (the full-suite and matrix runs).
+
+**wasm size.** Default `just wasm-build` (fresh target dir): brotli 1,308,562 B, +3.3% over `WASM_BROTLI_BASELINE` 1,266,535, inside the ±5% band (max 1,329,862). The design measured 1,307,952 on `main`'s successor; the difference from `main` is the spec's +0.19%. Slim parity build: 833,254 B. `node tests/ddphotos_parity.mjs` (via `just ddphotos-parity`): 16 rows, 0 row failures, 0 table failures; the alpha rows are inside; self-test N1/N2 green.
+
+**Matrix** (each leg in a fresh `CARGO_TARGET_DIR`, rerun before the last push): default, `--no-default-features`, `--features webp-lossy`; `fmt --check`, `clippy --all-targets -D warnings` and `cargo test --no-fail-fast` all exit 0 on each. CI legs: see the PR.
+
+**Overlap after the last rebase** (`gh pr list`, filtered): #240 `src/cli/ops.rs`; #237 `CHANGELOG.md`, `docs/licensing.md`; #229 `docs/roadmap.md`; #226 `src/cli/mod.rs`. No new PR touches this spec's files; the four known overlaps are unchanged and my edits to them are small, separate hunks.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocking. The two verbatim-message sections and the mutation table with exact edits made every row checkable. The prototype names in brackets map cleanly to the tests.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-115's `affected_scope` omits `src/cli/mod.rs` and `src/operation/trim.rs`, which AC-1 requires it to list.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Script the mutation table from the start (done here, 17 rows in one background run). No design call turned out wrong. One test bug of mine: the existing `widen_pixel` helper assumes grey to RGB, so FT-4 needed its own widening helper.
+
+### Punch list (verify)
+
+Wording only; the PR head was `920b5ef` and no code or test changed.
+
+The four sentences as they now read:
+
+- `docs/recipes.md`: "...so a recipe that would write one is refused for those formats: exit 4,
+  nothing written, for one input or a batch with one format; when each input keeps its own format,
+  that input fails and the batch exits 6. Write PNG, WebP or AVIF."
+- `docs/recipes.md`: "AVIF keeps the alpha approximately (on very small images it can be off by a
+  few levels, for example a `transparent` border read back as alpha 5 of 255 on a 4×4 image), and
+  some TIFF readers show it opaque."
+- `recipes/README.md`: "...is refused for that output: exit `4` (nothing written) for one input or a
+  batch with one format, and when each input keeps its own format that input fails and the batch
+  exits `6`. Write PNG, WebP or AVIF."
+- `CHANGELOG.md`: "A fill alpha JPEG or GIF can't store is refused for that output: exit 4, nothing
+  written, for one input or a batch with one format; when each input keeps its own format, that
+  input fails and the batch exits 6."
+
+The drives (release build, fresh `CARGO_TARGET_DIR`, recipe `version = "1"` + `pad`, `border = 0.25`,
+`color = "transparent"`; 4×4 `src.jpg` and `rgb.png`):
+
+- `apply --recipe r.toml src.jpg rgb.png --out-dir kb`: exit 6. stderr:
+  `error: src.jpg: recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque`
+  then `error: 1 of 2 inputs failed`. `kb` holds `rgb.png` only.
+- The same with `--format jpeg --out-dir kj`: exit 4, one line
+  (`error: recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; ...`), no `kj`.
+- 4×4 RGB PNG to `-o t.avif`: exit 0; `magick t.avif -format '%[pixel:p{0,0}]' info:` gave
+  `srgba(0,3,12,0.0196078)`, alpha 5 of 255. A 64×48 gradient gave `srgba(0,0,0,0)`.
+- `cargo test --test docs_ops`: exit 0, 3 passed.
+- Changed-line grep for `SPEC-`, `STAGE-`, `DEC-`, `PROJ-`: none.
+- `git diff --stat 920b5ef`: `CHANGELOG.md`, `docs/recipes.md`, `recipes/README.md`, plus this spec.
+- CI snapshot: see the PR (filled in below after the push).
 
 ---
 

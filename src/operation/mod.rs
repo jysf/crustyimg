@@ -26,6 +26,8 @@ use thiserror::Error;
 
 use crate::image::Image;
 
+pub mod alpha;
+pub use alpha::{AlphaCapacity, IntroducedAlpha, UnstorableAlpha};
 pub mod crop;
 pub use crop::{Crop, CROP_PARAMS};
 pub mod flip;
@@ -333,6 +335,28 @@ pub trait Operation {
     fn refusal(&self, _img: &Image) -> Option<Refusal> {
         None
     }
+
+    /// The alpha of every pixel this step adds, when it is below fully
+    /// opaque. `None` (the default) means the step adds no alpha.
+    ///
+    /// An output format that can't store that alpha is refused before the
+    /// pipeline runs (see [`alpha`]), so a step that can write alpha not in
+    /// its source implements this.
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        None
+    }
+}
+
+/// Read a fill colour: the keyword `transparent` (lower case only) is
+/// `[0, 0, 0, 0]`, zero alpha over black; anything else is a hex colour as
+/// [`crate::text::parse_color`] reads it, `[r, g, b, a]` with `RRGGBBAA` alpha
+/// taken as written. Shared by `pad` and `trim` so the keyword means the same
+/// in both.
+pub fn parse_fill_color(text: &str) -> Result<[u8; 4], crate::text::TextError> {
+    if text == "transparent" {
+        return Ok([0, 0, 0, 0]);
+    }
+    crate::text::parse_color(text)
 }
 
 // ─── Identity ───────────────────────────────────────────────────────────────
@@ -2031,6 +2055,21 @@ impl Operation for Watermark {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fill_colour_reads_the_keyword_and_hex() {
+        use super::parse_fill_color;
+        assert_eq!(parse_fill_color("transparent").unwrap(), [0, 0, 0, 0]);
+        assert_eq!(parse_fill_color("#ff000080").unwrap(), [255, 0, 0, 128]);
+        assert_eq!(parse_fill_color("ff000000").unwrap(), [255, 0, 0, 0]);
+        assert_eq!(
+            parse_fill_color("#123456").unwrap(),
+            [0x12, 0x34, 0x56, 255]
+        );
+        // Lower case only: the keyword is not a hex colour, so both are refused.
+        assert!(parse_fill_color("Transparent").is_err());
+        assert!(parse_fill_color("TRANSPARENT").is_err());
+    }
+
     use super::*;
     use ::image::{DynamicImage, ImageFormat, RgbaImage};
 
