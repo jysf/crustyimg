@@ -22,5 +22,17 @@ Cycle prompts live in `prompts/SPEC-159-<cycle>.md`.
   `pad_then_trim_is_the_identity` lives in `tests/trim.rs`. Outside the file list: `tests/wasm_roundtrip.rs`
   (P30 row removed) and `scripts/wasm-ci-check.sh` (counts 55→56, 53→54), both caught by CI.
   Open: DEC-115's `affected_scope` lacks `src/cli/mod.rs` and `src/operation/trim.rs` (AC-1).
-- [ ] **verify** — `prompts/SPEC-159-verify.md`
+- [x] **verify** (2026-11-11, Opus, $7.47) — ⚠ PUNCH LIST at `920b5ef`, wording only, no re-verify.
+  Drove every message (plus upper-case alpha, no-`#`, three-step rows), 12 widening cells and the four
+  byte-pin hashes with its own PNG codec and FNV-1a, every format rung, GIF 00/01/80/fe/ff, batch and
+  `build` exit 4/6, auto-decide via `apply` and a fresh `build`, six mutations (M1's FT-2 red
+  confirmed). Default 1334 and lean 1270 passed. Punch items: (1) DEC-115 `affected_scope` lacks
+  `src/cli/mod.rs`, `src/operation/trim.rs`; (2) DEC-115 part 4 and its Neutral consequence misstate
+  `run_pixel_op` (only a forced format is checked; the format is still resolved after the run) —
+  both on `main`, at ship; (3) `docs/recipes.md`, `recipes/README.md`, `CHANGELOG.md` say exit 4
+  but a kept-format batch gives exit 6 — on the PR. Cleanups: A/B wasm asserts (declined), C AVIF
+  "approximately" too loose (taken into the punch list). Table cells for ship: M1–M3 add FT-2; M13
+  file; M9, M11 now driven; M16 adds `introduces_alpha_is_any_translucent_step`, FT-5/FT-7 driven.
+- [ ] **punch list** — `prompts/SPEC-159-punchlist.md`
+- [ ] **merge**
 - [ ] **ship**
