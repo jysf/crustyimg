@@ -199,7 +199,7 @@ In build order. Each is framed in its own session first.
   records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
   alone triggers it. A warning changes no output bytes. After SPEC-147.
 
-- [ ] **SPEC-159** (designed 2026-11-11) — [M] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
+- [x] **SPEC-159** (merged 2026-11-12, PR #262) — [M] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
   Split out of SPEC-151 at its frame (2026-11-06); after SPEC-151. Lifts SPEC-151's "opaque only"
   refusal so `color` takes `transparent` (and `#RRGGBBAA` below `ff`), widening RGB to RGBA and grey
   to grey-with-alpha (DEC-095's narrow rule already keeps a channel with non-opaque samples). ⚠ The
@@ -260,7 +260,7 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
   entry folded.
 
-**Count:** 10 shipped / 1 active / 7 pending — re-derived 2026-11-10 at SPEC-159's frame, with `/usr/bin/grep -c '^- \[x\]'` (10: 6 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active, SPEC-159), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[~\]'` (0)
+**Count:** 11 shipped / 0 active / 7 pending — re-derived 2026-11-12 at SPEC-159's ship, with `/usr/bin/grep -c '^- \[x\]'` (11: 7 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (7), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[~\]'` (0)
 
 ## Design Notes
 

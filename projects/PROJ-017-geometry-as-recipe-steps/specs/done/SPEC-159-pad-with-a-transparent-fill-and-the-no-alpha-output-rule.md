@@ -7,7 +7,7 @@
 task:
   id: SPEC-159
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -67,58 +67,84 @@ cost:
       date: 2026-11-10
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 5736088
+      tokens_total: 6096960
       tokens_breakdown:
-        input: 86
-        cache_creation: 148478
-        cache_read: 5547638
-        output: 39886
-      estimated_usd: 4.70
+        input: 90
+        cache_creation: 149736
+        cache_read: 5903859
+        output: 43275
+      estimated_usd: 4.97
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "From the session JSONL, deduped by message.id (43 messages), measured after the frame push"
+      note: "Re-measured at ship from the session JSONL (was 43 messages, $4.70, measured after the frame push); deduped by message.id (45 messages, max output_tokens per id), no subagents"
     - cycle: design
       date: 2026-11-11
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 17579426
+      tokens_total: 18442532
       tokens_breakdown:
-        input: 192
-        cache_creation: 255404
-        cache_read: 17218512
-        output: 105318
-      estimated_usd: 12.84
+        input: 198
+        cache_creation: 257237
+        cache_read: 18072784
+        output: 112313
+      estimated_usd: 13.45
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "From the session JSONL, deduped by message.id (94 messages, max output_tokens per id), no subagents, measured after the design push (748283c)"
+      note: "Re-measured at ship from the session JSONL (was 94 messages, $12.84, measured after the design push); deduped by message.id (97 messages, max output_tokens per id), no subagents"
     - cycle: build
       date: 2026-11-11
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 16370565
+      tokens_total: 28312523
       tokens_breakdown:
-        input: 172
-        cache_creation: 237625
-        cache_read: 16051754
-        output: 81014
-      estimated_usd: 6.92
+        input: 266
+        cache_creation: 277373
+        cache_read: 27930962
+        output: 103922
+      estimated_usd: 10.98
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "From the session JSONL, deduped by message.id (81 messages, max output_tokens per id), no subagents, measured before the final push; a few later turns are not counted"
+      note: "Re-measured at ship from the session JSONL (was 81 messages, $6.92, measured before the final push; the later turns are now counted); deduped by message.id (122 messages, max output_tokens per id), no subagents"
+    - cycle: verify
+      date: 2026-11-11
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10881118
+      tokens_breakdown:
+        input: 130
+        cache_creation: 194893
+        cache_read: 10636908
+        output: 49187
+      estimated_usd: 7.77
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured at ship from the session JSONL (the verify report gave $7.47, measured before its last message); deduped by message.id (62 messages, max output_tokens per id), no subagents"
     - cycle: punchlist
       date: 2026-11-11
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 1014658
+      tokens_total: 1595879
       tokens_breakdown:
-        input: 28
-        cache_creation: 50299
-        cache_read: 958846
-        output: 5485
-      estimated_usd: 0.56
+        input: 44
+        cache_creation: 55920
+        cache_read: 1530056
+        output: 9859
+      estimated_usd: 0.82
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "From the session JSONL, deduped by message.id (14 messages, max output_tokens per id), no subagents, measured before the final commit; the last few turns are not counted"
+      note: "Re-measured at ship from the session JSONL (was 14 messages, $0.56, measured before the final commit); deduped by message.id (21 messages, max output_tokens per id), no subagents"
+    - cycle: ship
+      date: 2026-11-12
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3720139
+      tokens_breakdown:
+        input: 74
+        cache_creation: 98248
+        cache_read: 3605247
+        output: 16570
+      estimated_usd: 1.70
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured from the session JSONL just before the ship commit; the last few turns are not counted; deduped by message.id (37 messages, max output_tokens per id), no subagents"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 69049151
+    estimated_usd: 39.69
+    session_count: 6
 ---
 
 # SPEC-159: pad with a transparent fill, and the no-alpha output rule
@@ -1065,22 +1091,22 @@ in the baseline and in every row because the prototype deleted T19 without chang
 driven test. FT ids follow the prototype names in Failing Tests. FT-2, FT-5, FT-7, FT-20, FT-21 were
 not in the prototype; their column is *reasoned*.
 
-- **M1 — GIF as full.** `src/operation/alpha.rs`, `alpha_capacity`: `ImageFormat::Gif => AlphaCapacity::Binary,` → `ImageFormat::Gif => AlphaCapacity::Full,`. Red (driven): FT-1 (`Gif left: [true, true, true, true, true]`), FT-3 (`refused` expect failed), FT-8 (the `-o o.gif` row: `left: (0, "")`), FT-9 (`01: left: true`), FT-15 (`left: 0 right: 4`). Green (driven): all others. *Driven.*
-- **M2 — GIF as none.** Same line → `AlphaCapacity::None`. Red (driven): FT-1 (`left: [false, false, false, false, true]`), FT-3 (`left: 0 right: 1`: the GIF step is now 0), FT-8 (GIF row gets the "no alpha channel" wording), FT-9 (`00:` refused), FT-15. *Driven.*
-- **M3 — JPEG as binary.** `ImageFormat::Jpeg => AlphaCapacity::None,` → `ImageFormat::Jpeg => AlphaCapacity::Binary,`. Red (driven): FT-1, FT-3 (`left: 1 right: 0`), FT-8 (`-o o.jpg`: `left: (0, "")`), FT-10 (`--format jpeg`: `left: (0, "")`), FT-12, FT-14 (pinned: `left: (0, "target #0: 2 inputs …")`), FT-15. Reasoned red: FT-11 (alpha 00 now stored in JPEG; it shares a prototype test with FT-10, which failed first). Green (driven): FT-4, FT-6, FT-9, FT-13, FT-16, FT-17, FT-18, FT-19, the existing suites. *Driven.*
+- **M1 — GIF as full.** `src/operation/alpha.rs`, `alpha_capacity`: `ImageFormat::Gif => AlphaCapacity::Binary,` → `ImageFormat::Gif => AlphaCapacity::Full,`. Red (driven): FT-1 (`Gif left: [true, true, true, true, true]`), FT-2 (the GIF/JPEG `Display` line reads the capacity; verify drove it: the GIF line became "GIF output has no alpha channel…") *(corrected at ship)*, FT-3 (`refused` expect failed), FT-8 (the `-o o.gif` row: `left: (0, "")`), FT-9 (`01: left: true`), FT-15 (`left: 0 right: 4`). Green (driven): all others. *Driven.*
+- **M2 — GIF as none.** Same line → `AlphaCapacity::None`. Red (driven): FT-1 (`left: [false, false, false, false, true]`), FT-2 (`Display` reads the capacity, so the GIF line changes) *(corrected at ship)*, FT-3 (`left: 0 right: 1`: the GIF step is now 0), FT-8 (GIF row gets the "no alpha channel" wording), FT-9 (`00:` refused), FT-15. *Driven.*
+- **M3 — JPEG as binary.** `ImageFormat::Jpeg => AlphaCapacity::None,` → `ImageFormat::Jpeg => AlphaCapacity::Binary,`. Red (driven): FT-1, FT-2 (`Display` reads the capacity, so the JPEG line changes) *(corrected at ship)*, FT-3 (`left: 1 right: 0`), FT-8 (`-o o.jpg`: `left: (0, "")`), FT-10 (`--format jpeg`: `left: (0, "")`), FT-12, FT-14 (pinned: `left: (0, "target #0: 2 inputs …")`), FT-15. Reasoned red: FT-11 (alpha 00 now stored in JPEG; it shares a prototype test with FT-10, which failed first). Green (driven): FT-4, FT-6, FT-9, FT-13, FT-16, FT-17, FT-18, FT-19, the existing suites. *Driven.*
 - **M4 — GIF threshold `alpha < 2`.** `stores`: `AlphaCapacity::Binary => alpha == 0 || alpha == u8::MAX,` → `AlphaCapacity::Binary => alpha < 2 || alpha == u8::MAX,`. Red (driven): FT-1 (`left: [true, true, false, false, true]`), FT-9 (`01: left: true`). Green (driven): everything else, including FT-8's GIF row (it uses `80`). This is why FT-9 must keep the `01` row. *Driven.*
 - **M5 — GIF threshold `alpha <= 0xfe`.** Same line → `alpha <= 0xfe || alpha == u8::MAX`. Red (driven): FT-1 (all `true`), FT-3, FT-8 (GIF row), FT-9 (`01`), FT-15. *Driven.*
 - **M6 — no check in single-input `apply`.** `src/cli/optimize.rs` single-input branch: delete `if let Some(e) = pipeline.unstorable_alpha(fmt) { return Err(e.into()); }` before `let out_img = pipeline.run(img)?;`. Red (driven): FT-8 (`-o o.jpg`: `left: (0, "")`), FT-9 (`01: left: true`), FT-15 (`left: (0, "")`). Green (driven): FT-10 to FT-14 (other paths), FT-16, FT-17. *Driven.*
 - **M7 — no per-input check in `encode_one`.** `src/cli/common.rs`: delete the check before `// Run.`. Red (driven): FT-11 (`left: 0 right: 6`), FT-14 (kept-format target: exit 0, `built 1 target, 2 outputs`). Green (driven): FT-10 (the pre-check still fires), FT-8, FT-12. *Driven.*
 - **M8 — no batch pre-check.** `src/cli/optimize.rs`: delete `if let Some(e) = format_override.and_then(|fmt| probe.unstorable_alpha(fmt)) { return Err(e.into()); }`. Red (driven): FT-10 (`left: (6, "error: rgb.png: recipe step 0 …")`: the per-input check is the fallback; FT-10 asserts exit 4, the unlabelled line and no out-dir, so the fallback can't pass it). Green (driven): FT-11, FT-14. *Driven.*
-- **M9 — no check in `run_pixel_op`.** `src/cli/ops.rs`: delete the `forced_format.and_then(…)` check at the top. Red (driven): FT-12 (batch row `left: (6, "error: src.jpg: …")`). In the prototype the single `-o p.jpg` row stayed exit 4 only because the prototype also had the per-input checks M18 removes; with this design (no per-input check in `run_pixel_op`) that row reds too (*reasoned*). *Driven.*
+- **M9 — no check in `run_pixel_op`.** `src/cli/ops.rs`: delete the `forced_format.and_then(…)` check at the top. Red (driven): FT-12 (batch row `left: (6, "error: src.jpg: …")`). In the prototype the single `-o p.jpg` row stayed exit 4 only because the prototype also had the per-input checks M18 removes; with this design (no per-input check in `run_pixel_op`) that row reds too (*driven by build, no longer reasoned*) *(corrected at ship)*. *Driven.*
 - **M10 — no check in `build`'s prepare.** `src/cli/build.rs` `prepare_target`: replace the `Pinned` check's body with `let _ = (probe.len(), fmt);`. Red (driven): FT-14 (pinned: `left: (6, "error: in/rgb.png: …")`). Green (driven): all others. *Driven.*
-- **M11 — no check in wasm.** `src/wasm.rs` `transform`: delete the check. Red (reasoned): FT-21 row B (`transform` returns JPEG bytes, no throw). Green (reasoned): every Rust test (no native test calls `transform`). *Reasoned* (the prototype ran no wasm tests; the wasm build was driven only for size).
+- **M11 — no check in wasm.** `src/wasm.rs` `transform`: delete the check. Red (driven by build: the parity harness exits 1 on `alpha-B`, no longer reasoned) *(corrected at ship)*: FT-21 row B (`transform` returns JPEG bytes, no throw). Green (reasoned): every Rust test (no native test calls `transform`). *Driven by build, via the parity harness* (the design's prototype ran no wasm tests; the wasm build was driven only for size).
 - **M12 — the check made pixel-based.** `src/cli/optimize.rs` single-input: move the check after `pipeline.run` and wrap it in `if out_img.pixels().to_rgba8().pixels().any(|p| p.0[3] != 255) { … }`. Red (driven): FT-15 only (`left: (0, "")`: the already-at-aspect image has no transparent pixel). Green (driven): everything else, FT-17's RGBA-source row included (no pad, so no step to name). *Driven.*
-- **M13 — 16-bit alpha `× 256`.** `src/operation/pad.rs`: in the `ImageRgba16` arm `wide(a)` → `u16::from(a) << 8`, and in the `ImageLumaA16` arm likewise. Red (driven): FT-4 (`#80808080 on L16 left: [128, 128, 0, 128]`), FT-19 (`left: [65535, 0, 0, 65535, …`), and four existing tests, because an opaque fill also goes through `wide(a)`: `tests/pad.rs` `colour_type_table_row_by_row` (`la16 + #808080: fill … [32896, 65280], expected [32896, 65535]`), `every_colour_type_pads_exactly` (160 rows), `sixteen_bit_fill_is_times_257`, `pad_then_trim_is_the_identity`; and `tests/recipe_corpus_output.rs` `every_recipe_output_matches_its_golden`. Green (driven): FT-6 (no RGBA16/LA16 row). *Driven.*
+- **M13 — 16-bit alpha `× 256`.** `src/operation/pad.rs`: in the `ImageRgba16` arm `wide(a)` → `u16::from(a) << 8`, and in the `ImageLumaA16` arm likewise. Red (driven): FT-4 (`#80808080 on L16 left: [128, 128, 0, 128]`), FT-19 (`left: [65535, 0, 0, 65535, …`), and four existing tests, because an opaque fill also goes through `wide(a)`: `tests/pad.rs` `colour_type_table_row_by_row` (`la16 + #808080: fill … [32896, 65280], expected [32896, 65535]`), `every_colour_type_pads_exactly` (160 rows), `sixteen_bit_fill_is_times_257`, and `pad_then_trim_is_the_identity` (in `tests/trim.rs`, not `tests/pad.rs`) *(corrected at ship)*; and `tests/recipe_corpus_output.rs` `every_recipe_output_matches_its_golden`. Green (driven): FT-6 (no RGBA16/LA16 row). *Driven.*
 - **M14 — L8 grey translucent to RGBA8.** `pad.rs` widening: `(DynamicImage::ImageLuma8(_), false, false) => Cow::Owned(px.to_luma_alpha8().into()),` → `… px.to_rgba8() …`. Red (driven): FT-4 only (`transparent on L8 left: Rgba8 right: La8`). *Driven.*
 - **M15 — `trim` not using the helper.** `src/operation/trim.rs`: `super::parse_fill_color(text)` → `crate::text::parse_color(text)`. Red (driven): FT-18 (`loads: InvalidOperation … got "transparent"`), FT-9 (its trim half: `left: 1`). Reasoned red: FT-18's moved accepted row and FT-19's RGB8 `transparent` half. *Driven.*
-- **M16 — trap 14: `main`'s `pad.rs` restored verbatim** (`git show origin/main:src/operation/pad.rs > src/operation/pad.rs`; it compiles, since `introduced_alpha` has a default). Red (driven), every one with `a fill with transparency is not supported yet` (exit 1 at load): FT-3, FT-4, FT-8, FT-9, FT-10, FT-11, FT-12, FT-13, FT-14, FT-15, FT-19. Green (driven): FT-1, FT-6 (the byte pin: opaque output is unchanged, as required), FT-16, FT-17, FT-18, and every existing `pad`/`trim`/corpus test. Reasoned red: FT-5, FT-7. *Driven.*
+- **M16 — trap 14: `main`'s `pad.rs` restored verbatim** (`git show origin/main:src/operation/pad.rs > src/operation/pad.rs`; it compiles, since `introduced_alpha` has a default). Red (driven), every one with `a fill with transparency is not supported yet` (exit 1 at load): FT-3, FT-4, FT-8, FT-9, FT-10, FT-11, FT-12, FT-13, FT-14, FT-15, FT-19, and `introduces_alpha_is_any_translucent_step` *(corrected at ship)*; FT-5 and FT-7 are driven red, no longer reasoned *(corrected at ship)*. Green (driven): FT-1, FT-6 (the byte pin: opaque output is unchanged, as required), FT-16, FT-17, FT-18, and every existing `pad`/`trim`/corpus test. *Driven.*
 - **M17 — the decided path reads only the source's alpha.** `src/cli/optimize.rs` `optimize_decide_one`: `let has_alpha = source_info.has_alpha || pipeline.introduces_alpha();` → `let has_alpha = source_info.has_alpha;`. Red (driven): FT-13 only (`left: "jpg" right: "jpg"`: the output is `photo.jpg`). *Driven.*
 - **M18 — per-input checks in `run_pixel_op` (unforced format) removed.** Both arms in `src/cli/ops.rs`. Expected all green, and it was: 58 green (driven). The search that found no splitting input: `/usr/bin/grep -n "run_pixel_op(" src/cli/*.rs` lists nine callers; eight build flag pipelines with no `pad`, and the ninth (`optimize.rs:95`) always forces the format. So this design **omits** those checks; SPEC-160's `edit --pad` adds them with the tests that reach them. *Driven.*
 
@@ -1245,10 +1271,42 @@ The drives (release build, fresh `CARGO_TARGET_DIR`, recipe `version = "1"` + `p
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Four things, all wording or reporting; no code or test was wrong at merge. (a) Build drove the
+   "exit 4" doc sentences and still missed the per-input exit 6 for a batch that keeps each input's
+   format. `docs/api-contract.md` already had both, so the other three docs were the odd ones out.
+   "Drive each sentence" is necessary but checks only the case the driver thinks of; verify found the
+   gap by driving a batch where one input fails. (b) DEC-115 was written at design and described
+   `run_pixel_op` as checking one input and resolving the format first, and then design correction 2
+   moved `run_pixel_op` to a forced-format-only check. Nobody re-read the DEC against the corrections;
+   verify found the sentences, and build had already seen the `affected_scope` gap. (c) Build reported
+   "no spec cell was wrong" next to its own account that FT-2 was an extra red in M1 to M3. The table
+   had three cells off, plus M9, M11 (reasoned, then driven by build), M13's file and M16's red set.
+   Read the red set off a run of the final tests, as SPEC-153's reflection proposed. This spec did it
+   for 17 of 18 rows at design and built them all, which is why only these cells moved. (d) Two files
+   outside the spec's list, `tests/wasm_roundtrip.rs` and `scripts/wasm-ci-check.sh`, were caught only
+   by CI's wasm leg, because `just check` does not run it. SPEC-153's two proposals, on this spec:
+   build drove each doc sentence that states behaviour (yes, on a release build, but one exit path per
+   sentence); a mutation row's red set was read off a run (yes at design for 17 rows; the M3, M9 and
+   M11 cells that stayed reasoned were driven or confirmed by build, and the ship corrections are the
+   residue). Verify's declined cleanups A and B are not a regret: A would move the wasm test counts
+   again, and parity row A covers B's bytes.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) Build's checklist should say "drive each doc sentence on every exit
+   path the spec names, not one". Nothing covers it: AGENTS §15 "During build" lists reading, filling
+   Build Completion, cost, advance, DECs and the PR; SPEC-153's reflection proposed driving each
+   sentence but not each path. (ii) Design should re-read its DEC against its own corrections before
+   it hands off. Not covered: §15 has no design section for DECs, and SPEC-152's and SPEC-153's
+   reflections are silent on it. (iii) "Files outside the list" should include whatever
+   `just wasm-test` touches when `src/wasm.rs` changes. Partly covered: AGENTS line 191 says `just
+   wasm-test` is not in `just check` and that CI's wasm-roundtrip job runs it; it does not tell a
+   builder to widen the file list. The repo tracks no HANDOFF file, so I could not check trap 5 there.
+   `guidance/` has no entry on any of the three. No DEC changes beyond the DEC-115 wording at ship.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new entry. Verify's declined cleanups A and B are declined with reasons above. The two ideas
+   the frame filed stay where they are: `alpha-dropped-silently-on-encode` (source alpha into JPEG is
+   still dropped; DEC-115's Negative consequence names it) and `tiff-alpha-extrasamples` (RGBA TIFF
+   shows opaque in libtiff readers; the docs now say so). The one open item with a home is SPEC-160:
+   `edit --pad` adds `run_pixel_op`'s per-input check for an unforced format, and DEC-115 part 4 now
+   says so, so there is nothing to file.

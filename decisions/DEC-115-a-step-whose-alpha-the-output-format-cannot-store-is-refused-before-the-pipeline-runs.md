@@ -28,10 +28,12 @@ affected_scope:
   - src/operation/alpha.rs
   - src/operation/mod.rs
   - src/operation/pad.rs
+  - src/operation/trim.rs
   - src/pipeline/mod.rs
   - src/cli/optimize.rs
   - src/cli/common.rs
   - src/cli/ops.rs
+  - src/cli/mod.rs
   - src/cli/build.rs
   - src/wasm.rs
 
@@ -70,7 +72,10 @@ The rule has eight parts:
    input of that format, including an image already at a `pad`'s aspect, which gets no fill
    pixel. A later step that cuts the new pixels off again doesn't lift the refusal.
 4. **When it runs: once the format is known, before the pipeline.**
-   - One input (`apply`, the pixel verbs through `run_pixel_op`): exit **4**, nothing written.
+   - One input (`apply`): exit **4**, nothing written. The pixel verbs through `run_pixel_op`
+     check only a **forced** format, once, before any input is read; that call site has no
+     per-input check for an unforced format yet. It arrives with `edit --pad` (SPEC-160), the
+     first caller that can reach it.
    - A batch or `build` target with one format for every input (`--format`, a name template's
      literal extension, `recipe.format`, a forced format): checked once before any input is
      read; exit **4**, nothing written, the out-dir not created. This is the shape a bad
@@ -139,9 +144,10 @@ few levels. And with no format pinned, the auto-decision chose JPEG for a JPEG s
 - **Negative:** the asymmetry is deliberate: source alpha into JPEG is still dropped silently.
   A recipe that pads and then crops the border off is refused into JPEG although its output
   would be opaque.
-- **Neutral:** single-input `apply` and `run_pixel_op` now resolve the output format before the
-  pipeline runs, so an invocation that is wrong in both ways (a bad `--format` and a border that
-  rounds to 0 px) reports the format first (exit 4, was exit 1), as the batch path already did.
+- **Neutral:** single-input `apply` now resolves the output format before the pipeline runs
+  (`run_pixel_op` still runs the pipeline first and resolves the format after), so an
+  invocation that is wrong in both ways (a bad `--format` and a border that rounds to 0 px)
+  reports the format first on that path (exit 4, was exit 1), as the batch path already did.
 
 ## Validation
 
@@ -153,7 +159,7 @@ refusal for source alpha needs the same table.
 ## References
 
 - Related specs: SPEC-151 (opaque pad), SPEC-159 (this rule), SPEC-160 (`edit --pad`, which
-  reaches the check through `run_pixel_op`)
+  adds `run_pixel_op`'s per-input check for an unforced format)
 - Related decisions: DEC-015 (per-input batch failures, exit 6), DEC-095 (colour type
   preservation; a translucent fill widens to the alpha twin by its alpha clause, unamended),
   DEC-102 (load-time errors stay exit 1), DEC-110 (wasm agrees with native)

@@ -39,4 +39,7 @@ Cycle prompts live in `prompts/SPEC-159-<cycle>.md`.
   error. Driven: mixed batch exit 6 with `rgb.png` only; `--format jpeg` exit 4, no out-dir; 4×4 AVIF
   corner alpha 0.0196. `docs_ops` green. DEC-115 and the mutation table are left for ship.
 - [x] **merge** (2026-11-12) — PR #262 merged as `a090a75` (`mergedAt` 2026-11-12T05:24:24Z), CI green at `004a66d` (18 pass, 8 release jobs skipped).
-- [ ] **ship** — `prompts/SPEC-159-ship.md`
+- [x] **ship** (2026-11-12, Sonnet, $1.70) — PR #262 merged as `a090a75`. DEC-115 reworded (two
+  `affected_scope` files, `run_pixel_op` forced-format-only, only single-input `apply` resolves the
+  format first); mutation table folded (M1-M3, M9, M11, M13, M16); reflection written; cost
+  re-measured for all five earlier cycles, spec total $39.69 over six sessions. Archived.
