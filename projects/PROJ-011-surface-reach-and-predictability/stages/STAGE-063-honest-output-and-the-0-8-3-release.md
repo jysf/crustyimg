@@ -72,7 +72,7 @@ tag-driven pipeline (its AC-18 is open until a real tag), so it should carry rea
 ### Explicitly out of scope
 - Every other PROJ-011 item. Dispositions: recipe, watermark and `validate()` items go to PROJ-017
   or PROJ-013; the release-pipeline items wait for 0.8.3; guard and test-gap items stay in
-  STAGE-053; STAGE-041 (launch content) is parked, and moved to PROJ-019 on 2026-11-11.
+  STAGE-053 (moved back to PROJ-013 on 2026-11-11); STAGE-041 (launch content) is parked, and moved to PROJ-019 on 2026-11-11.
 
 ## Spec Backlog
 

@@ -95,7 +95,13 @@ re-homed** — STAGE-042 and STAGE-046 stay in PROJ-010 as shipped:
 - [ ] **STAGE-051** — release-safety instruments, continued (from STAGE-042).
 - [ ] **STAGE-052** — output fidelity on shipped verbs, continued (from STAGE-046).
 
-**Count:** 0 shipped / 0 active / **7 pending** — re-derive with a grep you just ran.
+**One stage moved back from PROJ-011** (2026-11-11, maintainer request; no shipped specs):
+
+- [ ] **STAGE-053** — guards that cover this project (10). Pulled forward to PROJ-011 on 2026-08-23,
+  parked there 2026-11-05, returned here. ⚠ Its wasm-CI item is partly overtaken by SPEC-146.
+
+**Count:** 0 shipped / 0 active / **8 pending** — re-derived 2026-11-11 with `ls stages/ | wc -l` (8
+files, none shipped or active). Re-derive with a grep you just ran.
 
 ## Dependencies
 

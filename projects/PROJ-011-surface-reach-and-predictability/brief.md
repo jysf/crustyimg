@@ -228,17 +228,14 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   on 2026-11-11** (maintainer request). It never shared this project's thesis and was parked here
   since 2026-11-05; it no longer counts toward PROJ-011 at all.
 
-- [ ] **STAGE-053 — guards that cover this project.** ⚠ **Carried forward from PROJ-013 because
-  this project needs them**, not because they share its thesis. No CI leg runs `just wasm-test`,
-  and `cost-audit` passes having checked nothing. **PROJ-011 ships byte-changing code to shipped
-  verbs and carries a migration.** ⚠ **Corrected 2026-08-23: this blocks nothing.** The wasm leg's
-  real interaction is with **STAGE-050**, not STAGE-049 — if `Recipe` gains a `format` field,
-  `wasm::transform` has two sources of truth for format and that needs deciding regardless. The
-  cost gate is hygiene, not a live hazard.
+- [→] **STAGE-053 — guards that cover this project.** **Moved back to PROJ-013 on 2026-11-11**
+  (maintainer request). Hygiene, not release-blocking, and never this project's thesis; it no
+  longer counts toward PROJ-011.
 
-**Count:** 2 shipped / 2 active / 1 proposed — re-derived 2026-11-11 from the `status:` line of
-each file in `stages/` (STAGE-049, 050 shipped; STAGE-054, 063 active; STAGE-053 proposed). STAGE-041
-moved to PROJ-019 the same day and is no longer counted. ⚠ The checklist above lags the stage
+**Count:** 2 shipped / 2 active / 0 proposed — re-derived 2026-11-11 from the `status:` line of
+each file in `stages/` (STAGE-049, 050 shipped; STAGE-054, 063 active). STAGE-041 moved to
+PROJ-019 and STAGE-053 back to PROJ-013 the same day; neither is counted. **What's left to ship
+PROJ-011 is STAGE-054 and STAGE-063.** ⚠ The checklist above lags the stage
 files: it doesn't tick 049/050 or list STAGE-063. Re-derive with a grep you just ran; never
 restate a tally you carried forward.
 

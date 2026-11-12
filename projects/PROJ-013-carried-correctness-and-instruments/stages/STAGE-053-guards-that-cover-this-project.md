@@ -6,7 +6,7 @@ stage:
   target_complete: null
 
 project:
-  id: PROJ-011
+  id: PROJ-013
 repo:
   id: crustyimg
 
@@ -26,6 +26,13 @@ value_contribution:
 ---
 
 # STAGE-053: Guards That Cover This Project
+
+> 📦 **MOVED back from PROJ-011 to PROJ-013 on 2026-11-11** (maintainer request, with no shipped
+> specs, so a straight move). PROJ-011 is closing out on STAGE-054 and STAGE-063; these guards wait
+> here for whichever project next takes guard work, as the 2026-11-05 disposition below already
+> said. Stage id kept, so existing pointers still resolve. ⚠ Partly overtaken: **SPEC-146** (merged
+> 2026-11-05, PR #245) made CI run the wasm round-trip tests, so §1's "no CI job runs either
+> recipe" needs re-checking against `.github/workflows/` before anyone frames from it.
 
 ## What This Stage Is
 

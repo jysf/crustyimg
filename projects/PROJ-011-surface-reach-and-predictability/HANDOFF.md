@@ -102,7 +102,7 @@ How the release went, for next time:
 - **STAGE-054:** 1 shipped / 0 active / **16 pending**. These are the 0.8.1 candidates, including
   `build --format` being ignored, the `render_text` library panic, spec ids in `--help` and the
   wasm message, and SVG font families other than Go drawing no text.
-- **STAGE-053** (guards, proposed) and **STAGE-055** (the `.cube` LUT op, proposed, homed by
+- **STAGE-053** (guards, proposed; moved back to PROJ-013 on 2026-11-11) and **STAGE-055** (the `.cube` LUT op, proposed, homed by
   #212).
 - **PROJ-014 / Wave 4** (manifest, `{hash}`, placeholders, favicon) is the post-0.8.0 feature
   plan.
