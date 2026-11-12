@@ -120,7 +120,7 @@ In build order. Each is framed in its own session first.
   **Framed as a split (2026-11-10):** SPEC-153 takes the ordering DEC (recommended: typed order for
   every op flag, `auto-orient` always first, no repeats), `--crop` (pixels `WxH+X+Y` and `W:H` with
   `--crop-gravity`), `--rotate` and `--flip`, [M]. `--pad` and `--trim` are the entry below.
-- [ ] (not yet written) — [S] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
+- [ ] **SPEC-160** (framed 2026-11-11) — [M] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
   SPEC-153 at its frame (2026-11-10); after SPEC-153. `--pad N|W:H` (N whole pixels of the long edge of
   the buffer the step receives, saved as a `border` fraction) with a required `--pad-color` and an
   optional `--pad-gravity` (aspect form only). `--trim` is a plain switch with optional `--trim-color`
@@ -136,6 +136,9 @@ In build order. Each is framed in its own session first.
   `docs/api-contract.md:536` ("One-shot multi-op on a single image — the \"experiment like an editor\"
   mode.") and `docs/cli-reference.md:301` ("Chain an ordered op list on a **single** image in one
   decode → ops → encode pass."). Found at SPEC-153's verify; no other STAGE-058 or `questions.yaml` entry covers it.
+  **Framed 2026-11-11: GO at [M], no DEC.** One `--pad N|W:H`; `--pad N` + `--save-recipe` on a batch refused per
+  DEC-114 part 6; the alpha check in `run_pixel_op` gated on `introduces_alpha()`; `parse_color` refuses any non-hex
+  byte. Stage-closing recommendations for the five other open entries are in SPEC-160's Frame (a maintainer question).
 
 - [x] (folded into SPEC-145; shipped in SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
@@ -237,7 +240,7 @@ In build order. Each is framed in its own session first.
   and `error: operation 'resize' failed: target area 20000×20000 = 400000000 px exceeds the maximum area of 134217728 px`.
   Test-only, no product change.
 
-- [ ] (not yet written) — [S] **kind: claim. `parse_color` accepts a sign, so `+f+f+f` is read as `#0f0f0f`.**
+- [x] (folded into SPEC-160) — [S] **kind: claim. `parse_color` accepts a sign, so `+f+f+f` is read as `#0f0f0f`.**
   Found at SPEC-152's verify; driven again at ship on a release build of `main` (0.8.2, scratch
   `CARGO_TARGET_DIR`, deleted after). `u8::from_str_radix` allows a leading `+`, so each two-character
   pair `+f` parses as 15, while the message says the value "must be a hex colour RRGGBB, #RRGGBB or
@@ -260,7 +263,7 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
   entry folded.
 
-**Count:** 11 shipped / 0 active / 7 pending — re-derived 2026-11-12 at SPEC-159's ship, with `/usr/bin/grep -c '^- \[x\]'` (11: 7 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (7), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[~\]'` (0)
+**Count:** 12 shipped / 1 active / 5 pending — re-derived 2026-11-11 at SPEC-160's frame, with `/usr/bin/grep -c '^- \[x\]'` (12: 7 `**SPEC-` entries and 5 folded), `/usr/bin/grep -c '^- \[ \]'` (6), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-160), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5) and `/usr/bin/grep -c '^- \[~\]'` (0)
 
 ## Design Notes
 
