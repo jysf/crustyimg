@@ -42,11 +42,26 @@ value_link: "Delivers STAGE-058's last promise, `edit` flags for `pad` and `trim
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-11
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5656151
+      tokens_breakdown:
+        input: 86
+        cache_creation: 152401
+        cache_read: 5459360
+        output: 44304
+      estimated_usd: 4.79
+      note: >
+        Measured from the session JSONL, deduped by message.id (43 messages; max output_tokens per id),
+        after the frame push and before this cost commit. Rates (Opus): $5/MTok input, $6.25 cache_creation
+        (x1.25), $0.50 cache_read (x0.10), $25 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 5656151
+    estimated_usd: 4.79
+    session_count: 1
 ---
 
 # SPEC-160: edit --pad and --trim, and parse_color refuses a sign
