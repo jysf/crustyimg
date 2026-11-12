@@ -117,8 +117,11 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   `"#RRGGBBAA"` is straight alpha, stored as written; a fill with alpha below `ff` makes an image
   with no alpha gain an alpha channel (a grey image stays grey, plus alpha, for a grey fill such as
   `transparent`). JPEG can't store that alpha and GIF stores only `00` or `ff`, so a recipe that
-  would write one is refused for those formats (exit 4, nothing written): write PNG, WebP or AVIF.
-  AVIF keeps the alpha approximately, and some TIFF readers show it opaque. A source image's own
+  would write one is refused for those formats: exit 4, nothing written, for one input or a batch
+  with one format; when each input keeps its own format, that input fails and the batch exits 6.
+  Write PNG, WebP or AVIF. AVIF keeps the alpha approximately (on very small images it can be off
+  by a few levels, for example a `transparent` border read back as alpha 5 of 255 on a 4×4 image),
+  and some TIFF readers show it opaque. A source image's own
   alpha written to JPEG is still dropped, without a warning. For an
   exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
   `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a

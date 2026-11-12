@@ -295,7 +295,9 @@ color = "#000000"
 - A canvas past 50,000 px on a side or 134,217,728 px in all fails the same way.
 - `color` is required: hex with any alpha (`#RRGGBBAA`), or `transparent` (alpha 0 over black). A
   fill alpha JPEG can't store (anything below `ff`) or GIF can't (anything but `00` and `ff`) is
-  refused for that output (exit `4`); write PNG, WebP or AVIF.
+  refused for that output: exit `4` (nothing written) for one input or a batch with one format, and
+  when each input keeps its own format that input fails and the batch exits `6`. Write PNG, WebP or
+  AVIF.
 - A grey image with a colour fill becomes RGB, a translucent fill adds alpha (grey plus alpha for a
   grey fill), and the bit depth is kept.
 - For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.

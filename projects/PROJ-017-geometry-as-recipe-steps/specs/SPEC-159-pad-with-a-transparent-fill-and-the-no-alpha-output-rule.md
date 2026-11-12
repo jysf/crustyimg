@@ -102,6 +102,19 @@ cost:
       estimated_usd: 6.92
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "From the session JSONL, deduped by message.id (81 messages, max output_tokens per id), no subagents, measured before the final push; a few later turns are not counted"
+    - cycle: punchlist
+      date: 2026-11-11
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1014658
+      tokens_breakdown:
+        input: 28
+        cache_creation: 50299
+        cache_read: 958846
+        output: 5485
+      estimated_usd: 0.56
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "From the session JSONL, deduped by message.id (14 messages, max output_tokens per id), no subagents, measured before the final commit; the last few turns are not counted"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1189,6 +1202,40 @@ Process-focused: how did the build go? What friction did the spec create?
 
 3. **If you did this task again, what would you do differently?**
    — Script the mutation table from the start (done here, 17 rows in one background run). No design call turned out wrong. One test bug of mine: the existing `widen_pixel` helper assumes grey to RGB, so FT-4 needed its own widening helper.
+
+### Punch list (verify)
+
+Wording only; the PR head was `920b5ef` and no code or test changed.
+
+The four sentences as they now read:
+
+- `docs/recipes.md`: "...so a recipe that would write one is refused for those formats: exit 4,
+  nothing written, for one input or a batch with one format; when each input keeps its own format,
+  that input fails and the batch exits 6. Write PNG, WebP or AVIF."
+- `docs/recipes.md`: "AVIF keeps the alpha approximately (on very small images it can be off by a
+  few levels, for example a `transparent` border read back as alpha 5 of 255 on a 4×4 image), and
+  some TIFF readers show it opaque."
+- `recipes/README.md`: "...is refused for that output: exit `4` (nothing written) for one input or a
+  batch with one format, and when each input keeps its own format that input fails and the batch
+  exits `6`. Write PNG, WebP or AVIF."
+- `CHANGELOG.md`: "A fill alpha JPEG or GIF can't store is refused for that output: exit 4, nothing
+  written, for one input or a batch with one format; when each input keeps its own format, that
+  input fails and the batch exits 6."
+
+The drives (release build, fresh `CARGO_TARGET_DIR`, recipe `version = "1"` + `pad`, `border = 0.25`,
+`color = "transparent"`; 4×4 `src.jpg` and `rgb.png`):
+
+- `apply --recipe r.toml src.jpg rgb.png --out-dir kb`: exit 6. stderr:
+  `error: src.jpg: recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque`
+  then `error: 1 of 2 inputs failed`. `kb` holds `rgb.png` only.
+- The same with `--format jpeg --out-dir kj`: exit 4, one line
+  (`error: recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; ...`), no `kj`.
+- 4×4 RGB PNG to `-o t.avif`: exit 0; `magick t.avif -format '%[pixel:p{0,0}]' info:` gave
+  `srgba(0,3,12,0.0196078)`, alpha 5 of 255. A 64×48 gradient gave `srgba(0,0,0,0)`.
+- `cargo test --test docs_ops`: exit 0, 3 passed.
+- Changed-line grep for `SPEC-`, `STAGE-`, `DEC-`, `PROJ-`: none.
+- `git diff --stat 920b5ef`: `CHANGELOG.md`, `docs/recipes.md`, `recipes/README.md`, plus this spec.
+- CI snapshot: see the PR (filled in below after the push).
 
 ---
 

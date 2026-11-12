@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A recipe can pad.** `op = "pad"` with `aspect` (and `gravity`) or `border`, and a required
   `color`, hex with any alpha or `transparent`; the input's pixels are unchanged and its bit depth
   kept; a grey image with a colour fill becomes RGB, and a fill with alpha adds an alpha channel.
-  A fill alpha JPEG or GIF can't store is refused for that output (exit 4). 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
+  A fill alpha JPEG or GIF can't store is refused for that output: exit 4, nothing written, for one input or a batch with one format; when each input keeps its own format, that input fails and the batch exits 6. 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
 - **A recipe can trim.** `op = "trim"` removes a uniform border, against a stated `color` or the
   top-left pixel (`color` may be `transparent`), within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
   type and bit depth kept. 0.8.2 and earlier refuse it with `unknown operation 'trim'`.
