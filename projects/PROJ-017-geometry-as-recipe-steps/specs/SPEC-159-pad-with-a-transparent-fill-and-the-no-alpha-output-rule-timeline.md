@@ -38,5 +38,5 @@ Cycle prompts live in `prompts/SPEC-159-<cycle>.md`.
   for the failing input when each keeps its own format; the AVIF sentence names the 5/255 small-image
   error. Driven: mixed batch exit 6 with `rgb.png` only; `--format jpeg` exit 4, no out-dir; 4×4 AVIF
   corner alpha 0.0196. `docs_ops` green. DEC-115 and the mutation table are left for ship.
-- [ ] **merge**
-- [ ] **ship**
+- [x] **merge** (2026-11-12) — PR #262 merged as `a090a75` (`mergedAt` 2026-11-12T05:24:24Z), CI green at `004a66d` (18 pass, 8 release jobs skipped).
+- [ ] **ship** — `prompts/SPEC-159-ship.md`
