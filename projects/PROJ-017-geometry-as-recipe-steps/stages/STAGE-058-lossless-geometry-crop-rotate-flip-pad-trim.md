@@ -120,7 +120,7 @@ In build order. Each is framed in its own session first.
   **Framed as a split (2026-11-10):** SPEC-153 takes the ordering DEC (recommended: typed order for
   every op flag, `auto-orient` always first, no repeats), `--crop` (pixels `WxH+X+Y` and `W:H` with
   `--crop-gravity`), `--rotate` and `--flip`, [M]. `--pad` and `--trim` are the entry below.
-- [ ] **SPEC-160** (framed 2026-11-11) — [M] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
+- [ ] **SPEC-160** (designed 2026-11-11) — [M] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
   SPEC-153 at its frame (2026-11-10); after SPEC-153. `--pad N|W:H` (N whole pixels of the long edge of
   the buffer the step receives, saved as a `border` fraction) with a required `--pad-color` and an
   optional `--pad-gravity` (aspect form only). `--trim` is a plain switch with optional `--trim-color`
@@ -139,6 +139,8 @@ In build order. Each is framed in its own session first.
   **Framed 2026-11-11: GO at [M], no DEC.** One `--pad N|W:H`; `--pad N` + `--save-recipe` on a batch refused per
   DEC-114 part 6; the alpha check in `run_pixel_op` gated on `introduces_alpha()`; `parse_color` refuses any non-hex
   byte. Stage-closing recommendations for the five other open entries are in SPEC-160's Frame (a maintainer question).
+  **Designed 2026-11-11: [M] holds, no DEC.** `--pad N` wider than the long edge fails at apply (a `border` is
+  at most 1); `edit`'s alpha line names `--pad-color` through a new `IntroducedAlpha.flag`; no wasm row.
 
 - [x] (folded into SPEC-145; shipped in SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
