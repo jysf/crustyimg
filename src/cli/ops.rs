@@ -1665,10 +1665,10 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
 ///
 /// 1. `build_edit_ops` builds every step before any file is read, so a bad flag
 ///    value exits 2 with nothing written.
-/// 2. A pixel `--crop` is converted to fractions of the image it receives, which
-///    differs per image; with `--save-recipe` that is only well defined for one
-///    input image, so a batch is refused up front (exit 2). Listing the input
-///    reads no image.
+/// 2. A pixel `--crop` and a border `--pad N` are converted to fractions of the
+///    image they receive, which differs per image; with `--save-recipe` that is
+///    only well defined for one input image, so a batch is refused up front
+///    (exit 2). Listing the input reads no image.
 /// 3. The steps run after the orientation bake, which every `edit` does first
 ///    wherever `--auto-orient` is typed (the flag is an accepted no-op).
 /// 4. `run_pixel_op` does the load → run → sink fan-out.
