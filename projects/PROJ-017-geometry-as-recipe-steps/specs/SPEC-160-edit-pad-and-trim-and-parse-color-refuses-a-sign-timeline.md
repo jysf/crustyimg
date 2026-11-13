@@ -33,4 +33,4 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
 - [x] **punch list** (2026-11-13, Sonnet, ~$0.50) — `prompts/SPEC-160-punchlist.md`. `e7d7b72` + `1bbecda`, CI
   green (18 pass, 8 skipped). `run_pixel_op`'s comment rewritten; "(DEC-095)" dropped; `docs/recipes.md` and
   `recipes/README.md` say a saved `--pad N` scales on replay (driven: 7 px on 60×40 → 148×108 on 120×80).
-- [ ] **ship**
+- [ ] **ship** — `prompts/SPEC-160-ship.md`
