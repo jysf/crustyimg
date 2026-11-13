@@ -1214,7 +1214,7 @@ fn a_signed_hex_colour_is_refused_on_every_route() {
     // A recipe with one step, run through `apply`.
     let apply = |step: &str| -> Ran {
         let rec = d.join("x.toml");
-        std::fs::write(&rec, format!("[[step]]\n{step}\n")).unwrap();
+        std::fs::write(&rec, format!("version = \"1\"\n\n[[step]]\n{step}\n")).unwrap();
         run(&strs(&[
             "apply",
             "--recipe",
