@@ -17,6 +17,12 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
   22 mutation rows (all driven). Corrections: `--pad N` past the long edge fails at apply (`border` <= 1);
   `edit`'s alpha line names `--pad-color` via `IntroducedAlpha.flag`; the batch-wide format is `--format` or the
   template only; one `FlagWorded` wrapper for the aspect pad and `trim`. No wasm row.
-- [ ] **build** — `prompts/SPEC-160-build.md`
-- [ ] **verify**
+- [x] **build** (2026-11-13, Sonnet, $7.27) — draft PR #264 at `23a5c0e`, CI green (18 pass, 8 release
+  jobs skipped; the first run's Windows leg failed on the build's own `/in/a.jpg` separator asserts, fixed).
+  RED on `main`: `edit_pad_trim` 13/13, FT-18 ×2, FT-16; FT-17 green. 16/16 ACs claimed; every behaviour
+  sentence driven per exit path. 22 mutation rows driven; table gaps: M6a also reds two `tests/trim.rs`
+  tests, M9 also FT-4 and FT-9, M10a two `tests/pad.rs` tests, M10b the recipe-corpus golden; trap 14 stops
+  at the lib's E0063, so its integration rows did not run. Files: the 13 in Outputs plus the spec. Cost
+  measured before the CI-fix turns.
+- [ ] **verify** — `prompts/SPEC-160-verify.md`
 - [ ] **ship**
