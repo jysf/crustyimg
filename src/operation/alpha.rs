@@ -166,4 +166,30 @@ mod tests {
             "recipe step 0 ('pad'): 'color' = \"#ff000080\" has alpha 80, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead"
         );
     }
+
+    #[test]
+    fn messages_name_the_flag_when_a_flag_set_it() {
+        let line = |written: &str, alpha: u8, format: ImageFormat| {
+            UnstorableAlpha {
+                step: 1,
+                op: "pad",
+                introduced: IntroducedAlpha {
+                    alpha,
+                    key: "color",
+                    written: written.to_owned(),
+                    flag: Some("--pad-color"),
+                },
+                format,
+            }
+            .to_string()
+        };
+        assert_eq!(
+            line("transparent", 0, ImageFormat::Jpeg),
+            "--pad-color \"transparent\" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque"
+        );
+        assert_eq!(
+            line("#ff000080", 0x80, ImageFormat::Gif),
+            "--pad-color \"#ff000080\" has alpha 80, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead"
+        );
+    }
 }

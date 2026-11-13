@@ -1269,6 +1269,24 @@ mod tests {
             order(&["crustyimg", "edit", "in", "--resize-max", "3"]),
             [EditOp::ResizeMax]
         );
+        // A switch typed before the input path keeps its position, and the
+        // modifiers (`--pad-color`, `--trim-tolerance`) have none.
+        assert_eq!(
+            order(&[
+                "crustyimg",
+                "edit",
+                "--trim",
+                "--rotate=90",
+                "in",
+                "--pad",
+                "4:5",
+                "--pad-color",
+                "000000",
+                "--trim-tolerance",
+                "2"
+            ]),
+            [EditOp::Trim, EditOp::Rotate, EditOp::Pad]
+        );
     }
 
     #[test]

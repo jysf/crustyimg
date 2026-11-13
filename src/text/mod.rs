@@ -363,4 +363,21 @@ mod tests {
         // Eight bytes, the other length.
         assert!(matches!(parse_color("aéaaaaa"), Err(TextError::Color(_))));
     }
+
+    #[test]
+    fn parse_color_refuses_a_sign() {
+        // A sign, a prefix or a space makes a pair that `from_str_radix` alone
+        // would read, so each must be refused before the pairs are parsed.
+        for bad in [
+            "+f+f+f", "#+f+f+f", "+f+f+f+f", "-f-f-f", "+0+0+0", "0x0f0f", " fffff",
+        ] {
+            assert!(
+                matches!(parse_color(bad), Err(TextError::Color(_))),
+                "{bad:?} must be refused"
+            );
+        }
+        assert_eq!(parse_color("#0f0f0f").unwrap(), [15, 15, 15, 255]);
+        assert_eq!(parse_color("0F0F0F0F").unwrap(), [15, 15, 15, 15]);
+        assert_eq!(parse_color("AbCdEf").unwrap(), [0xab, 0xcd, 0xef, 255]);
+    }
 }
