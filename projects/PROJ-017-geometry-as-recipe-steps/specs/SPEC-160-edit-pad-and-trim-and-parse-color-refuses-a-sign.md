@@ -91,10 +91,25 @@ cost:
         so it omits the last few turns. Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25),
         $0.30 cache_read (x0.10), $15 output. The 22 mutation suite runs and the matrix ran as shell
         commands, so their compile time costs no tokens.
+    - cycle: punchlist
+      date: 2026-11-13
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 922429
+      tokens_breakdown:
+        input: 26
+        cache_creation: 49725
+        cache_read: 869199
+        output: 3479
+      estimated_usd: 0.50
+      note: >
+        Measured from the session JSONL (found by content), deduped by message.id (13 messages; max
+        output_tokens per id), no subagents, before this spec commit, so it omits the last few turns.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 42765637
-    estimated_usd: 26.53
-    session_count: 3
+    tokens_total: 43688066
+    estimated_usd: 27.03
+    session_count: 4
 ---
 
 # SPEC-160: edit --pad and --trim, and parse_color refuses a sign
@@ -1290,6 +1305,22 @@ other test in those four targets.
 **Matrix:** default 1350 passed, 0 failed; `--no-default-features` 1286 passed, 0 failed; `--features webp-lossy` exit 0. Clippy `-D warnings` and `fmt --check` exit 0 on all three, each in a fresh target dir. `just wasm-check` exit 0, `just wasm-test` exit 0 (56 passed).
 - **Overlap after the last rebase** (`gh pr list`): #240 `src/cli/ops.rs`, #237 `CHANGELOG.md`, #226 `src/cli/mod.rs`; nothing new. Branch was already up to date with `main`.
 - **Follow-up work identified:** none.
+
+### Punch list (verify)
+
+Wording only, commit `e7d7b72` on `feat/spec-160-edit-pad-trim`. As they now read:
+- `src/cli/ops.rs`, `run_pixel_op`: "A forced format is the same for every input, so a step that writes alpha it can't store is refused once, here, before any input is read. An unforced format is resolved per input, so that check happens below, once the format is known, whenever a step adds alpha."
+- `tests/edit_pad_trim.rs`: "fill and gains alpha for a translucent one." (the DEC id is gone)
+- `docs/recipes.md`: "a border `--pad N` is saved as a fraction of that image's long edge, so a replay scales the border with the image (7 px saved from a 60 px long edge replays as 14 px on a 120 px one)."
+- `recipes/README.md`: "a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step, so a replay scales them with the image (a 7 px border saved from a 60 px long edge replays as 14 px on a 120 px one)."
+
+Replay drive (release build, fresh target dir):
+- `edit a.png --pad 7 --pad-color 000000 -o e.png -y --save-recipe r.toml` on a 60x40 PNG: exit 0, `e.png` 74x54, `r.toml` line 8 `border = 0.11666666666666667`.
+- `apply --recipe r.toml b.png -o out/b.png -y` on a 120x80 PNG: exit 0; `magick identify`: `out/b.png PNG 148x108`.
+
+Gates: `cargo test --test docs_ops --test edit_pad_trim` exit 0 (3 and 13 passed); `cargo fmt --check` 0; `cargo clippy --all-targets -- -D warnings` 0; the id grep over the added lines found nothing.
+
+CI at the pushed head: see the PR; recorded in the punch-list report.
 
 ### Build-phase reflection (3 questions, short answers)
 
