@@ -13,8 +13,9 @@ use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::registry::param_spec;
 use crate::operation::{
-    Crop, Gravity, InvisibleMark, Operation, OperationError, OperationParams, OperationRegistry,
-    RegistryError, Watermark, WATERMARK_PARAMS,
+    Crop, Gravity, IntroducedAlpha, InvisibleMark, Operation, OperationError, OperationParams,
+    OperationRegistry, Pad, Refusal, RegistryError, Watermark, MAX_AREA, MAX_EDGE,
+    WATERMARK_PARAMS,
 };
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
@@ -1050,6 +1051,11 @@ pub(crate) struct EditFlags {
     pub(crate) crop_gravity: Option<String>,
     pub(crate) rotate: Option<i64>,
     pub(crate) flip: Option<String>,
+    pub(crate) pad: Option<String>,
+    pub(crate) pad_color: Option<String>,
+    pub(crate) pad_gravity: Option<String>,
+    pub(crate) trim_color: Option<String>,
+    pub(crate) trim_tolerance: Option<u8>,
     pub(crate) order: Vec<EditOp>,
 }
 
@@ -1057,7 +1063,8 @@ pub(crate) struct EditFlags {
 enum StepRecord {
     /// The op's own params, known when it was built.
     Built(OperationParams),
-    /// A pixel `--crop`: the fractions it worked out when it ran, read after the run.
+    /// A pixel `--crop` or a border `--pad N`: the fractions it worked out when it
+    /// ran, read after the run.
     Resolved(Rc<RefCell<Option<OperationParams>>>),
 }
 
@@ -1192,6 +1199,176 @@ impl Operation for PixelCrop {
     }
 }
 
+/// A `--pad` value: pixels on every side (`N`) or an aspect (`W:H`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PadFlag {
+    Border(u32),
+    Aspect,
+}
+
+/// Parse a `--pad` value. A `:` makes it an aspect (checked later by the op);
+/// otherwise it must be whole pixels, at least 1.
+fn parse_pad_flag(s: &str) -> Result<PadFlag, CliError> {
+    if s.contains(':') {
+        return Ok(PadFlag::Aspect);
+    }
+    match crop_number(s) {
+        Some(n) if n >= 1 => Ok(PadFlag::Border(n)),
+        _ => Err(CliError::Usage(format!(
+            "--pad must be N, a whole number of pixels of at least 1, or an aspect W:H, such \
+             as 4:5; got {s:?}"
+        ))),
+    }
+}
+
+/// A border `--pad N`. It works out `border` (N over the long edge) from the
+/// image it receives, which is not the decoded image when an earlier step
+/// resized or turned it, and keeps it for `--save-recipe`.
+struct PixelPad {
+    n: u32,
+    /// The `--pad-color` value as typed; it is saved as written.
+    color: String,
+    /// What a translucent fill adds, carrying the flag that set it. Without
+    /// this forward, the alpha checks pass and a JPEG gets a black border.
+    alpha: Option<IntroducedAlpha>,
+    resolved: Rc<RefCell<Option<OperationParams>>>,
+}
+
+impl Operation for PixelPad {
+    fn name(&self) -> &'static str {
+        "pad"
+    }
+
+    fn params(&self) -> OperationParams {
+        self.resolved
+            .borrow()
+            .clone()
+            .unwrap_or_else(OperationParams::empty)
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        let fail = |reason: String| OperationError::Apply { op: "pad", reason };
+        let (iw, ih) = (img.pixels().width(), img.pixels().height());
+        let long = iw.max(ih);
+        // Checked in pixels, before any conversion, so the messages speak pixels.
+        // A recipe's `border` is at most 1, so a wider N has no saved form.
+        if self.n > long {
+            return Err(fail(format!(
+                "--pad {} is wider than the {long} px long edge of the {iw}\u{d7}{ih} px image \
+                 it receives; a border can be at most as wide as the long edge",
+                self.n
+            )));
+        }
+        let (cw, ch) = (
+            u64::from(iw) + 2 * u64::from(self.n),
+            u64::from(ih) + 2 * u64::from(self.n),
+        );
+        if cw > u64::from(MAX_EDGE) || ch > u64::from(MAX_EDGE) {
+            return Err(fail(format!(
+                "--pad {} on this {iw}\u{d7}{ih} px image needs a {cw}\u{d7}{ch} px canvas, \
+                 which exceeds the maximum edge limit of {MAX_EDGE} px",
+                self.n
+            )));
+        }
+        if cw * ch > MAX_AREA {
+            return Err(fail(format!(
+                "--pad {} on this {iw}\u{d7}{ih} px image needs a {cw}\u{d7}{ch} px canvas = {} \
+                 px, which exceeds the maximum area of {MAX_AREA} px",
+                self.n,
+                cw * ch
+            )));
+        }
+        // One `f64` division, written to the recipe untouched: `pad` rounds
+        // `border * long` back to N px.
+        let border = f64::from(self.n) / f64::from(long);
+        let params = pad_params([
+            ("border", toml::Value::Float(border)),
+            ("color", toml::Value::String(self.color.clone())),
+        ]);
+        let pad = Pad::from_params(&params).map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => fail(reason),
+            other => fail(other.to_string()),
+        })?;
+        let out = pad.apply(img)?;
+        *self.resolved.borrow_mut() = Some(params);
+        Ok(out)
+    }
+
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        self.alpha.clone()
+    }
+}
+
+/// `pad` or `trim` params from key/value pairs.
+fn pad_params<const N: usize>(pairs: [(&str, toml::Value); N]) -> OperationParams {
+    OperationParams::from_map(
+        pairs
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+    )
+}
+
+/// An aspect `--pad` and `--trim`, wrapped so the messages name the flags the
+/// user typed. It forwards every `Operation` method; the alpha it forwards
+/// carries the flag that set it, and an apply failure has each `'key' = ` of
+/// the op's own wording replaced by its flag.
+struct FlagWorded {
+    inner: Box<dyn Operation>,
+    /// `(recipe key, flag)` pairs.
+    keys: &'static [(&'static str, &'static str)],
+}
+
+impl FlagWorded {
+    fn flag_for(&self, key: &str) -> Option<&'static str> {
+        self.keys.iter().find(|(k, _)| *k == key).map(|(_, f)| *f)
+    }
+}
+
+impl Operation for FlagWorded {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn params(&self) -> OperationParams {
+        self.inner.params()
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        self.inner.apply(img).map_err(|e| match e {
+            OperationError::Apply { op, mut reason } => {
+                for (key, flag) in self.keys {
+                    reason = reason.replace(&format!("'{key}' = "), &format!("{flag} "));
+                }
+                OperationError::Apply { op, reason }
+            }
+            other => other,
+        })
+    }
+
+    fn refusal(&self, img: &Image) -> Option<Refusal> {
+        self.inner.refusal(img)
+    }
+
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        self.inner.introduced_alpha().map(|a| IntroducedAlpha {
+            flag: self.flag_for(a.key),
+            ..a
+        })
+    }
+}
+
+/// `pad`'s keys and the flags that set them.
+const PAD_FLAGS: [(&str, &str); 3] = [
+    ("aspect", "--pad"),
+    ("gravity", "--pad-gravity"),
+    ("color", "--pad-color"),
+];
+
+/// `trim`'s keys and the flags that set them.
+const TRIM_FLAGS: [(&str, &str); 2] =
+    [("color", "--trim-color"), ("tolerance", "--trim-tolerance")];
+
 /// Build one op through the registry. A refusal names the flag the user typed
 /// instead of the recipe key: each `(key, flag)` swaps the first `'key'` in the
 /// op's message for `flag`.
@@ -1248,7 +1425,7 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
     if flags.order.is_empty() && !flags.auto_orient {
         return Err(CliError::Usage(
             "edit requires at least one operation flag (--auto-orient, --resize-max, --invert, \
-             --crop, --rotate, --flip)"
+             --crop, --rotate, --flip, --pad, --trim)"
                 .into(),
         ));
     }
@@ -1337,6 +1514,88 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
                     }
                 }
             }
+            EditOp::Pad => {
+                let typed = flags
+                    .pad
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--pad"))?;
+                let color = flags
+                    .pad_color
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--pad-color"))?;
+                match parse_pad_flag(typed)? {
+                    PadFlag::Aspect => {
+                        let mut params = pad_params([
+                            ("aspect", toml::Value::String(typed.to_owned())),
+                            ("color", toml::Value::String(color.to_owned())),
+                        ]);
+                        if let Some(g) = &flags.pad_gravity {
+                            params = OperationParams::from_map(
+                                params
+                                    .iter()
+                                    .map(|(k, v)| (k.to_owned(), v.clone()))
+                                    .chain([("gravity".to_owned(), toml::Value::String(g.clone()))])
+                                    .collect(),
+                            );
+                        }
+                        let inner = build_flag_op("pad", &params, &PAD_FLAGS)?;
+                        steps.push(built(Box::new(FlagWorded {
+                            inner,
+                            keys: &PAD_FLAGS,
+                        })));
+                    }
+                    PadFlag::Border(n) => {
+                        if flags.pad_gravity.is_some() {
+                            return Err(CliError::Usage(
+                                "--pad-gravity only places an aspect --pad W:H; a border --pad N \
+                                 adds the same width on every side"
+                                    .into(),
+                            ));
+                        }
+                        // A stand-in with `border = 1`: it runs the colour through
+                        // `pad`'s own parser before any file is read, and says
+                        // what alpha the fill adds. The real border is worked out
+                        // from the image the step receives.
+                        let stand_in = build_flag_op(
+                            "pad",
+                            &pad_params([
+                                ("border", toml::Value::Float(1.0)),
+                                ("color", toml::Value::String(color.to_owned())),
+                            ]),
+                            &PAD_FLAGS,
+                        )?;
+                        let alpha = stand_in.introduced_alpha().map(|a| IntroducedAlpha {
+                            flag: Some("--pad-color"),
+                            ..a
+                        });
+                        let resolved = Rc::new(RefCell::new(None));
+                        steps.push(EditStep {
+                            op: Box::new(PixelPad {
+                                n,
+                                color: color.to_owned(),
+                                alpha,
+                                resolved: Rc::clone(&resolved),
+                            }),
+                            record: StepRecord::Resolved(resolved),
+                        });
+                    }
+                }
+            }
+            EditOp::Trim => {
+                // Only what was typed is saved, so the recipe replays what ran.
+                let mut map = std::collections::BTreeMap::new();
+                if let Some(c) = &flags.trim_color {
+                    map.insert("color".to_owned(), toml::Value::String(c.clone()));
+                }
+                if let Some(t) = flags.trim_tolerance {
+                    map.insert("tolerance".to_owned(), toml::Value::Integer(i64::from(t)));
+                }
+                let inner = build_flag_op("trim", &OperationParams::from_map(map), &TRIM_FLAGS)?;
+                steps.push(built(Box::new(FlagWorded {
+                    inner,
+                    keys: &TRIM_FLAGS,
+                })));
+            }
         }
     }
     Ok(steps)
@@ -1371,20 +1630,29 @@ pub(super) fn run_edit(
     // 1. Build every step (fails on zero flags or a bad value).
     let steps = build_edit_ops(flags)?;
 
-    // 2. A pixel crop saved as fractions needs exactly one image to be about.
-    let has_pixel_crop = steps
+    // 2. A pixel crop or a border pad saved as fractions needs exactly one image
+    // to be about. The first such step, in typed order, picks the message.
+    let first_pixel_step = steps
         .iter()
-        .any(|s| matches!(s.record, StepRecord::Resolved(_)));
-    if save_recipe.is_some() && has_pixel_crop && input != "-" {
+        .find(|s| matches!(s.record, StepRecord::Resolved(_)));
+    if let (Some(step), Some(_), true) = (first_pixel_step, save_recipe, input != "-") {
         let listed =
             source::resolve_all(&[input.to_owned()], &mut std::io::empty(), OnEmpty::Fail)?;
         let count = listed.len();
         if count > 1 {
-            return Err(CliError::Usage(format!(
-                "--save-recipe with a pixel --crop needs one input image, and {input:?} names \
-                 {count}: the crop is saved as fractions of the image it ran on; use an aspect \
-                 --crop W:H, or edit each image on its own"
-            )));
+            return Err(CliError::Usage(if step.op.name() == "pad" {
+                format!(
+                    "--save-recipe with a border --pad N needs one input image, and {input:?} \
+                     names {count}: the border is saved as a fraction of the image it ran on; \
+                     use an aspect --pad W:H, or edit each image on its own"
+                )
+            } else {
+                format!(
+                    "--save-recipe with a pixel --crop needs one input image, and {input:?} \
+                     names {count}: the crop is saved as fractions of the image it ran on; use \
+                     an aspect --crop W:H, or edit each image on its own"
+                )
+            }));
         }
     }
 
@@ -1420,8 +1688,8 @@ pub(super) fn run_edit(
                 StepRecord::Built(p) => p,
                 StepRecord::Resolved(cell) => cell.borrow().clone().ok_or_else(|| {
                     CliError::Operation(OperationError::Apply {
-                        op: "crop",
-                        reason: "internal: the crop step never ran".to_owned(),
+                        op: name,
+                        reason: format!("internal: the {name} step never ran"),
                     })
                 })?,
             };

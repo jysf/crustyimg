@@ -1130,12 +1130,17 @@ fn batch_save_recipe_with_pad_n_is_refused() {
     assert_eq!(r.stderr, crop_line);
 
     // The aspect form and --trim are size-independent: they save from a batch.
-    for args in [
-        &["--pad", "1:1", "--pad-color", "ff0000"][..],
-        &["--trim", "--trim-tolerance", "3"][..],
+    // (--trim needs images with something to keep, so it gets a noise batch.)
+    let nd = dir.path().join("noisy");
+    std::fs::create_dir(&nd).unwrap();
+    write_img(&nd, "a.png", &framed("rgb8"));
+    write_img(&nd, "b.png", &framed("rgba8"));
+    for (src, args) in [
+        (&d, &["--pad", "1:1", "--pad-color", "ff0000"][..]),
+        (&nd, &["--trim", "--trim-tolerance", "3"][..]),
     ] {
         let od2 = dir.path().join("od2");
-        let mut a = vec![s(&d)];
+        let mut a = vec![s(src)];
         a.extend(args);
         a.extend(["--out-dir", s(&od2), "--save-recipe", s(&rec), "-y"]);
         let r = ed(&a);

@@ -359,6 +359,7 @@ impl Operation for Pad {
             alpha,
             key: "color",
             written: self.params.get_str("color").unwrap_or_default().to_owned(),
+            flag: None,
         })
     }
 }
