@@ -24,5 +24,11 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
   tests, M9 also FT-4 and FT-9, M10a two `tests/pad.rs` tests, M10b the recipe-corpus golden; trap 14 stops
   at the lib's E0063, so its integration rows did not run. Files: the 13 in Outputs plus the spec. Cost
   measured before the CI-fix turns.
-- [ ] **verify** — `prompts/SPEC-160-verify.md`
+- [x] **verify** (2026-11-13, Opus, $8.36) — `prompts/SPEC-160-verify.md`. ⚠ PUNCH LIST at `23a5c0e`, wording
+  only, no re-verify: `run_pixel_op`'s comment still says only a forced-format caller can carry an alpha step
+  (`ops.rs:353-356`); a test comment names DEC-095 (`edit_pad_trim.rs:262`). Driven: 66 message rows exact;
+  `parse_color` 113/113 rows on 7 routes; pad fills c×257 on 18 rows (ImageMagick); nine gravities from an
+  independent model; M2, M4, M6a, M9, M10b and trap 14 (integration targets alone: `edit_geometry` 21/2, not
+  23 green). DEC-115's replacement text: apply as written.
+- [ ] **punch list** — `prompts/SPEC-160-punchlist.md`
 - [ ] **ship**
