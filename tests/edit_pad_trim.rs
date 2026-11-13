@@ -145,6 +145,12 @@ fn strs(args: &[&str]) -> Vec<String> {
     args.iter().map(|s| (*s).to_owned()).collect()
 }
 
+/// A stderr line with Windows path separators turned into `/`, so a tail that
+/// names a path matches on every platform.
+fn slashed(line: &str) -> String {
+    line.replace('\\', "/")
+}
+
 fn s(p: &Path) -> &str {
     p.to_str().unwrap()
 }
@@ -721,7 +727,7 @@ fn translucent_pad_kept_format_batch_fails_that_input() {
     assert!(lines[0].starts_with("error: "), "{}", lines[0]);
     // The resolver prints a canonical path, so match the tail.
     assert!(
-        lines[0].ends_with(&format!(
+        slashed(lines[0]).ends_with(&format!(
             "/in/a.jpg: --pad-color \"transparent\" has alpha 00, {JPEG_TAIL}"
         )),
         "{}",
@@ -896,7 +902,7 @@ fn pad_n_failures_speak_pixels() {
     let lines: Vec<&str> = r.stderr.lines().collect();
     assert_eq!(lines.len(), 2, "{}", r.stderr);
     assert!(
-        lines[0].ends_with("/a.png: operation 'pad' failed: --pad 5 is wider than the 4 px long edge of the 4×4 px image it receives; a border can be at most as wide as the long edge"),
+        slashed(lines[0]).ends_with("/a.png: operation 'pad' failed: --pad 5 is wider than the 4 px long edge of the 4×4 px image it receives; a border can be at most as wide as the long edge"),
         "{}",
         lines[0]
     );
@@ -950,7 +956,7 @@ fn trim_whole_match_names_the_flags() {
     let lines: Vec<&str> = r.stderr.lines().collect();
     assert_eq!(lines.len(), 2, "{}", r.stderr);
     assert!(
-        lines[0].ends_with("/flat.png: operation 'trim' failed: every pixel of this 4×4 px image matches its top-left pixel within --trim-tolerance 0, so a trim would leave nothing"),
+        slashed(lines[0]).ends_with("/flat.png: operation 'trim' failed: every pixel of this 4×4 px image matches its top-left pixel within --trim-tolerance 0, so a trim would leave nothing"),
         "{}",
         lines[0]
     );
