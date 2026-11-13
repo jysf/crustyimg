@@ -538,8 +538,8 @@ fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
-#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
-One-shot multi-op on a single image — the "experiment like an editor" mode.
+#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
+One-shot multi-op on one image or a batch (`--out-dir`) — the "experiment like an editor" mode.
 Every invocation **bakes EXIF orientation first** (SPEC-110), before any of the
 flag-driven ops run — so `edit --invert` and `edit --resize-max N` are never
 sideways, matching every other pixel-lane verb. `--auto-orient` is now an
@@ -547,18 +547,27 @@ sideways, matching every other pixel-lane verb. `--auto-orient` is now an
 about the output whether it is passed or not (kept because the CLI surface was
 frozen in STAGE-030; no opt-out flag exists). The remaining op flags build an
 ordered operation list (`--resize-max N`, `--invert`, `--crop`, `--rotate`,
-`--flip` — only ops that round-trip through the registry, DEC-005). **At least one op flag is required**
+`--flip`, `--pad`, `--trim` — only ops that round-trip through the registry, DEC-005). **At least one op flag is required**
 (else exit 2) — `--auto-orient` alone still satisfies this and exits 0.
 The op flags run **in the order they are typed**, and a saved recipe lists them
 in that order; orientation is always baked first, wherever `--auto-orient` is
 typed, and each op flag may be given once. A bad flag value, a repeated flag,
 `--crop-gravity` without `--crop` (or with a pixel crop), and zero op flags exit
-2 before any file is read. A pixel `--crop WxH+X+Y` is in pixels of the image
+2 before any file is read. `--pad-color`/`--pad-gravity` without `--pad`,
+`--pad-gravity` with a border `--pad N`, and `--trim-color`/`--trim-tolerance`
+without `--trim` exit 2 before any file is read. A pixel `--crop WxH+X+Y` is in pixels of the image
 the step receives; one that runs past its edge exits 1, naming the flag and
-that image's size. With `--save-recipe`, a pixel `--crop` is saved as fractions
-of the image the step received and needs **one input image**: a directory or
-glob naming several is exit 2 (an aspect `--crop W:H` has no pixel length and
-saves from a batch). A failed run writes no recipe. Output, format,
+that image's size. A border `--pad N` is in pixels of the image the step
+receives: N past that image's long edge, or a canvas past the size caps, exits
+1. A `--pad-color` whose alpha the output format can't store exits 4 before
+anything is written (one input, or a batch whose format the flags fix), or
+fails that input in a batch that keeps each input's format (exit 6). `--trim`
+on an image that matches all over exits 1 (exit 6 in a batch). With
+`--save-recipe`, a pixel `--crop` is saved as fractions of the image the step
+received and needs **one input image**, and a border `--pad N` is saved as a
+fraction of the long edge and needs one input image too: a directory or glob
+naming several is exit 2 (an aspect `--crop W:H` or `--pad W:H` has no pixel
+length and saves from a batch). A failed run writes no recipe. Output, format,
 `-q`/`-y` behave as for the other pixel commands (`-o`/`-o -`/`--out-dir`;
 `--format` › `-o` ext › preserve). `--save-recipe FILE` serializes the exact op
 chain to a TOML recipe (DEC-005, `version = "1"`) that `apply --recipe FILE`

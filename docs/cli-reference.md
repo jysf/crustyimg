@@ -297,13 +297,13 @@ and a closing `watermark skipped on K of N images`, at exit `0`.
 
 ## Recipes & batch
 
-### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--save-recipe FILE]`
-Chain an ordered op list on a **single** image in one decode → ops → encode pass. Every
+### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [--save-recipe FILE]`
+Chain an ordered op list on one image or a batch (`--out-dir`), each in one decode → ops → encode pass. Every
 `edit` invocation **bakes EXIF orientation first** — `edit --invert` and
 `edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
 baking already happens unconditionally, so passing the flag changes nothing about the
 output; it stays because the CLI surface is frozen (STAGE-030) and it must keep exiting
-0. Op flags (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`) run **in the order you
+0. Op flags (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`) run **in the order you
 type them**, like a recipe's steps: `--rotate 90 --crop 1200x800+0+100` turns the image, then
 crops what it shows, while `--crop … --rotate 90` crops first. Orientation is always baked
 first, wherever `--auto-orient` is typed. Each op flag may be given once (a repeat exits 2);
@@ -317,12 +317,24 @@ still satisfies this).
   aspect form only).
 - `--rotate DEGREES` turns clockwise by a multiple of 90 from -360 to 360 (negative turns
   counter-clockwise). `--flip horizontal|vertical` mirrors.
+- `--pad N` adds N pixels on every side, in pixels of the image at that point in the command; N
+  may be at most that image's long edge, and a wider N or a canvas past 50000 px a side (or
+  134217728 px in all) exits 1, naming the flag and the image's size. `--pad W:H` grows the
+  canvas to that aspect, placed by `--pad-gravity` (aspect form only). `--pad-color` is required:
+  `transparent` or hex with any alpha. A fill alpha the output format can't store (any below `ff`
+  into JPEG; `01`-`fe` into GIF) is refused before anything is written: exit 4 for one input or
+  for a batch whose format `--format` or the name template fixes; in a batch that keeps each
+  input's format, that input fails and the run exits 6.
+- `--trim` removes the outer rows and columns that match the top-left pixel, or `--trim-color`,
+  within `--trim-tolerance` (8-bit steps, default 0). An image that matches all over exits 1; in a
+  batch that input fails, the others are written, exit 6.
 
 `--save-recipe FILE` serializes the steps that ran to a TOML recipe: it starts with `auto-orient`
 and lists the steps in the order they ran. A pixel `--crop` is saved as fractions of the image the
-step received (`x`, `y`, `width`, `height`), and needs one input image when `--save-recipe` is
-given (a directory or glob naming several exits 2; use an aspect `--crop` or edit each image on
-its own). A failed run writes no recipe.
+step received (`x`, `y`, `width`, `height`), and a border `--pad N` as `border`, N over that
+image's long edge; either needs one input image when `--save-recipe` is given (a directory or
+glob naming several exits 2; use an aspect `--crop W:H` or `--pad W:H`, or edit each image on its
+own). A failed run writes no recipe.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
 crustyimg edit photo.jpg --rotate 90 --crop 1200x800+0+100 -o out.jpg

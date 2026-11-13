@@ -50,8 +50,8 @@ The round trip is **byte-stable** — replaying the saved recipe reproduces the 
 byte for byte, so a recipe reviewed in a PR is exactly what runs in CI.
 
 A saved recipe always starts with an `auto-orient` step, wherever `--auto-orient` is typed. `edit`
-then records the other ops it exposes (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`)
-in the order you typed them; a pixel `--crop` is saved as fractions of the image at that step. For
+then records the other ops it exposes (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`)
+in the order you typed them; a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step. For
 anything else — a watermark, an output format, or the terminal
 `optimize` step the bundled recipes end in — write the TOML directly:
 
