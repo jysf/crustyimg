@@ -219,18 +219,8 @@ pub(super) fn output_format_for(
     recipe_format: Option<&str>,
     source_format: ::image::ImageFormat,
 ) -> Result<::image::ImageFormat, CliError> {
-    // 1. Explicit --format wins.
-    if let Some(fmt) = resolve_format(global.format.as_deref())? {
-        return Ok(fmt);
-    }
-
-    // 2. The output name's extension: -o <path>, else the --out-dir template.
-    // An unrecognized extension names the file only and falls through.
-    if let Some(path) = output_path {
-        if let Ok(fmt) = crate::sink::format_from_extension(path) {
-            return Ok(fmt);
-        }
-    } else if let Some(fmt) = template.and_then(crate::sink::template_literal_format) {
+    // 1-2. The format the flags and the output name fix.
+    if let Some(fmt) = format_fixed_by_flags(global, output_path, template)? {
         return Ok(fmt);
     }
 
@@ -242,6 +232,33 @@ pub(super) fn output_format_for(
 
     // 4. Preserve source format.
     Ok(source_format)
+}
+
+/// The output format that `--format` or the output name fixes, or `None` when
+/// neither does (rungs 1 and 2 of [`output_format_for`]).
+///
+/// Reads no input, so a batch whose format is the same for every image can ask
+/// it once, before any image is read.
+pub(super) fn format_fixed_by_flags(
+    global: &GlobalArgs,
+    output_path: Option<&Path>,
+    template: Option<&str>,
+) -> Result<Option<::image::ImageFormat>, CliError> {
+    // 1. Explicit --format wins.
+    if let Some(fmt) = resolve_format(global.format.as_deref())? {
+        return Ok(Some(fmt));
+    }
+
+    // 2. The output name's extension: -o <path>, else the --out-dir template.
+    // An unrecognized extension names the file only and falls through.
+    if let Some(path) = output_path {
+        if let Ok(fmt) = crate::sink::format_from_extension(path) {
+            return Ok(Some(fmt));
+        }
+    } else if let Some(fmt) = template.and_then(crate::sink::template_literal_format) {
+        return Ok(Some(fmt));
+    }
+    Ok(None)
 }
 
 // ── resize handler ─────────────────────────────────────────────────────────────
@@ -347,6 +364,13 @@ pub(super) fn run_pixel_op(
     // load/run/write failures AFTER successful resolution.
     let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
+    // A caller that resolves the format per input checks a step's alpha against
+    // it here, but only when a step adds alpha. Every other pipeline keeps its
+    // exit codes: resolving the format before the pipeline runs would turn a
+    // pipeline failure, such as a crop past the edge, into a format error
+    // whenever `--format` is also wrong.
+    let alpha_check = forced_format.is_none() && pipeline.introduces_alpha();
+
     let overwrite = if global.yes {
         Overwrite::Allow
     } else {
@@ -376,6 +400,23 @@ pub(super) fn run_pixel_op(
             eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
         }
 
+        // The output name and the template that fix the format. The template
+        // names the output only when it goes into --out-dir.
+        let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
+        let template = if output_path.is_none() && global.out_dir.is_some() {
+            global.name_template.as_deref()
+        } else {
+            None
+        };
+
+        // Before the pipeline runs, so one input is refused with nothing written.
+        if alpha_check {
+            let fmt = output_format_for(global, output_path, template, None, img.source_format())?;
+            if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                return Err(refused.into());
+            }
+        }
+
         // Captured BEFORE the pipeline (which may replace the pixels) consumes
         // `img` — only needed when `never_bigger` is set, but cheap to always take
         // (a snapshot of already-decoded fields, no re-decode).
@@ -384,20 +425,11 @@ pub(super) fn run_pixel_op(
         let out_img = pipeline.run(img.clone())?;
 
         // Resolve per-input output format (DEC-015): forced_format wins if Some.
-        let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
         let fmt = match forced_format {
             Some(f) => f,
             // No recipe on this path (`resize`/`thumbnail`/`watermark`/`edit`/
             // `auto-orient` build their pipeline directly from CLI flags).
-            None => {
-                // The template names the output only when it goes into --out-dir.
-                let template = if output_path.is_none() && global.out_dir.is_some() {
-                    global.name_template.as_deref()
-                } else {
-                    None
-                };
-                output_format_for(global, output_path, template, None, img.source_format())?
-            }
+            None => output_format_for(global, output_path, template, None, img.source_format())?,
         };
 
         // Build the sink with the resolved format.
@@ -460,6 +492,16 @@ pub(super) fn run_pixel_op(
             .clone()
             .unwrap_or_else(|| "{stem}.{ext}".to_owned());
 
+        // A format the flags fix for every input is checked once, before any
+        // image is read: refusing it per input would fail every input one by one.
+        if alpha_check {
+            if let Some(fmt) = format_fixed_by_flags(global, None, Some(&template))? {
+                if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                    return Err(refused.into());
+                }
+            }
+        }
+
         let total = all.len();
         let mut failed: usize = 0;
         let mut skipped_images: usize = 0;
@@ -484,6 +526,21 @@ pub(super) fn run_pixel_op(
                 // SPEC-119: see the single-input branch above.
                 if img.is_animated_input() {
                     eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
+                }
+
+                // A format that follows this input is known now, and before the
+                // pipeline runs: only this input fails.
+                if alpha_check {
+                    let fmt = output_format_for(
+                        global,
+                        None,
+                        Some(&template),
+                        None,
+                        img.source_format(),
+                    )?;
+                    if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                        return Err(refused.into());
+                    }
                 }
 
                 // See the single-input branch above: captured before the pipeline
