@@ -124,11 +124,11 @@ alongside build/cache as the work velocity actually compresses.
 
 Ordered by dependency. Specs inside each stage are listed in build order.
 
-- [ ] STAGE-058 (proposed) — Lossless geometry: crop, quarter-turn rotate, flip, pad, trim, and their `edit` flags
+- [x] STAGE-058 (shipped 2026-11-13) — Lossless geometry: crop, quarter-turn rotate, flip, pad, trim, and their `edit` flags
 - [ ] STAGE-059 (proposed) — Straighten: rotate by any angle, resampled in linear light, crop-to-fit or expand
 - [ ] STAGE-060 (proposed) — The ddphotos edit page crops and straightens, and its recipe replays on the original
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 1 shipped / 0 active / 2 pending
 
 STAGE-060's crop half can start once STAGE-058's crop spec ships. Its straighten half
 waits for STAGE-059.

@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-058
-  status: proposed
+  status: shipped
   priority: high
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-10-30
-shipped_at: null
+shipped_at: 2026-11-13
 
 value_contribution:
   advances: >
@@ -294,13 +294,86 @@ In build order. Each is framed in its own session first.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Written at the stage ship, 2026-11-13, from the eight specs' reflections, PROJ-011's HANDOFF traps
+and the timelines. Every criterion below was driven on a release build of `main` at `5c874e2`, in a
+scratch `CARGO_TARGET_DIR` deleted afterwards.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
-- **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. All five criteria are met on the binary:
+  - (1) Each of the five ops refuses an unknown key and a bad value at load in a two-input batch: exit 1, a
+    message naming `recipe step 1 ('<op>')`, and no output directory. That is 10 of 10 rows, plus a valid
+    control that wrote both images.
+  - (2) Rotate-90 ×4, rotate-−90 ×4, flip-horizontal ×2 and flip-vertical ×2 give ImageMagick
+    `compare -metric AE` = 0 on RGB8, RGBA8, RGB16 and RGBA16, with depth and channels kept (16 of 16).
+    A three-turn control differs.
+  - (3) One fractional crop on a 6000×4000 image and its 1200×800 downscale lands on DEC-112's boxes.
+    The pixels match an independent `magick -crop` exactly (AE 0). Every edge drifts at most 0.4 px in
+    1200-px units, including at a near-tie width.
+  - (4) `edit --trim --flip --pad --rotate --crop`, typed in that non-canonical order, saved six steps
+    (`auto-orient` first, then the five in typed order). `apply` of the saved recipe wrote the same bytes
+    (sha256 `271db601…`).
+  - (5) `recipe_corpus_output` passed 9 tests, with 1 ignored (the bless switch). The 42 pre-stage
+    goldens were pinned at `d41ec90` (SPEC-141, 2026-10-31), before SPEC-145, and no commit has touched
+    them since.
+  - No op resamples. Crop, rotate, flip and trim outputs are made only of input pixels, and pad adds
+    only the fill colour (checked with a script over ImageMagick's pixel dump).
+  - One `delivers` line is partly met. `pad` goes to an aspect or adds a border, not "to a size":
+    SPEC-151's frame rejected an exact size under DEC-112 rule 6, because `resize fit` followed by
+    `pad aspect` reaches an exact box. SPEC-151's `value_link` says this correctly.
+- **How many specs did it actually take?** Eight shipped specs against the six-entry plan. `pad`
+  split into opaque `pad` (SPEC-151) and transparent `pad` with DEC-115 (SPEC-159). The `edit` flags
+  entry split into SPEC-153 and SPEC-160. Six backlog entries folded into specs, and four moved out:
+  three to `guidance/ideas.yaml` and one to STAGE-060. The work ran from SPEC-141's frame on
+  2026-10-30 to SPEC-160's ship on 2026-11-13. It took 52 sessions and cost $299.26
+  (498,465,319 tokens), summed from the eight `cost.totals`.
+- **What changed between starting and shipping?** Two rules emerged that nobody planned:
+  - DEC-115: a fill alpha the output format can't store is refused before the pipeline runs. A
+    transparent `pad` widens RGB to RGBA, so the Design Note "these ops never widen" now holds for
+    depth only.
+  - `parse_color` refuses any non-hex byte, so `+f+f+f` is no longer read as `#0f0f0f`.
+- **Lessons that should update AGENTS.md, templates, or constraints?** Proposed at this ship, not
+  applied; the stage-ship report holds the diffs.
+  - Build drives each new doc sentence that states behaviour, on every exit path the spec names.
+  - A change that makes a rule stale is swept across DECs and code comments, both at design and before
+    handoff.
+  - A mutation row's red set is read off a `--no-fail-fast` run of every target.
+  - A path assertion compares after normalising separators.
+  - Where `just wasm-test` sits in a build's file list.
+- **Should any spec-level reflections be promoted to stage-level lessons?** These patterns repeated
+  across specs:
+  - **Mutation tables were incomplete in seven of eight specs.** Build corrected cells in SPEC-145
+    (M2, M4, M6, M12 red lists), SPEC-147 (M8, M10), SPEC-153 (M1, M2, M6), SPEC-159 (M1–M3, M9, M11,
+    M13, M16) and SPEC-160 (M6a, M9, M10a, M10b). Verify found the rest: SPEC-151's M14, refuted, and
+    SPEC-152's M2 and M3, loose wording.
+    - SPEC-147's table was reasoned. From SPEC-151 on, design drove most rows on a prototype: 12 of 14,
+      21 of 21, 15, and 17 of 18. The misses that remained sat in sub-cells that were still reasoned,
+      or in targets the prototype run didn't cover. SPEC-160's four all sat outside the four targets
+      it re-ran.
+    - Driving fixed the wrong cells, not the missing ones. AGENTS §15 has the all-green half (name the
+      search) and HANDOFF trap 12 has the both-paths half. Neither says the red set comes from a run of
+      every target.
+  - **Doc sentences were wrong after build had "driven" them, three specs in a row.**
+    - SPEC-153: "replays on any size", and `--auto-orient` in typed order.
+    - SPEC-159: the per-input exit 6 was missing from three docs.
+    - SPEC-160: a saved `--pad N` scales on replay, and no doc said so.
+    - Each round fixed the previous gap (drive a sentence, then every exit path), and verify still found
+      an omission. Reading the docs at verify is the check that caught all three.
+  - **A rule made stale by its own change.** DEC-115 was written at SPEC-159's design, contradicted by
+    design correction 2, and reworded only at ship. SPEC-160's design wrote DEC-115's replacement text
+    and missed `run_pixel_op`'s code comment, which said the same stale thing. One lesson, seen twice.
+  - **CI legs that `just check` doesn't run.** SPEC-159's wasm leg caught `tests/wasm_roundtrip.rs` and
+    `scripts/wasm-ci-check.sh`, outside the file list. SPEC-160's Windows leg caught `/in/a.jpg`
+    asserts. HANDOFF trap 5 already says `just check` is weaker than CI.
+  - **Ship reflections misreported HANDOFF.** SPEC-152, SPEC-153, SPEC-159 and SPEC-160 each said the
+    repo tracks no HANDOFF file. It is at `projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`,
+    so four reflections checked one place fewer than they reported.
+  - **What went well:**
+    - HANDOFF rule 7 and AGENTS §15's "only a claim needs a re-verify" held from SPEC-147 on: no spec
+      after SPEC-145 paid for a re-verify on a wording-only punch list.
+    - Trap 17 (a bound is a claim until its worst input is driven) was written at SPEC-145. It came
+      back once, as SPEC-151's M14, and §15 now carries it.
+    - The frames' driven tables set the shape of the work: SPEC-145's pixel round trip with 0
+      mismatches, SPEC-151's 332,800-case canvas sweep and its 36/36 exact boxes, and SPEC-153's
+      replay matrix.
+    - SPEC-141's guard went first, so it proved "no existing output changed" on every PR rather than
+      once at the end.
+    - Every build reported "no design call turned out wrong".
