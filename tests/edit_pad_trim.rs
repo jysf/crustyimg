@@ -259,7 +259,7 @@ fn replay(
 fn replay_pad_and_trim_on_six_colour_types() {
     // (kind, colour type after an opaque chromatic pad, after a transparent pad,
     // after the aspect pad with alpha 80). Grey widens to RGB for a chromatic
-    // fill and gains alpha for a translucent one (DEC-095).
+    // fill and gains alpha for a translucent one.
     let kinds = [
         ("l8", ColorType::Rgb8, ColorType::La8, ColorType::Rgba8),
         ("la8", ColorType::Rgba8, ColorType::La8, ColorType::Rgba8),

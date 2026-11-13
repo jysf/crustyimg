@@ -218,7 +218,7 @@ crustyimg apply --recipe web "assets/**/*.{jpg,png}" --out-dir dist/img -j 8
   come the other ops `edit` exposes — `--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim` — in
   the order you typed them. A pixel `--crop WxH+X+Y` is saved as fractions of the image that step
   received, so on another image it crops the same proportions, not the same pixels, and fails if a
-  side rounds to 0 px; a border `--pad N` is saved as a fraction of that image's long edge.
+  side rounds to 0 px; a border `--pad N` is saved as a fraction of that image's long edge, so a replay scales the border with the image (7 px saved from a 60 px long edge replays as 14 px on a 120 px one).
 - **Write one by hand for anything else** **[today]** — a watermark,
   a pinned output `format`/`quality` (`version = "2"`), or the terminal `optimize` step the
   bundled recipes end in, is written directly as TOML. Format and op

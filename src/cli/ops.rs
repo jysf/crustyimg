@@ -351,9 +351,9 @@ pub(super) fn run_pixel_op(
     never_bigger: bool,
 ) -> Result<(), CliError> {
     // A forced format is the same for every input, so a step that writes alpha
-    // it can't store is refused once, before any input is read. The only
-    // caller whose pipeline can carry such a step forces its format; a caller
-    // that resolves the format per input must check there.
+    // it can't store is refused once, here, before any input is read. An
+    // unforced format is resolved per input, so that check happens below, once
+    // the format is known, whenever a step adds alpha.
     if let Some(refused) = forced_format.and_then(|fmt| pipeline.unstorable_alpha(fmt)) {
         return Err(refused.into());
     }

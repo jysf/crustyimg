@@ -51,7 +51,7 @@ byte for byte, so a recipe reviewed in a PR is exactly what runs in CI.
 
 A saved recipe always starts with an `auto-orient` step, wherever `--auto-orient` is typed. `edit`
 then records the other ops it exposes (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`)
-in the order you typed them; a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step. For
+in the order you typed them; a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step, so a replay scales them with the image (a 7 px border saved from a 60 px long edge replays as 14 px on a 120 px one). For
 anything else — a watermark, an output format, or the terminal
 `optimize` step the bundled recipes end in — write the TOML directly:
 
