@@ -57,6 +57,9 @@ pub struct IntroducedAlpha {
     pub key: &'static str,
     /// That key's value as the recipe wrote it, such as `transparent`.
     pub written: String,
+    /// The CLI flag that set the key, such as `--pad-color`, when the step was
+    /// built from a flag; `None` for a recipe step.
+    pub flag: Option<&'static str>,
 }
 
 /// A step's introduced alpha that the output format can't store.
@@ -71,19 +74,24 @@ pub struct UnstorableAlpha {
 }
 
 impl fmt::Display for UnstorableAlpha {
-    /// One line that names no flag, because the same line serves `apply`,
-    /// `build` and the browser build.
+    /// One line. A step built from a CLI flag names that flag, since the user
+    /// typed no step; a recipe step names its index, op and key, and no flag,
+    /// because the same line serves `apply`, `build` and the browser build.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let IntroducedAlpha {
             alpha,
             key,
             written,
+            flag,
         } = &self.introduced;
-        write!(
-            f,
-            "recipe step {} ('{}'): '{key}' = {written:?} has alpha {alpha:02x}, and ",
-            self.step, self.op
-        )?;
+        match flag {
+            Some(flag) => write!(f, "{flag} {written:?} has alpha {alpha:02x}, and ")?,
+            None => write!(
+                f,
+                "recipe step {} ('{}'): '{key}' = {written:?} has alpha {alpha:02x}, and ",
+                self.step, self.op
+            )?,
+        }
         match alpha_capacity(self.format) {
             AlphaCapacity::Binary => write!(
                 f,
@@ -145,6 +153,7 @@ mod tests {
                 alpha,
                 key: "color",
                 written: written.to_owned(),
+                flag: None,
             },
             format,
         }
@@ -164,6 +173,32 @@ mod tests {
         assert_eq!(
             refused(0, "#ff000080", 0x80, ImageFormat::Gif),
             "recipe step 0 ('pad'): 'color' = \"#ff000080\" has alpha 80, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead"
+        );
+    }
+
+    #[test]
+    fn messages_name_the_flag_when_a_flag_set_it() {
+        let line = |written: &str, alpha: u8, format: ImageFormat| {
+            UnstorableAlpha {
+                step: 1,
+                op: "pad",
+                introduced: IntroducedAlpha {
+                    alpha,
+                    key: "color",
+                    written: written.to_owned(),
+                    flag: Some("--pad-color"),
+                },
+                format,
+            }
+            .to_string()
+        };
+        assert_eq!(
+            line("transparent", 0, ImageFormat::Jpeg),
+            "--pad-color \"transparent\" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque"
+        );
+        assert_eq!(
+            line("#ff000080", 0x80, ImageFormat::Gif),
+            "--pad-color \"#ff000080\" has alpha 80, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead"
         );
     }
 }

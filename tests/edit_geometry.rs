@@ -782,7 +782,7 @@ fn no_op_flag_message_lists_every_flag() {
         &input,
         &[],
         "error: edit requires at least one operation flag (--auto-orient, --resize-max, \
-         --invert, --crop, --rotate, --flip)\n",
+         --invert, --crop, --rotate, --flip, --pad, --trim)\n",
         true,
     );
 }
@@ -807,6 +807,13 @@ fn edit_help_states_typed_order() {
         "--crop-gravity <GRAVITY>",
         "--rotate <DEGREES>",
         "--flip <AXIS>",
+        "--pad <N|W:H>",
+        "--pad-color <COLOR>",
+        "--pad-gravity <GRAVITY>",
+        "--trim",
+        "--trim-color <COLOR>",
+        "--trim-tolerance <N>",
+        "one image or a batch",
     ] {
         assert!(
             r.stdout.contains(want),

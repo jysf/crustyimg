@@ -7,7 +7,7 @@
 task:
   id: SPEC-160
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -74,10 +74,42 @@ cost:
         output_tokens per id), no subagents, after the design push and before this cost commit. Rates
         (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.50 cache_read (x0.10), $25 output.
         Includes 22 prototype mutation builds and test runs.
+    - cycle: build
+      date: 2026-11-12
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 17133612
+      tokens_breakdown:
+        input: 188
+        cache_creation: 242802
+        cache_read: 16802863
+        output: 87759
+      estimated_usd: 7.27
+      note: >
+        Measured from the session JSONL (found by content), deduped by message.id (80 messages; max
+        output_tokens per id), no subagents, after the last code push and before the final doc commit,
+        so it omits the last few turns. Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25),
+        $0.30 cache_read (x0.10), $15 output. The 22 mutation suite runs and the matrix ran as shell
+        commands, so their compile time costs no tokens.
+    - cycle: punchlist
+      date: 2026-11-13
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 922429
+      tokens_breakdown:
+        input: 26
+        cache_creation: 49725
+        cache_read: 869199
+        output: 3479
+      estimated_usd: 0.50
+      note: >
+        Measured from the session JSONL (found by content), deduped by message.id (13 messages; max
+        output_tokens per id), no subagents, before this spec commit, so it omits the last few turns.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 25632025
-    estimated_usd: 19.26
-    session_count: 2
+    tokens_total: 43688066
+    estimated_usd: 27.03
+    session_count: 4
 ---
 
 # SPEC-160: edit --pad and --trim, and parse_color refuses a sign
@@ -1221,37 +1253,87 @@ other test in those four targets.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-160-edit-pad-trim`
+- **PR (if applicable):** #264 (draft)
+- **All acceptance criteria met?** yes (16 of 16)
+- **New decisions emitted:** none
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`: 13 files, plus this spec file when it is committed):
+  - `src/cli/mod.rs` — six `Edit` fields and help, `EditOp::{Pad, Trim}`, `edit_op_order` table, dispatch, summary line, FT-14 row, `flag: None` in the exit-code test
+  - `src/cli/ops.rs` — `format_fixed_by_flags`, the three gated alpha checks, `EditFlags`, `PadFlag`/`parse_pad_flag`, `PixelPad`, `FlagWorded`, `PAD_FLAGS`/`TRIM_FLAGS`, `build_edit_ops` arms, no-op message, batch `--save-recipe` message, never-ran error names the op
+  - `src/operation/alpha.rs` — `IntroducedAlpha.flag`, `Display` names the flag, FT-15, helper `flag: None`
+  - `src/operation/pad.rs` — `flag: None`
+  - `src/text/mod.rs` — `parse_color` ASCII-hex rule, FT-16
+  - `tests/edit_pad_trim.rs` (new) — FT-1 to FT-13
+  - `tests/watermark.rs` — FT-17
+  - `tests/edit_geometry.rs` — FT-18 (`want` list, no-op line)
+  - `docs/cli-reference.md`, `docs/api-contract.md`, `docs/recipes.md`, `recipes/README.md`, `CHANGELOG.md` — as the spec lists
+  - Matches the spec's `## Outputs`; `scripts/wasm-ci-check.sh` and `tests/wasm_roundtrip.rs` untouched. No `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION` or lockfile change (`git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock` is empty).
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - FT-13's first commit built its recipe without `version = "1"`, so its recipe rows failed on the header; fixed in the next commit. The signed-colour red is shown by FT-16 on `main`'s code and by mutant M6a.
+  - FT-12's `--trim` batch row uses a framed-image batch (two uniform images are a whole match).
+  - FT-12 also drives stdin `-`; FT-9 also drives the batch `--pad 5` row (behaviour sentences 3 and 5).
+
+**RED baseline on `main`'s code** (commit 5c2e538, integration targets; the lib tests did not compile):
+- `edit_pad_trim`: 13 of 13 failed. Examples: `error: unexpected argument '--pad' found`, `'--trim' found`.
+- FT-8's `--pad` row exits 2 on `main`; its crop, resize and watermark rows already gave 1, 1, 2 (checked by hand).
+- FT-17 passed on `main` (14 of 14 watermark tests green). FT-18: 2 failures in `edit_geometry` (help lacks `--pad <N|W:H>`; the no-op line).
+- Lib: `error[E0560]: struct IntroducedAlpha has no field named flag` and `no variant named Trim`, so FT-14 to FT-16 could not run. With those two removed, FT-16 failed: `"+f+f+f" must be refused`.
+
+**Behaviour sentences, every exit path** (debug binary, `<W>` is a scratch dir):
+- Translucent fill refused: `edit flat.png --pad 2 --pad-color transparent -o o.jpg` → 4, o.jpg absent. `edit flat.png --pad 4:5 --pad-color '#ff000080' -o o.gif` → 4, absent. `edit flat.jpg --pad 2 --pad-color transparent --out-dir od` → 4, od absent. `edit in --pad 1 … --format jpeg --out-dir od` → 4, od absent. `edit in --pad 1:1 --pad-color '#ff000080' --name-template '{stem}.gif' --out-dir od` → 4, od absent. Kept-format batch `edit in --pad 1 --pad-color transparent --out-dir od` → 6, `error: <W>/in/a.jpg: --pad-color "transparent" has alpha 00, … colour opaque`, `error: 1 of 2 inputs failed`, od/b.png present, od/a.jpg absent.
+- `transparent` into a `{stem}.gif` batch → 0, od/a.gif and od/b.gif written.
+- Caps: 4×4 `--pad 5` → 1; 2×49990 `--pad 6` → 1; 2×11000 `--pad 5000` → 1; batch with a 6×4 image and `--pad 5` → 6, b.png written.
+- `--trim`: 4×4 uniform → 1; batch with a uniform and a framed image → 6, framed.png written.
+- `--save-recipe`: directory with `--pad 2` → 2, no od, no recipe; one file → 0; stdin `-` → 0, recipe written.
+- `--pad 2 --pad-gravity north` → 2, the gravity line.
+- Signed colour: `apply` of a pad recipe with `+f+f+f` → 1; `build` naming it → 1 (`target #0 …` then the recipe line); `watermark --color=+f+f+f` → 2.
+
+**Mutations** (scratch worktree, own target dir, `cargo clean -p crustyimg` each, full `cargo test --no-fail-fast`; baseline M0 on the pushed head green). Every edit was the spec's quoted one. Red sets read off the runs:
+- M1: FT-5, 6, 7. M1b: FT-5, 6. M1c: FT-5, 6. M1d: FT-5, 6, 7. M2: FT-6. M3a: FT-5. M3b: FT-7. M4: FT-8. M5: FT-12. All as the table.
+- M6a: FT-13, FT-16, `parse_color_refuses_non_ascii`, plus two the table omits: `tests/trim.rs` `a_non_ascii_colour_is_refused_not_a_panic` and `every_trim_refusal_names_its_reason` (slicing panic).
+- M6b: FT-13, FT-16, `parse_color_refuses_non_ascii` stayed green. As the table.
+- M7: FT-9, FT-10. As the table.
+- M8a: FT-1 to 9, 11 to 14 (red set matches). M8b: FT-1, 3, 4, 10 to 14. As the table.
+- M9: FT-1, 2, 3 as the table, plus FT-4 and FT-9 (cells incomplete): the short-edge fraction changes FT-4's size and makes FT-9's batch row fail.
+- M10a: FT-17, `crop::tests::aspect_gravity_places_all_nine`, `pad::tests::gravity_places_by_absolute_position`, plus `tests/pad.rs` `every_colour_type_pads_exactly` and `gravity_corners_land_by_absolute_position` (not in the table).
+- M10b: FT-17, `operation::tests::watermark_margin_offsets_anchor`, plus `every_recipe_output_matches_its_golden` (not in the table).
+- M10c: FT-17 only. M12: FT-9. M13: FT-9.
+- M14: all green, as the table; still holds (neither wrapped op refuses).
+- Trap 14 (`main`'s two files restored): lib tests do not compile, `error[E0063]: missing field 'flag' in initializer of 'alpha::IntroducedAlpha'`. Cargo stops at that error, so the integration targets did not run in that row.
+- `no_op_flag_message_lists_every_flag` was red in no row.
+
+**Matrix:** default 1350 passed, 0 failed; `--no-default-features` 1286 passed, 0 failed; `--features webp-lossy` exit 0. Clippy `-D warnings` and `fmt --check` exit 0 on all three, each in a fresh target dir. `just wasm-check` exit 0, `just wasm-test` exit 0 (56 passed).
+- **Overlap after the last rebase** (`gh pr list`): #240 `src/cli/ops.rs`, #237 `CHANGELOG.md`, #226 `src/cli/mod.rs`; nothing new. Branch was already up to date with `main`.
+- **Follow-up work identified:** none.
+
+### Punch list (verify)
+
+Wording only, commit `e7d7b72` on `feat/spec-160-edit-pad-trim`. As they now read:
+- `src/cli/ops.rs`, `run_pixel_op`: "A forced format is the same for every input, so a step that writes alpha it can't store is refused once, here, before any input is read. An unforced format is resolved per input, so that check happens below, once the format is known, whenever a step adds alpha."
+- `tests/edit_pad_trim.rs`: "fill and gains alpha for a translucent one." (the DEC id is gone)
+- `docs/recipes.md`: "a border `--pad N` is saved as a fraction of that image's long edge, so a replay scales the border with the image (7 px saved from a 60 px long edge replays as 14 px on a 120 px one)."
+- `recipes/README.md`: "a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step, so a replay scales them with the image (a 7 px border saved from a 60 px long edge replays as 14 px on a 120 px one)."
+
+Replay drive (release build, fresh target dir):
+- `edit a.png --pad 7 --pad-color 000000 -o e.png -y --save-recipe r.toml` on a 60x40 PNG: exit 0, `e.png` 74x54, `r.toml` line 8 `border = 0.11666666666666667`.
+- `apply --recipe r.toml b.png -o out/b.png -y` on a 120x80 PNG: exit 0; `magick identify`: `out/b.png PNG 148x108`.
+
+Gates: `cargo test --test docs_ops --test edit_pad_trim` exit 0 (3 and 13 passed); `cargo fmt --check` 0; `cargo clippy --all-targets -- -D warnings` 0; the id grep over the added lines found nothing.
+
+CI at the pushed head: see the PR; recorded in the punch-list report.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The code shape and verbatim messages were exact. The mutation table's red sets were incomplete for M6a, M9, M10a and M10b (extra tests outside the four targets it re-ran), which a full-suite run shows. No design call turned out wrong.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. A recipe fixture needs `version = "1"`; the spec did not say, and my first FT-13 omitted it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run each new fixture shape (recipe header, uniform batch images) against the binary before writing assertions on it; two of my own test bugs came from that.
 
 ---
 

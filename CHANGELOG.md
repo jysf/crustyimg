@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (negative is counter-clockwise), and `--save-recipe` saves it as a `rotate` step.
 - **`edit --flip`.** `--flip horizontal` or `--flip vertical` mirrors the image, and
   `--save-recipe` saves it as a `flip` step.
+- **`edit --pad`.** `--pad N` adds N pixels (of the image at that point in the command) on every
+  side, and `--pad W:H` grows the canvas to that aspect, placed by `--pad-gravity`; `--pad-color`
+  (hex with any alpha, or `transparent`) is required. `--save-recipe` saves `--pad N` as a fraction
+  of the image's long edge, so it needs one input image. N wider than that long edge, or a canvas
+  past the size caps, exits 1. A fill alpha JPEG or GIF can't store is refused: exit 4, nothing
+  written, for one input or a batch whose format `--format` or the name template fixes; when each
+  input keeps its own format, that input fails and the batch exits 6.
+- **`edit --trim`.** `--trim` removes the border that matches the top-left pixel, or `--trim-color`,
+  within `--trim-tolerance` (8-bit steps); `--save-recipe` saves a `trim` step with only the keys
+  you gave. An image that matches all over exits 1; in a batch that input fails and the run exits 6.
 
 ### Changed
 
@@ -38,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inverts, then resizes (0.8.2 resized first whatever the order), so its output changes;
   `--resize-max N --invert` and every other invocation of 0.8.2's flags are unchanged. Each op
   flag may be given once.
+- **A hex colour with a sign in it is refused.** `+f+f+f` used to load as `#0f0f0f`, and
+  `+f+f+f+f` as a translucent `#0f0f0f0f`. A recipe's `color` (`pad`, `trim`, `watermark`) with a
+  sign now fails to load (`apply` and `build` exit 1), and `watermark --color` exits 2, with the
+  colour message.
 
 ### Fixed
 
@@ -49,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Library only: `ParamKind::UInt` has a `max` field.** Code that builds
   `ParamKind::UInt { min }` adds `max: None`. The CLI is unchanged by it.
+- **Library only: `IntroducedAlpha` has a `flag` field.** Code that builds one adds `flag: None`.
+  The CLI is unchanged by it.
 
 ## [0.8.2] - 2026-10-31
 

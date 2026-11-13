@@ -450,7 +450,7 @@ pub enum Commands {
         command: MetaCommand,
     },
 
-    /// One-shot multi-op on a single image; optionally saves the recipe.
+    /// One-shot multi-op on one image or a batch; optionally saves the recipe.
     ///
     /// Op flags run in the order you type them, like a recipe's steps:
     /// `--rotate 90 --crop 300x200+0+0` turns the image, then crops what it
@@ -484,6 +484,30 @@ pub enum Commands {
         /// Mirror the image: horizontal or vertical.
         #[arg(long, value_name = "AXIS")]
         flip: Option<String>,
+        /// Grow the canvas: N adds N pixels (of the image at this point in the
+        /// command) on every side; W:H grows it to that aspect.
+        #[arg(long, value_name = "N|W:H", requires = "pad_color")]
+        pad: Option<String>,
+        /// The fill for --pad: "transparent", or a hex colour RRGGBB, #RRGGBB or
+        /// RRGGBBAA. Required with --pad.
+        #[arg(long, value_name = "COLOR", requires = "pad")]
+        pad_color: Option<String>,
+        /// Where the image sits in an aspect --pad W:H: center (default), north,
+        /// south, east, west, northeast, northwest, southeast, southwest.
+        #[arg(long, value_name = "GRAVITY", requires = "pad")]
+        pad_gravity: Option<String>,
+        /// Remove the outer rows and columns that match the top-left pixel (or
+        /// --trim-color).
+        #[arg(long)]
+        trim: bool,
+        /// The colour --trim removes, instead of the top-left pixel:
+        /// "transparent", or a hex colour RRGGBB, #RRGGBB or RRGGBBAA.
+        #[arg(long, value_name = "COLOR", requires = "trim")]
+        trim_color: Option<String>,
+        /// How far a channel may differ from the colour and still be trimmed, in
+        /// 8-bit steps, 0 to 255 (default 0).
+        #[arg(long, value_name = "N", requires = "trim")]
+        trim_tolerance: Option<u8>,
         /// Write the op chain as a TOML recipe to FILE after a successful edit.
         #[arg(long)]
         save_recipe: Option<String>,
@@ -906,6 +930,10 @@ pub enum EditOp {
     Rotate,
     /// `--flip`
     Flip,
+    /// `--pad`
+    Pad,
+    /// `--trim`
+    Trim,
 }
 
 /// The op flags of an `edit` invocation, in the order they were typed.
@@ -922,6 +950,8 @@ pub(crate) fn edit_op_order(m: &clap::ArgMatches) -> Vec<EditOp> {
         ("crop", EditOp::Crop),
         ("rotate", EditOp::Rotate),
         ("flip", EditOp::Flip),
+        ("pad", EditOp::Pad),
+        ("trim", EditOp::Trim),
     ];
     let mut typed: Vec<(usize, EditOp)> = known
         .iter()
@@ -1172,6 +1202,11 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             crop_gravity,
             rotate,
             flip,
+            pad,
+            pad_color,
+            pad_gravity,
+            trim_color,
+            trim_tolerance,
             save_recipe,
             order,
             ..
@@ -1184,6 +1219,11 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 crop_gravity: crop_gravity.clone(),
                 rotate: *rotate,
                 flip: flip.clone(),
+                pad: pad.clone(),
+                pad_color: pad_color.clone(),
+                pad_gravity: pad_gravity.clone(),
+                trim_color: trim_color.clone(),
+                trim_tolerance: *trim_tolerance,
                 order: order.clone(),
             },
             save_recipe.as_deref(),
@@ -1268,6 +1308,24 @@ mod tests {
         assert_eq!(
             order(&["crustyimg", "edit", "in", "--resize-max", "3"]),
             [EditOp::ResizeMax]
+        );
+        // A switch typed before the input path keeps its position, and the
+        // modifiers (`--pad-color`, `--trim-tolerance`) have none.
+        assert_eq!(
+            order(&[
+                "crustyimg",
+                "edit",
+                "--trim",
+                "--rotate=90",
+                "in",
+                "--pad",
+                "4:5",
+                "--pad-color",
+                "000000",
+                "--trim-tolerance",
+                "2"
+            ]),
+            [EditOp::Trim, EditOp::Rotate, EditOp::Pad]
         );
     }
 
@@ -1620,6 +1678,7 @@ mod tests {
                     alpha: 0,
                     key: "color",
                     written: "transparent".into(),
+                    flag: None,
                 },
                 format: ::image::ImageFormat::Jpeg,
             })

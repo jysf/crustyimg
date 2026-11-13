@@ -396,3 +396,56 @@ fn text_watermark_size_zero_exits_2() {
         "--size 0 is a usage error (exit 2)"
     );
 }
+
+/// Each of the nine gravities puts a 4×3 mark at a hand-worked offset on a
+/// 41×31 image with a margin of 3. The free space is 37×28; the centre floors,
+/// every other anchor sits 3 px from its edge, and the centre ignores the margin.
+#[test]
+fn watermark_nine_gravities_with_a_margin() {
+    let dir = TempDir::new().unwrap();
+    let base = write_png(dir.path(), "base.png", 41, 31, [0, 0, 0, 255]);
+    let mark = write_png(dir.path(), "mark.png", 4, 3, [255, 255, 255, 255]);
+    let rows = [
+        ("center", (18, 14)),
+        ("north", (18, 3)),
+        ("south", (18, 25)),
+        ("east", (34, 14)),
+        ("west", (3, 14)),
+        ("northeast", (34, 3)),
+        ("northwest", (3, 3)),
+        ("southeast", (34, 25)),
+        ("southwest", (3, 25)),
+    ];
+    for (gravity, (x, y)) in rows {
+        let out = dir.path().join(format!("{gravity}.png"));
+        let output = Command::new(BIN)
+            .args([
+                "watermark",
+                base.to_str().unwrap(),
+                "--image",
+                mark.to_str().unwrap(),
+                "--gravity",
+                gravity,
+                "--margin",
+                "3",
+                "-o",
+                out.to_str().unwrap(),
+                "-y",
+            ])
+            .output()
+            .expect("failed to run watermark");
+        assert_eq!(output.status.code(), Some(0), "{gravity}: {output:?}");
+
+        let img = image::open(&out).unwrap().to_rgba8();
+        // Row-major, so the first white pixel is the mark's top-left and the
+        // last is its bottom-right.
+        let white: Vec<(u32, u32)> = img
+            .enumerate_pixels()
+            .filter(|(_, _, p)| p.0 == [255, 255, 255, 255])
+            .map(|(px, py, _)| (px, py))
+            .collect();
+        assert_eq!(white.len(), 12, "{gravity}: white pixels");
+        assert_eq!(white[0], (x, y), "{gravity}: top-left of the mark");
+        assert_eq!(white[11], (x + 3, y + 2), "{gravity}: bottom-right");
+    }
+}
