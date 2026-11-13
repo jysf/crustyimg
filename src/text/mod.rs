@@ -47,7 +47,7 @@ pub enum TextError {
 ///
 /// Accepts `RRGGBB`, `#RRGGBB` (alpha defaults to `255`), and `RRGGBBAA`
 /// (`#RRGGBBAA` too). Each pair is a base-16 byte. Any other length, a non-hex
-/// digit, or an empty string → [`TextError::Color`].
+/// digit (a sign counts), or an empty string → [`TextError::Color`].
 pub fn parse_color(s: &str) -> Result<[u8; 4], TextError> {
     let hex = s.strip_prefix('#').unwrap_or(s);
     let bad = || TextError::Color(s.to_owned());
