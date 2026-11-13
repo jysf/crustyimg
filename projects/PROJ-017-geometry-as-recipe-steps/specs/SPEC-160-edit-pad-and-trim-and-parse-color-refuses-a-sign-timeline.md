@@ -30,5 +30,7 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
   `parse_color` 113/113 rows on 7 routes; pad fills c×257 on 18 rows (ImageMagick); nine gravities from an
   independent model; M2, M4, M6a, M9, M10b and trap 14 (integration targets alone: `edit_geometry` 21/2, not
   23 green). DEC-115's replacement text: apply as written.
-- [ ] **punch list** — `prompts/SPEC-160-punchlist.md`
+- [x] **punch list** (2026-11-13, Sonnet, ~$0.50) — `prompts/SPEC-160-punchlist.md`. `e7d7b72` + `1bbecda`, CI
+  green (18 pass, 8 skipped). `run_pixel_op`'s comment rewritten; "(DEC-095)" dropped; `docs/recipes.md` and
+  `recipes/README.md` say a saved `--pad N` scales on replay (driven: 7 px on 60×40 → 148×108 on 120×80).
 - [ ] **ship**
