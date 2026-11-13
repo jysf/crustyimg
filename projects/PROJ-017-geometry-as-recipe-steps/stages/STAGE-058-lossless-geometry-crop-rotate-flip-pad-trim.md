@@ -120,7 +120,7 @@ In build order. Each is framed in its own session first.
   **Framed as a split (2026-11-10):** SPEC-153 takes the ordering DEC (recommended: typed order for
   every op flag, `auto-orient` always first, no repeats), `--crop` (pixels `WxH+X+Y` and `W:H` with
   `--crop-gravity`), `--rotate` and `--flip`, [M]. `--pad` and `--trim` are the entry below.
-- [ ] **SPEC-160** (designed 2026-11-11) — [M] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
+- [x] **SPEC-160** (merged 2026-11-13, PR #264) — [M] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
   SPEC-153 at its frame (2026-11-10); after SPEC-153. `--pad N|W:H` (N whole pixels of the long edge of
   the buffer the step receives, saved as a `border` fraction) with a required `--pad-color` and an
   optional `--pad-gravity` (aspect form only). `--trim` is a plain switch with optional `--trim-color`
@@ -265,7 +265,7 @@ In build order. Each is framed in its own session first.
   **Ruled 2026-11-10: folds into the `edit --pad`/`--trim` entry (SPEC-160).** That spec's frame marks this
   entry folded.
 
-**Count:** 17 resolved (7 shipped specs, 6 folded, 4 moved) / 1 active (SPEC-160) / 0 pending — re-derived 2026-11-11 after the SPEC-160 frame rulings, with `/usr/bin/grep -c '^- \[x\]'` (17), `/usr/bin/grep -c '^- \[x\] (folded'` (6), `/usr/bin/grep -c '^- \[x\] (moved'` (4), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (0)
+**Count:** 18 resolved (8 shipped specs, 6 folded, 4 moved) / 0 active / 0 pending — re-derived 2026-11-13 at SPEC-160's ship, with `/usr/bin/grep -c '^- \[x\]'` (18), `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (8), `/usr/bin/grep -c '^- \[x\] (folded'` (6), `/usr/bin/grep -c '^- \[x\] (moved'` (4), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (0)
 
 ## Design Notes
 

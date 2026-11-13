@@ -72,10 +72,12 @@ The rule has eight parts:
    input of that format, including an image already at a `pad`'s aspect, which gets no fill
    pixel. A later step that cuts the new pixels off again doesn't lift the refusal.
 4. **When it runs: once the format is known, before the pipeline.**
-   - One input (`apply`): exit **4**, nothing written. The pixel verbs through `run_pixel_op`
-     check only a **forced** format, once, before any input is read; that call site has no
-     per-input check for an unforced format yet. It arrives with `edit --pad` (SPEC-160), the
-     first caller that can reach it.
+   - One input (`apply`): exit **4**, nothing written. The pixel verbs through `run_pixel_op` check a
+     **forced** format once, before any input is read. With no forced format, and only when a step introduces alpha, they check a format the
+     flags fix for every input of a batch (`--format`, or the name template's literal extension)
+     once before any image is read, and otherwise the format resolved for each input after it loads
+     and before its pipeline runs. `edit --pad` is the caller that reaches these checks, and its line
+     names the flag (`--pad-color "transparent" has alpha 00, …`) instead of a step.
    - A batch or `build` target with one format for every input (`--format`, a name template's
      literal extension, `recipe.format`, a forced format): checked once before any input is
      read; exit **4**, nothing written, the out-dir not created. This is the shape a bad
@@ -95,7 +97,9 @@ The rule has eight parts:
 7. **Flattening is rejected.** A transparent fill into JPEG is never composited against a
    colour (ruled 2026-11-06).
 8. **The message** names the step index, the op, the key and its value as written, the alpha in
-   two hex digits, the format, and a way out. It names no spec, stage or decision.
+   two hex digits, the format, and a way out. It names no spec, stage or decision. A step built from
+   a CLI flag names that flag and its value instead of the step index, op and key, since the user
+   typed no step.
 
 ## Context
 
@@ -145,9 +149,9 @@ few levels. And with no format pinned, the auto-decision chose JPEG for a JPEG s
   A recipe that pads and then crops the border off is refused into JPEG although its output
   would be opaque.
 - **Neutral:** single-input `apply` now resolves the output format before the pipeline runs
-  (`run_pixel_op` still runs the pipeline first and resolves the format after), so an
-  invocation that is wrong in both ways (a bad `--format` and a border that rounds to 0 px)
-  reports the format first on that path (exit 4, was exit 1), as the batch path already did.
+  (`run_pixel_op` still runs the pipeline first and resolves the format after, unless a step
+  introduces alpha), so an invocation that is wrong in both ways (a bad `--format` and a border
+  that rounds to 0 px) reports the format first on that path (exit 4, was exit 1), as the batch path already did.
 
 ## Validation
 
@@ -158,8 +162,8 @@ refusal for source alpha needs the same table.
 
 ## References
 
-- Related specs: SPEC-151 (opaque pad), SPEC-159 (this rule), SPEC-160 (`edit --pad`, which
-  adds `run_pixel_op`'s per-input check for an unforced format)
+- Related specs: SPEC-151 (opaque pad), SPEC-159 (this rule), SPEC-160 (`edit --pad`: `run_pixel_op`'s checks for an
+  unforced format, and the flag-named line)
 - Related decisions: DEC-015 (per-input batch failures, exit 6), DEC-095 (colour type
   preservation; a translucent fill widens to the alpha twin by its alpha clause, unamended),
   DEC-102 (load-time errors stay exit 1), DEC-110 (wasm agrees with native)

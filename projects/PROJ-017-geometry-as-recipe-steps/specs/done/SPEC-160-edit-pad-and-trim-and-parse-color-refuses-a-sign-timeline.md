@@ -33,4 +33,5 @@ Cycle prompts live in `prompts/SPEC-160-<cycle>.md`.
 - [x] **punch list** (2026-11-13, Sonnet, ~$0.50) — `prompts/SPEC-160-punchlist.md`. `e7d7b72` + `1bbecda`, CI
   green (18 pass, 8 skipped). `run_pixel_op`'s comment rewritten; "(DEC-095)" dropped; `docs/recipes.md` and
   `recipes/README.md` say a saved `--pad N` scales on replay (driven: 7 px on 60×40 → 148×108 on 120×80).
-- [ ] **ship** — `prompts/SPEC-160-ship.md`
+- [x] **merge** (2026-11-13, maintainer) — PR #264 as decf7f3 (mergedAt 2026-11-13T20:07:54Z, checked with `gh pr view 264`).
+- [x] **ship** (2026-11-13, Sonnet) — `prompts/SPEC-160-ship.md`. Merge decf7f3, PR #264. DEC-115 reworded, mutation-table cells corrected, reflected, cost re-measured for all six sessions (total $41.95, 70,665,711 tokens), archived.

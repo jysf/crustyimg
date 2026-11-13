@@ -7,7 +7,7 @@
 task:
   id: SPEC-160
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -47,69 +47,102 @@ cost:
       date: 2026-11-11
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 5656151
+      tokens_total: 6211125
       tokens_breakdown:
-        input: 86
-        cache_creation: 152401
-        cache_read: 5459360
-        output: 44304
-      estimated_usd: 4.79
+        input: 92
+        cache_creation: 156380
+        cache_read: 6004226
+        output: 50427
+      estimated_usd: 5.24
       note: >
-        Measured from the session JSONL, deduped by message.id (43 messages; max output_tokens per id),
-        after the frame push and before this cost commit. Rates (Opus): $5/MTok input, $6.25 cache_creation
-        (x1.25), $0.50 cache_read (x0.10), $25 output.
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-frame.md`), deduped by
+        message.id (46 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship (was 5,656,151 tokens, $4.79, measured before the frame's last turns).
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
     - cycle: design
       date: 2026-11-11
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 19975874
+      tokens_total: 20608743
       tokens_breakdown:
-        input: 188
-        cache_creation: 280411
-        cache_read: 19578340
-        output: 116935
-      estimated_usd: 14.47
+        input: 192
+        cache_creation: 282016
+        cache_read: 20200778
+        output: 125757
+      estimated_usd: 15.01
       note: >
-        Measured from the session JSONL (found by content), deduped by message.id (94 messages; max
-        output_tokens per id), no subagents, after the design push and before this cost commit. Rates
-        (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.50 cache_read (x0.10), $25 output.
-        Includes 22 prototype mutation builds and test runs.
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-design.md`), deduped by
+        message.id (96 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship (was 19,975,874 tokens, $14.47, measured before the design's last turns). Includes 22 prototype mutation builds and test runs.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
     - cycle: build
       date: 2026-11-12
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 17133612
+      tokens_total: 22242819
       tokens_breakdown:
-        input: 188
-        cache_creation: 242802
-        cache_read: 16802863
-        output: 87759
-      estimated_usd: 7.27
+        input: 230
+        cache_creation: 264311
+        cache_read: 21879348
+        output: 98930
+      estimated_usd: 9.04
       note: >
-        Measured from the session JSONL (found by content), deduped by message.id (80 messages; max
-        output_tokens per id), no subagents, after the last code push and before the final doc commit,
-        so it omits the last few turns. Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25),
-        $0.30 cache_read (x0.10), $15 output. The 22 mutation suite runs and the matrix ran as shell
-        commands, so their compile time costs no tokens.
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-build.md`), deduped by
+        message.id (98 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship (was 17,133,612 tokens, $7.27, which omitted the CI-fix turns). The 22 mutation suite runs and the matrix ran as shell commands, so their compile time costs no tokens. Dated by the first message in local time (2026-11-12 22:45 PST; 2026-11-13T06:45Z in UTC), the same day the PR opened (2026-11-13T06:51Z is 2026-11-12 22:51 local).
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
+    - cycle: verify
+      date: 2026-11-13
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 12573421
+      tokens_breakdown:
+        input: 146
+        cache_creation: 196090
+        cache_read: 12323206
+        output: 53979
+      estimated_usd: 8.74
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-verify.md`), deduped by
+        message.id (71 messages; max output_tokens per id), 0 subagent transcripts. Newly recorded at ship (the verify report said 12,117,906 tokens, $8.36, measured before its last message).
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
     - cycle: punchlist
       date: 2026-11-13
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 922429
+      tokens_total: 1581342
       tokens_breakdown:
-        input: 26
-        cache_creation: 49725
-        cache_read: 869199
-        output: 3479
-      estimated_usd: 0.50
+        input: 44
+        cache_creation: 55618
+        cache_read: 1518293
+        output: 7387
+      estimated_usd: 0.77
       note: >
-        Measured from the session JSONL (found by content), deduped by message.id (13 messages; max
-        output_tokens per id), no subagents, before this spec commit, so it omits the last few turns.
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-punchlist.md`), deduped by
+        message.id (21 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship (was 922,429 tokens, $0.50, measured before its last turns).
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
+    - cycle: ship
+      date: 2026-11-13
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 7448261
+      tokens_breakdown:
+        input: 116
+        cache_creation: 137432
+        cache_read: 7280694
+        output: 30019
+      estimated_usd: 3.15
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-160-ship.md`), deduped by
+        message.id (58 messages; max output_tokens per id), 0 subagent transcripts. Measured just before the ship commit, so it omits the final few turns.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
   totals:
-    tokens_total: 43688066
-    estimated_usd: 27.03
-    session_count: 4
+    tokens_total: 70665711
+    estimated_usd: 41.95
+    session_count: 6
 ---
 
 # SPEC-160: edit --pad and --trim, and parse_color refuses a sign
@@ -1135,7 +1168,8 @@ path to add (`src/text/mod.rs` is the sign fix, not this rule).
 Applied to the prototype one at a time; the whole Failing Tests list plus `cargo test --release
 --lib` and `--test edit_geometry --test watermark` re-run (`--no-fail-fast`). The red set is read off
 that run. `no_op_flag_message_lists_every_flag` is red in every row on the prototype because its
-string was not yet updated there (FT-18); it is left out of each red set below. "Green" means every
+string was not yet updated there (FT-18); it is left out of each red set below. (Corrected at ship:
+that held on the prototype only. On the build it was red in no row.) "Green" means every
 other test in those four targets.
 
 - **M1 `PixelPad` doesn't forward its alpha** (`ops.rs`, `impl Operation for PixelPad`): delete
@@ -1163,7 +1197,8 @@ other test in those four targets.
   StepRecord::Resolved(_)))` → `… && s.op.name() == "crop")`. Red: FT-12. *Driven.*
 - **M6a `from_str_radix` back on the raw pair** (`text/mod.rs`): delete the `if
   !hex.bytes().all(|b| b.is_ascii_hexdigit()) { return Err(bad()); }` block. Red: FT-13, FT-16,
-  `parse_color_refuses_non_ascii` (it panics slicing `aéaaa`). *Driven.*
+  `parse_color_refuses_non_ascii` (it panics slicing `aéaaa`), and (corrected at ship) `tests/trim.rs`
+  `a_non_ascii_colour_is_refused_not_a_panic` and `every_trim_refusal_names_its_reason`. *Driven.*
 - **M6b the ASCII-hex test replaced by `is_ascii()`**: `if !hex.bytes().all(|b|
   b.is_ascii_hexdigit()) {` → `if !hex.is_ascii() {`. Red: FT-13, FT-16. Green:
   `parse_color_refuses_non_ascii`. *Driven.*
@@ -1178,14 +1213,17 @@ other test in those four targets.
   FT-10, FT-11, FT-12, FT-13, FT-14. *Driven.*
 - **M9 the fraction divides by the short edge**: `f64::from(self.n) / f64::from(long)` →
   `f64::from(self.n) / f64::from(iw.min(ih))`. Red: FT-1, FT-2, FT-3 (sizes and `border`
-  literals). *Driven.*
+  literals), and (corrected at ship) FT-4 and FT-9 (build and verify both drove them red). *Driven.*
 - **M10a `north` placed as `south`** (`Gravity::placement`): `Gravity::North => (x_center, y_top),`
   → `Gravity::North => (x_center, y_bottom),`. Red: FT-17, `crop::tests::aspect_gravity_places_all_nine`,
-  `pad::tests::gravity_places_by_absolute_position`. *Driven.* (Before FT-17, no `watermark` test
+  `pad::tests::gravity_places_by_absolute_position`, and (corrected at ship) `tests/pad.rs`
+  `every_colour_type_pads_exactly` and `gravity_corners_land_by_absolute_position` (build drove
+  these; verify did not re-drive M10a). *Driven.* (Before FT-17, no `watermark` test
   went red: the stage entry's finding.)
 - **M10b bottom margin dropped**: `let y_bottom = bh.saturating_sub(oh).saturating_sub(margin);` →
   `let y_bottom = bh.saturating_sub(oh);`. Red: FT-17,
-  `operation::tests::watermark_margin_offsets_anchor`. *Driven.*
+  `operation::tests::watermark_margin_offsets_anchor`, and (corrected at ship)
+  `every_recipe_output_matches_its_golden` (the `v2_ddphotos_cli_shape` recipe). *Driven.*
 - **M10c left margin dropped**: `let x_left = margin;` → `let x_left = 0;`. Red: FT-17 only (no
   existing test sees it). *Driven.*
 - **M12 no long-edge check**: `if self.n > long {` → `if false && self.n > long {`. Red: FT-9 (the
@@ -1202,6 +1240,10 @@ other test in those four targets.
   **not compile** (`error[E0063]: missing field 'flag' in initializer of 'alpha::IntroducedAlpha'`,
   from `main`'s `mod.rs` test), so FT-14 to FT-16 can't run. *Driven.* The build records this as the
   RED baseline for the restored files.
+  (Corrected at ship: the lib's unit tests don't compile (E0063), so a plain `cargo test` stops there
+  and the integration targets never run. Run alone, the integration targets give FT-1 to FT-13 red and
+  FT-17 green; `edit_geometry` is 21 green and 2 red (`edit_help_states_typed_order` and
+  `no_op_flag_message_lists_every_flag`, both FT-18), not all 23 green.)
 
 ### Build checkpoints and CI
 
@@ -1343,10 +1385,52 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Four things, all wording or reporting; verify found no behaviour or assertion defect. (a) Design
+   wrote DEC-115's replacement text for a rule its own change made stale (the sentence saying the
+   `run_pixel_op` call site has no per-input check yet), and left the code comment that said the same
+   thing (`run_pixel_op`'s, `ops.rs:353-356`); verify found it. A design's "what this change makes
+   false" sweep should cover comments as well as DECs. (b) The mutation table again had four
+   incomplete cells (M6a, M9, M10a, M10b), each an extra red in a target outside the four the table
+   re-ran, and a trap-14 row nobody could run as written: the lib's E0063 stops `cargo test` before
+   any integration target runs, so build's row did not run and verify had to run the integration
+   targets alone (`edit_geometry` 21 green, 2 red, not 23 green). The preamble's "red in every row"
+   for `no_op_flag_message_lists_every_flag` held on the prototype only; on the build it was red in no
+   row. (c) The docs were true but left out a consequence: a saved `--pad N` is a fraction of the long
+   edge, so a replay scales it (7 px on 60 becomes 14 px on 120). Build drove every sentence on every
+   exit path, as asked, and that cannot catch what a sentence leaves out. (d) The Windows leg failed
+   once, on the build's own `/in/a.jpg` asserts; a separator assumption was caught only after the
+   push. SPEC-159's three proposals, on this spec: (1) build drove each doc sentence on every exit
+   path: yes, the build prompt asked for it, build listed every path, and verify found no wrong
+   sentence (only the omission in (c)); (2) design re-read its DEC against its own corrections: partly,
+   design wrote the replacement text, which was right for the DEC, but nothing swept the comments;
+   (3) the file list includes what `just wasm-test` touches when `src/wasm.rs` changes: not exercised,
+   since `src/wasm.rs` is untouched, though `alpha.rs` and `parse_color` compile for wasm, so the spec
+   asked for `just wasm-check` and `just wasm-test`, build ran both (56 passed) and the 13 files
+   matched Outputs.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) SPEC-159's three proposals now have a second spec of evidence. The
+   first held (no wrong doc sentence at verify) and still is not in AGENTS §15 "During build", which
+   lists reading, Build Completion, cost, advance, DECs and the PR. The second is half-covered: no
+   design section in §15, and SPEC-152's, SPEC-153's and SPEC-159's reflections do not say design
+   re-reads the DEC. The third was not exercised. (ii) "When a change makes a rule stale, grep the
+   comments as well as the DECs for the old rule." Not covered: §15–16 and `guidance/` are silent,
+   and SPEC-159's proposal (2) names only the DEC. (iii) "A mutation row's red set is read off a full
+   `--no-fail-fast` run of every target, not the FT list." Partly covered: SPEC-153's reflection (ii)
+   proposed reading the red set off a run of the final tests, and §15 asks an all-green row to name
+   its search; neither says every target, and all four misses here sat outside the four targets
+   re-run. The same run settles a trap row: say whether `cargo test` stops at a compile error.
+   (iv) "A test that asserts a path compares it after separator normalisation." Not covered: a search
+   of AGENTS.md and `guidance/` for separator, backslash and Windows finds only the CI matrix line.
+   The repo tracks no HANDOFF file, so I could not check it. Omitted consequences, as in 1(c), have
+   no rule that would catch them; verify reading the docs did. No DEC changes beyond DEC-115's
+   wording.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. The entries this spec moved out stay where they are and nothing in the evidence changes
+   them: `recipe-output-guard-reports-both-failures`, `refusal-summary-names-the-op` and
+   `warn-tagged-input-without-auto-orient` in `guidance/ideas.yaml`, and the aspect-follows-orientation
+   entry in STAGE-060. `FlagWorded`'s `refusal` forward is unused because neither `pad` nor `trim`
+   refuses, so the refusal-summary entry has no new trigger. The gaps in answer 2 are template
+   proposals, and the replay scaling is documented and follows the fractions rule (DEC-112), so it is
+   not a gap.
