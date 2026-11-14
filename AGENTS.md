@@ -423,6 +423,9 @@ Read the stage, or `just backlog --all` once that project is active.
 - **TDD:** Tests live in the spec's `## Failing Tests` section, written
   during **design**, made to pass during **build** (constraint
   `test-before-implementation`).
+- **Paths in assertions:** compare a path after normalising separators
+  (or build the expected value with `Path::join`), never as a `/` literal.
+  CI runs Windows; SPEC-160's `/in/a.jpg` asserts failed only there.
 
 ---
 
@@ -509,6 +512,14 @@ Read the stage, or `just backlog --all` once that project is active.
 
 ## 15. Cycle-Specific Rules
 
+### During **design**
+
+Before handing off, list what this change makes false and sweep for it:
+re-read every DEC the spec writes or amends against the spec's own design
+corrections, and grep DECs, code comments and docs for the old rule.
+SPEC-159's DEC-115 contradicted its own correction 2; SPEC-160 fixed the
+DEC and missed the same rule in `run_pixel_op`'s comment.
+
 ### During **build**
 
 Start a **new Claude session**. Do not continue from the design session.
@@ -520,8 +531,17 @@ Before writing code:
 4. Read `/guidance/constraints.yaml`.
 5. If anything is ambiguous, add to `/guidance/questions.yaml` and stop.
 
+A change that compiles for wasm (`src/wasm.rs`, or any module the wasm
+build pulls in) runs `just wasm-check` and `just wasm-test` before the
+push, and its file list includes what they touch (`tests/wasm_roundtrip.rs`,
+`scripts/wasm-ci-check.sh`). SPEC-159's wasm leg found both after the push.
+
 When done:
 1. Fill in spec's `## Build Completion` (including reflection).
+   Drive each doc sentence the build wrote that states behaviour, on every
+   exit path the spec names (one input, a batch, a batch with one failing
+   input), and quote the result. This catches a wrong sentence, not a
+   missing one; verify still reads the docs for an omitted consequence.
 2. Append a build cost session entry to `cost.sessions`.
 3. `just advance-cycle SPEC-NNN verify`.
 4. Create `DEC-*` files for non-trivial build decisions. When a
@@ -608,6 +628,12 @@ SPEC-151's M14 (`border` read as `f32`) was reasoned all green and confirmed
 green at build; verify found `0.01` on a 50 px edge gives 1 px in `f64` and 0 px
 in `f32`.
 
+A mutation row's red set is read off one run of **every** test target
+(`cargo test --no-fail-fast`), not off the Failing Tests list. When the
+mutant does not compile, `cargo test` stops before any integration target
+runs, so the row says so and runs the targets separately. SPEC-160's four
+missed reds all sat outside the four targets its table re-ran.
+
 #### Classify every finding; only a claim needs a re-verify
 
 Each punch item and optional cleanup is one of:
@@ -633,6 +659,11 @@ Append `## Reflection` to spec. Three answers. Append a ship cost
 session entry, then compute `cost.totals`. Then
 `just archive-spec SPEC-NNN`. If stage backlog is complete, run the
 Stage Ship prompt.
+
+The orchestration handoff is
+`projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`; a ship
+reflection that checks "HANDOFF" reads that file. Four ship reflections
+(SPEC-152, 153, 159, 160) said the repo had none.
 
 ---
 
