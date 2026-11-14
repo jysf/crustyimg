@@ -25,7 +25,7 @@ value_contribution:
   delivers:
     - "A `crop` recipe step: a rectangle, an aspect ratio with a gravity, in fractions of the image (pixels come through `edit --crop`, which converts them)"
     - "A `rotate` step for quarter turns (90/180/270) and a `flip` step (horizontal/vertical), exact in pixels"
-    - "A `pad` step: to a size or an aspect, anchored by gravity, filled with a colour or transparent"
+    - "A `pad` step: to an aspect anchored by gravity, or by a border, filled with a colour or transparent (an exact size is `resize --fill` then an aspect `pad`; corrected 2026-11-13)"
     - "A `trim` step: remove a uniform border within a stated tolerance"
     - "`edit` flags for all five, with a written ordering rule, and `--save-recipe` that writes them"
   explicitly_does_not:

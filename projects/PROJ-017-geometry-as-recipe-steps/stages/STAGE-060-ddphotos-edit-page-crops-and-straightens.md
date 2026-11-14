@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-060
-  status: proposed
+  status: active
   priority: medium
   target_complete: null
 
