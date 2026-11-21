@@ -165,6 +165,30 @@ commit. Settle at design how the test gets its input: a generated DNG via
 file, or a test gated on a corpus path. This is the most likely thing to stall
 the build.
 
+**A fourth route exists (noted 2026-11-20): irradiance's own DNG writer.**
+irradiance ships a clean-room, test-only writer (its SPEC-057,
+`tests/support/dng_writer.rs`). It writes uncompressed mono and Bayer planes,
+strips or tiles, II or MM, and arbitrary extra tags (so `Orientation` and IFD0
+metadata, the backlog's RAW EXIF/orientation defects, can be fixtured). Its
+output is checked against dnglab's `--raw-checksum` and exiftool, neither of
+which goes through irradiance's reader. It is **not** in the published crate
+(`include = ["src/**/*.rs", …]`), so it cannot be a dependency today. Options,
+preferred first:
+
+1. If irradiance's STAGE-017 (public `write` feature) has shipped by framing,
+   take it as a **dev-dependency** (`features = ["write"]`) and generate fixtures
+   in the test itself. crustyimg is that stage's named first consumer.
+2. Otherwise, generate a few small DNGs with the writer in the irradiance repo
+   and commit them under `tests/fixtures/raw/` with a provenance note and their
+   dnglab checksum.
+3. Vendoring the writer (~975 lines plus ~1,180 lines of TIFF support, MIT/Apache)
+   into an `examples/gen_*` generator works but leaves ~2k lines to keep in sync.
+
+Whichever route: assert analytically known pixel values, not values read back
+through irradiance. The same crate writing and reading a fixture is acceptable
+only because the writer has an independent oracle and these tests target the
+adapter (orientation, metadata, preview fallback), not the decode.
+
 ## Dependencies
 
 ### Depends on
