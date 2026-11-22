@@ -56,7 +56,24 @@ value_link: "STAGE-063's success criterion that `build` never overwrites a decla
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-22
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7131617
+      tokens_breakdown:
+        input: 104
+        cache_creation: 153369
+        cache_read: 6939542
+        output: 38602
+      estimated_usd: 5.39
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-157 — FRAME prompt"), deduped by
+        message.id (52 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        push, before this cost commit's own turns.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
