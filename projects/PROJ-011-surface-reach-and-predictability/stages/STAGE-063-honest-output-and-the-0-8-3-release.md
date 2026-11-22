@@ -104,12 +104,15 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   edit skips the native build and test legs. `pages.yml`'s path lists lack `recipes/` and `assets/` too. Fix the
   classifier (consider inverting it to a docs-only allowlist, so an unknown path runs everything), add a self-test
   row per class and a mutation row per alternative, and align the Pages triggers. Frame first.
-- [ ] **SPEC-155** (reserved 2026-11-10) — [M] **A write that fails must not report success or destroy the old file (review P1).**
+- [ ] **SPEC-155** (framed 2026-11-22) — [M] **A write that fails must not report success or destroy the old file (review P1).**
   `Sink::File` and `Sink::Dir` truncate the destination, then `BufWriter::write_all` and drop with no `flush()`
   (`src/sink/mod.rs`, both the pixel and the byte sink), so a short write exits 0 and leaves a truncated file. Stage
   the bytes beside the destination, flush and sync, then rename; keep the symlink and overwrite guards ahead of
   it. Test with an injected failing writer. The rename-over-existing behaviour differs on Windows: verify on the
   full OS matrix.
+  Frame (2026-11-22): GO at [M]. Driven: outputs under 8 KiB exit 0 with a truncated file (both sink
+  arms, both lanes), and larger ones exit 5 with the old file destroyed. Folds in `--save-recipe`, which
+  overwrites without `-y`, and `write_lock`'s temp. Four maintainer rulings are open; see the spec's Frame.
 - [ ] **SPEC-156** (reserved 2026-11-10) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
   The JPEG strip loop removes `0xE1..=0xEF`, which includes APP14 (`0xEE`, Adobe), the marker that carries the
   colour transform. On `tests/fixtures/lint/cmyk_16x16.jpg`, `crustyimg diff` scored the stripped file 41.94
@@ -200,7 +203,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **16 pending** — 2026-11-10 (re-derived by grep of the backlog checkboxes above `### Items carried`: 19 in total, 3 ticked, 16 open; the seven new entries are SPEC-154 to SPEC-158 from the external code review, the `build_watch` diagnosis and the watermark strict-mode pointer).
+**Count:** 3 shipped / 0 active / **16 pending**: 2026-11-22. Re-derived by grep of the backlog checkboxes above `### Items carried` (19 in total, 3 ticked, 16 open). The SPEC-155 frame changed one marker, not the count.
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
