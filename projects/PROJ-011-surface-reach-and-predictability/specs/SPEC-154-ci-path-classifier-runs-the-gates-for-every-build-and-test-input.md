@@ -311,6 +311,19 @@ skip the Rust gates" is optional (maintainer question 3).
 3. A `docs/development.md` paragraph? **Recommend yes, three sentences**: contributors otherwise
    cannot tell why a docs PR ran 15 minutes of CI.
 
+### Maintainer rulings (2026-11-22)
+
+All three recommendations accepted:
+1. **The docs-only allow-list,** not a fixed deny-list. Anything not provably docs-only runs the
+   gates, with a short exception list for docs-shaped files a test reads.
+2. **`README.md` is a code path.** README-only PRs run the full gates.
+3. **`docs/development.md` gets a short paragraph** (about three sentences) on which PRs skip the
+   Rust gates and why. It moves from optional to in scope.
+
+The frame's extra self-test row (every `include_str!`/`include_bytes!` target in `src/` and
+`tests/` classifies as code) and the pages drift check stay in scope. The post-merge draft PR
+touching only `recipes/web.toml` is the maintainer's step at ship, checked once, closed unmerged.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
