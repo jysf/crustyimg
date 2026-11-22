@@ -59,6 +59,20 @@ cost:
       estimated_usd: 3.08
       duration_minutes: null
       note: "Measured from the session JSONL (dedup by message.id, MAX output) after the frame push, before this cost commit; 32 API messages."
+    - cycle: design
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-opus-5-5
+      rate_anchors: "Opus $5 in / $25 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 6788928
+      tokens_breakdown:
+        input: 106
+        cache_creation: 155888
+        cache_read: 6575269
+        output: 57665
+      estimated_usd: 5.70
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) after the design push, before this cost commit; 53 API messages, no subagents."
   totals:
     tokens_total: 0
     estimated_usd: 0
