@@ -85,6 +85,23 @@ In build order.
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
   differ by one pixel of crop and require red.
+- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
+  orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
+  tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
+  photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
+  key (for example `orientation = "match"`). Leaving it off keeps SPEC-145's meaning, so no
+  existing recipe or golden changes. Design decides what a square image gets, the key's name, and
+  the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
+  frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
+  unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
+  SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
+  tall as crop's does, and this entry's spec adds the key to both ops with one rule.
+  **Moved here from STAGE-058 on 2026-11-11** (maintainer ruling at SPEC-160's frame): the page's aspect
+  presets are this key's first user, and it changes no shipped output, so STAGE-058 closes without it.
+  **Ahead of SPEC-161 (maintainer ruling 2026-11-22, at SPEC-161's frame):** the page's presets emit
+  `aspect`, not a box, so a recipe copied from the page reads `aspect = "3:2"` and works on any
+  photo. To work on a folder of mixed photos it needs this key, so SPEC-161 emits it and this
+  entry builds first. Builds after the STAGE-063 P1 fixes ship.
 - [ ] **SPEC-161** (framed 2026-11-22) — [M] **Crop on the page.** Free-form and aspect-preset crop over
   the preview, emitting a fractional `crop` step ahead of `resize` in both `pixelRecipe` and
   `cliRecipe` (`integrations/ddphotos/edit/edit.js`). Parity rows for each preset, plus the
@@ -97,14 +114,16 @@ In build order.
   `crustyimg info` reports the stored size too, and wasm `info()` is its twin. Found in SPEC-142's
   design; rows 15–16 of its harness pin the transposed prediction. Harmless today, because
   photogen publishes WebP copies that are already oriented.
-  **Split at frame (2026-11-22):** SPEC-161 is the half Node can test: `recipe.js`'s crop model
-  (presets emit a box), the oriented-size fix, the parity rows and the 4× replay. The crop mode is
-  the next entry.
+  **Split at frame (2026-11-22):** SPEC-161 is the half Node can test: `recipe.js`'s crop model,
+  the oriented-size fix, the parity rows and the 4× replay. The crop mode is the next entry.
+  **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
+  reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
+  orientation-key entry above.
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode.** The second half of the entry
   above, split at SPEC-161's frame. A "Crop" button shows the oriented base image (rendered once at
   load by SPEC-161's worker) with a DOM box over it; dragging renders nothing, and "Done" schedules
   one finished preview. Preset buttons (1:1, 4:5, 3:2, 16:9) that follow the photo's orientation,
-  with a swap; Pointer Events with `touch-action: none`; a focusable box that arrow keys move and
+  with a swap, and emit `aspect` until the box is dragged; Pointer Events with `touch-action: none`; a focusable box that arrow keys move and
   Alt+arrow resizes; a live size line. The CLI panel says to run the recipe on the original or any
   file at least as large as the copy (a smaller one gives a smaller output, or a refused watermark).
   Calls SPEC-161's `recipe.js` functions and adds no recipe logic. Its browser check is the
@@ -120,21 +139,6 @@ In build order.
   which recipe text moved. A comment in `tests/ddphotos_parity.mjs` also says "P1-P5" though there
   is no P1. Give each check its own label and fix the comment; no behaviour change. Found by
   SPEC-142's re-verify. Do it alongside the crop spec's first harness rows, not on its own.
-- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
-  orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
-  tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
-  photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
-  key (for example `orientation = "match"`). Leaving it off keeps SPEC-145's meaning, so no
-  existing recipe or golden changes. Design decides what a square image gets, the key's name, and
-  the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
-  frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
-  unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
-  SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
-  tall as crop's does, and this entry's spec adds the key to both ops with one rule.
-  **Moved here from STAGE-058 on 2026-11-11** (maintainer ruling at SPEC-160's frame): the page's aspect
-  presets are this key's first user, and it changes no shipped output, so STAGE-058 closes without it.
-  ⚠ SPEC-161's frame (2026-11-22) recommends the page's presets emit a box, not `aspect`, so the page
-  would not use this key. Its home is a maintainer question there.
 - [ ] (not yet written) — [S] **Gate the slim wasm bundle's size.** The page ships the slim build
   (`--no-default-features --features avif`, `pkg-slim`), but the CI size gate
   (`scripts/lib/wasm-artifact.mjs`, used by `demo-assemble.mjs` and `npm_smoke.mjs`) measures only

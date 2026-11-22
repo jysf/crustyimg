@@ -100,6 +100,10 @@ and the same output size.
 
 *Framed 2026-11-22 on `main` at `7d0e7fd` + the SPEC-161 reservation (`b08b241`), Opus.*
 
+⚠ **Ruled 2026-11-22: presets emit `aspect`, not a box** (question 3 reversed), and the replay DEC's
+number is set at design. Read "Maintainer rulings" at the end of this section before anything
+below that says presets emit a box.
+
 ### Verdict: SPLIT, then GO on this half at [M]
 
 The whole backlog entry is more than [M] once the verification is counted: about 25 new
@@ -465,6 +469,37 @@ block-list form (HANDOFF trap 7).
    STAGE-060 so the stage can close without it.
 5. **Write DEC-116 for replay parity?** Recommend yes. It's the property the stage's third
    `delivers` line names, and no DEC covers it.
+
+### Maintainer rulings (2026-11-22)
+
+1. **Split: yes.** This spec is the recipe model and the 4× replay. The crop mode is the next
+   STAGE-060 entry.
+2. **Interaction: yes,** as recommended (crop mode on the oriented base, DOM box, one render on
+   Done). It's the second half's to build.
+3. **Presets emit `aspect`, not a box. Reversed: the recipe must be readable and reusable.** A
+   recipe copied from the page should say `aspect = "3:2"` and work on any photo, not carry four
+   fractions that fit only this one. What follows for design:
+   - An untouched preset emits `aspect` (with the orientation key, see 4). Once the user drags or
+     resizes the box, it emits a box. So the page has two crop forms, and the parity rows cover
+     both.
+   - The page's predicted size must equal what wasm makes from the copy for `aspect` too: port
+     `aspect_size`'s rounding into `recipe.js` exactly, or read the size back from wasm. Native
+     against wasm on the same input stays exact (same Rust).
+   - The 4× replay loses "exact at an integer multiple" for `aspect` rows, because `aspect_size`
+     rounds the short side on each image separately (the frame's 602 vs 603 and 534 vs 533). That
+     difference is accepted as the price of readability. Design re-drives the worst case for
+     `aspect` across the frame's ratios, sizes and copy/original pairs, and the DEC states the
+     driven bound per form: box rows exact at integer multiples, `aspect` rows within the driven
+     bound. Don't assume 1 px.
+4. **The orientation-key entry stays in PROJ-017 STAGE-060 and moves ahead of this spec in build
+   order.** With `aspect` presets, a reusable "3:2" recipe has to follow each photo's orientation,
+   so the page is the key's first user again. This spec emits the key on a preset that follows
+   the photo. The key's own spec touches Rust (`crop`, `pad`, the recipe loader); this spec still
+   touches none.
+5. **The replay DEC: yes.** Its number is allocated at design, not here: the STAGE-063 P1 designs
+   run first and may take DEC-116. Read "DEC-116" in this stub as "the replay DEC".
+
+Order: the STAGE-063 P1 fixes ship first, then the orientation key, then this spec's design.
 
 ## Inputs
 
