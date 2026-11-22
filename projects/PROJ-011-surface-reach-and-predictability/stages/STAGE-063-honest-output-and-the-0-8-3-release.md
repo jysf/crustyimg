@@ -98,7 +98,7 @@ release line below waits for SPEC-154 to SPEC-157. Land SPEC-154 first and alone
 gates later PRs run. Its frame prompt is `specs/prompts/SPEC-154-frame.md`; the other four get theirs
 when SPEC-154 is framed. A frame may re-size, split or merge them.
 
-- [ ] **SPEC-154** (reserved 2026-11-10) — [S] **The CI path filter treats real build inputs as docs-only (review P2).**
+- [ ] **SPEC-154** (framed 2026-11-22) — [S] **The CI path filter treats real build inputs as docs-only (review P2).**
   `scripts/ci-code-paths.sh` returned `false` for `recipes/web.toml`, `assets/fonts/Go-Regular.ttf`, `clippy.toml` and
   `deny.toml`; the recipes and the font are embedded at compile time (`include_str!`/`include_bytes!`), so an isolated
   edit skips the native build and test legs. `pages.yml`'s path lists lack `recipes/` and `assets/` too. Fix the
