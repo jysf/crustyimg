@@ -49,7 +49,24 @@ value_link: "STAGE-063 success criterion: a write that fails exits non-zero and 
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-22
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5158426
+      tokens_breakdown:
+        input: 90
+        cache_creation: 121766
+        cache_read: 4999745
+        output: 36825
+      estimated_usd: 4.18
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-155 — FRAME prompt"), deduped by
+        message.id (45 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        push, before this cost commit's own turns.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
