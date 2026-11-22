@@ -44,7 +44,21 @@ value_link: "infrastructure enabling STAGE-063's honest-output fixes: every PR t
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-opus-5-5
+      rate_anchors: "Opus $5 in / $25 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 3422377
+      tokens_breakdown:
+        input: 64
+        cache_creation: 110091
+        cache_read: 3282348
+        output: 29874
+      estimated_usd: 3.08
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) after the frame push, before this cost commit; 32 API messages."
   totals:
     tokens_total: 0
     estimated_usd: 0
