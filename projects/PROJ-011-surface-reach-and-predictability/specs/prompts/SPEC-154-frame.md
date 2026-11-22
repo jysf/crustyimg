@@ -18,11 +18,12 @@ for b in $(git for-each-ref --format='%(refname)' refs/heads refs/remotes); do /
 Expected hits: this prompt, STAGE-063 and `docs/reviews/2026-11-10-external-code-review.md`. If a spec
 file or another reservation uses SPEC-154, stop and report. Don't pick another number.
 
-⚠ **Another orchestrator thread owns PROJ-017** (geometry as recipe steps) and may be building
-SPEC-153 at the same time. It edits `src/operation/`, `src/recipe/`, `docs/recipes.md`,
-`skills/crustyimg/SKILL.md`, `CHANGELOG.md`'s Unreleased section and `tests/common/mod.rs`. This
-spec's files (`scripts/ci-code-paths.sh`, `.github/workflows/`) should not overlap; **list any that
-do.** Never edit `projects/PROJ-017-geometry-as-recipe-steps/`.
+⚠ **Updated 2026-11-22.** PROJ-017 is paused until SPEC-154 to SPEC-157 ship. The SPEC-155,
+SPEC-156 and SPEC-157 frames (prompts beside this one) may run at the same time as this one. All
+four edit STAGE-063's file: on a rebase conflict there, keep both sides' marker changes and recount
+the `**Count:**` line with a fresh grep. On a conflict in any other file, stop and report. Don't
+name a DEC number; parallel frames would claim the same one. Never edit
+`projects/PROJ-017-geometry-as-recipe-steps/`.
 
 ## Why this, and why now
 An external review (`docs/reviews/2026-11-10-external-code-review.md`) found that the `changes` job
