@@ -418,6 +418,21 @@ Out (and where each lives):
 4. **A full disk with `-y` over an existing small file** worked by reusing the freed block (driven).
    Staging needs room for both files. Recommend accepting the loud failure.
 
+### Maintainer rulings (2026-11-22)
+
+All four recommendations accepted:
+1. **Read-only directory, writable file, `-y`: refused**, exit 5, with a message naming the
+   directory. No in-place fallback. A behaviour change, so it gets a CHANGELOG line.
+2. **No `fsync`, no directory `fsync`.** The guarantee covers errors and killed processes, not
+   power loss, and the new DEC says so.
+3. **F1 is in scope: `--save-recipe` gains the overwrite guard.** An existing recipe without `-y`
+   exits 5 and keeps its bytes. A behaviour change, so it gets a CHANGELOG "Changed" line.
+4. **Full disk: the loud failure is accepted.** Staging needs room for the old and new file at once.
+
+Also accepted as the frame recorded it: F2 (`write_lock` moves onto the helper) is in scope, and a
+replaced file keeps its permission bits but not its owner, ACLs, xattrs (on macOS, Finder tags) or
+hard links. That is documented under `-y`.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
