@@ -305,6 +305,23 @@ Neighbours (same setup, one change each):
 - Lockfiles with odd `out` spellings drift once on paths after upgrade: CHANGELOG note enough?
   **Recommend yes.**
 
+### Maintainer rulings (2026-11-22)
+
+All five recommendations accepted:
+1. **A symlinked `out` that resolves outside the build root is refused** (the third option). In-tree
+   links keep working and are de-aliased. The message says why and that the workaround is to build
+   in the tree and copy.
+2. **Chaining is refused:** one target's output may not be another target's source.
+3. **Collision and overlap compare a case-folded identity on every OS,** so `a.png` and `A.png` are
+   refused on Linux too.
+4. **The new refusals exit 2,** like the existing collision and `..`-escape errors.
+5. **A CHANGELOG note covers lockfiles with odd `out` spellings** that report path drift once after
+   the upgrade.
+
+Build order (orchestrator): SPEC-155 and SPEC-157 both change `src/cli/build.rs` and maybe
+`src/sink/mod.rs`, so their builds run one after the other, SPEC-155 first. SPEC-157's sink change
+sits on SPEC-155's staged-write helper.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
