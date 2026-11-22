@@ -47,7 +47,24 @@ value_link: "STAGE-063's success criterion that `meta strip` leaves a JPEG rende
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-22
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5186866
+      tokens_breakdown:
+        input: 88
+        cache_creation: 122340
+        cache_read: 5029296
+        output: 35142
+      estimated_usd: 4.16
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-156-frame.md`), deduped by
+        message.id (44 messages; max output_tokens per id), 0 subagent transcripts. Measured after the push,
+        before this cost commit's own turns.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
