@@ -12,7 +12,10 @@ Cycle prompts live in `prompts/SPEC-154-<cycle>.md`.
   `docs/data-model.md`, `README.md`, `.pre-commit-hooks.yaml`, `demo/`, `bench/corpus/`). Recommends
   inverting to a docs-only allow-list (fails safe; 12 of 600 replayed commits flip to a full run)
   and adding `recipes/**`, `assets/**` to `pages.yml`. Prompt: `prompts/SPEC-154-frame.md`.
-- [ ] **design** — answer the three maintainer questions in `## Frame`; write ACs, the self-test and mutation rows.
-- [ ] **build**
+- [x] **design** (2026-11-22, Opus) — allow-list `DOCS` (15 alternatives) + `EXCEPT` (README.md,
+  docs/github-actions.md, docs/data-model.md); derived include check (35 targets, floor, canonical-path,
+  concat!/env! refused) and pages drift check, all in `--self-test` (88 rows). 32 mutations driven red on a
+  prototype; replay 12/600 flips. Prompt: `prompts/SPEC-154-design.md`.
+- [ ] **build** — prompt: `prompts/SPEC-154-build.md`.
 - [ ] **verify**
 - [ ] **ship** — then the draft `recipes/web.toml`-only proof PR.

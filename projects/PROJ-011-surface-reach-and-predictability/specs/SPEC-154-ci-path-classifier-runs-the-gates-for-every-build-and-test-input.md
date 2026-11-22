@@ -7,7 +7,7 @@
 task:
   id: SPEC-154
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -28,7 +28,7 @@ references:
   constraints: []
   related_specs: [SPEC-155, SPEC-156, SPEC-157, SPEC-158]
   reviews: [docs/reviews/2026-11-10-external-code-review.md]
-  files: [scripts/ci-code-paths.sh, .github/workflows/ci.yml, .github/workflows/pages.yml]
+  files: [scripts/ci-code-paths.sh, .github/workflows/ci.yml, .github/workflows/pages.yml, docs/development.md]
 
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
@@ -324,62 +324,813 @@ The frame's extra self-test row (every `include_str!`/`include_bytes!` target in
 `tests/` classifies as code) and the pages drift check stay in scope. The post-merge draft PR
 touching only `recipes/web.toml` is the maintainer's step at ship, checked once, closed unmerged.
 
+## Design
+
+*Design cycle, 2026-11-22, Opus. Every row below was driven against the real `scripts/ci-code-paths.sh`
+on a never-pushed prototype branch (`proto/spec-154`, a worktree off `origin/main` at `b7f07af`), not
+the frame's probe. The prototype is removed; its script is reproduced verbatim under Implementation
+Context.*
+
+### Design corrections to the frame
+
+1. **Replay count holds; its breakdown does not.** Re-run with the final patterns over the last 600
+   first-parent commits on `main` (`/usr/bin/git rev-list --first-parent -n 600 origin/main`,
+   `ecb4fde` 2026-07-24 to `b7f07af` 2026-11-22): **517** docs-only under today's script (the frame's
+   514 was on an earlier window), **12 flip** to a full run, **0 flip the other way**. The 12 and
+   the path that flips each:
+   `3f7fb6c` docs/data-model.md · `318bb2c` .pre-commit-hooks.yaml docs/github-actions.md README.md ·
+   `3d2cf16` same three · `0e49ca0` docs/github-actions.md · `587e2e6` docs/github-actions.md README.md ·
+   `ab61f52` .pre-commit-hooks.yaml README.md · `9927613` README.md recipes/README.md · `6e1b769`
+   README.md · `777253e` recipes/README.md · `8e0d19c` README.md · `08b367d` demo/demo.css ·
+   `eb2b5b8` README.md recipes/README.md.
+   - `README.md` is in **8** of the 12 (sum of the rows above) and the only flipping path in **2**
+     (`6e1b769`, `8e0d19c`). The frame's "README-only edits were 6 of the 12" does not reproduce.
+   - The frame's "2 are allow-list overhead" (`777253e` recipes/README.md, `08b367d` demo/demo.css)
+     is overhead only against a deny-list naming single files. The frame's own fixed deny-list names
+     `recipes/` and `demo/` whole, so it flips the same 12. Against that list the allow-list costs
+     **0** extra commits in this window.
+2. **Pages: the reason for `recipes/**` is the smoke test, not the wasm bundle.** `src/recipe/bundled.rs`
+   compiles for wasm32 (`src/lib.rs:63` `pub mod recipe;` has no `cfg`), but its only caller is
+   `src/cli/common.rs:217`, and `cli` is native-only (`src/lib.rs:76-77`
+   `#[cfg(not(target_arch = "wasm32"))] pub mod cli;`). What makes `pages` depend on
+   `recipes/web.toml` is `tests/demo_smoke.mjs:853`
+   `const webToml = readFileSync(join(repoRoot, "recipes", "web.toml"), "utf8");`, which asserts
+   `demo/demo.js`'s inlined `WEB_RECIPE` is byte-identical to the file (`demo/demo.js:25-28`). The
+   font claim holds: `src/text/mod.rs:26`
+   `pub const DEFAULT_FONT: &[u8] = include_bytes!("../../assets/fonts/Go-Regular.ttf");` is used by
+   `src/operation/mod.rs:1705` (core, compiled and reached on wasm32). The fix is unchanged.
+3. **The derived row needs two more guards the frame did not name**, both driven: an include-scan
+   floor (with the scan disabled, no path row goes red, because the hand rows already cover every
+   docs-shaped include target), and a canonical-path check (a resolver that does not collapse `..`
+   leaves every target under `src/` or `tests/`, which always classify as code, so the row would
+   pass vacuously; HANDOFF trap 10).
+4. **Empty input changes verdict.** Today an empty list prints `false` (nothing matches). The
+   allow-list prints `true` for an empty list: nothing was proved docs-only. Blank lines are ignored
+   so `echo "$files"` of an empty diff (one blank line) is an empty list. This only fires on a diff
+   with no files; it fails safe.
+5. Everything else in the frame was confirmed as stated: no `build.rs`; every include is a literal
+   `include_(str|bytes)!("…")` (no `concat!`/`env!` form); the two runtime docs reads; `supply-chain`
+   ungated; `pages.yml` holds the only `paths:` lists that need the addition.
+
+### What was driven (evidence)
+
+- **Premise on the real script (`main` at `b7f07af`).** `printf '%s\n' <path> | scripts/ci-code-paths.sh`
+  printed `false` for each of `recipes/web.toml recipes/gallery.toml recipes/product.toml
+  assets/fonts/Go-Regular.ttf clippy.toml deny.toml docs/github-actions.md docs/data-model.md README.md
+  .pre-commit-hooks.yaml demo/index.html demo/README.md demo/demo.js demo/worker.js
+  bench/corpus/README.md` (15 paths); positive control `src/lib.rs` printed `true`.
+- **Test-input readers (the exception list holds only really-read paths).**
+  - `README.md`: `tests/adoption_glue.rs:95` `let r = read("README.md");` (`read` joins the manifest
+    dir, `tests/adoption_glue.rs:66`).
+  - `docs/github-actions.md`: `tests/lint.rs:1445`
+    `let full = include_str!("../docs/github-actions.md").replace("\r\n", "\n");`
+  - `docs/data-model.md`: `tests/docs_ops.rs:68` and `:143`
+    `std::fs::read_to_string(Path::new(ROOT).join("docs/data-model.md"))`
+  - Newly-code paths outside `DOCS` (no exception needed, listed for the record):
+    `.pre-commit-hooks.yaml` `tests/adoption_glue.rs:72` `let y = read(".pre-commit-hooks.yaml");`;
+    `demo/README.md` `tests/demo_copy.rs:66` `let readme = read("demo/README.md");`;
+    `bench/corpus/README.md` `tests/audit_bench.rs:570` `let readme = corpus.join("README.md");`;
+    `recipes/*.toml` and `assets/fonts/Go-Regular.ttf` (the include list below); `clippy.toml`,
+    `deny.toml`, `fuzz/` are tool inputs with no `src/`/`tests/` reader, code because not in `DOCS`.
+- **Include forms.** `ls build.rs` → `No such file or directory`.
+  `/usr/bin/grep -rnE 'include_(str|bytes)!' src tests benches examples` → 79 lines. Non-literal forms:
+  `/usr/bin/grep -rnE 'include_(str|bytes)!\((concat|env)' src tests benches examples` → rc 1 (none);
+  multi-line `include_(str|bytes)!\(\s*$` → rc 1 (none). Every other hit not matching
+  `include_(str|bytes)!\("[^"]+"\)` is a comment or a string literal:
+  `src/recipe/bundled.rs:6`, `:37`, `src/cli/build.rs:1566`, `src/text/mod.rs:14`,
+  `tests/wasm_roundtrip.rs:39` (comments), `tests/help_has_no_internal_ids.rs:604`
+  `const MACRO: &str = "include_str!(\"";` and `:630` (string literals, the scan's regex cannot match
+  them: `(` is followed by `\`), and `tests/help_has_no_internal_ids.rs:601` (a `///` doc comment
+  holding `include_str!("…")`, skipped by the comment rule; mutant C below shows it would otherwise
+  resolve to `tests/…`). All literal paths are relative to the including file; the script resolves
+  `dirname(file)/literal` and collapses `.`/`..` in awk. Resolved: **35 distinct targets** (`sort -u`
+  of the resolved list; by root: `tests/` 28, `recipes/` 3, `assets/` 1, `docs/` 1, `Cargo.toml` 1,
+  `justfile` 1; 28+3+1+1+1+1 = 35). The 7 outside `tests/`: `assets/fonts/Go-Regular.ttf`,
+  `Cargo.toml`, `docs/github-actions.md`, `justfile`, `recipes/gallery.toml`, `recipes/product.toml`,
+  `recipes/web.toml`. Forms the scan cannot resolve (`include_*!(concat!(…))`, `include_*!(env!(…))`)
+  are **refused**: a self-test check fails on any, naming the site.
+- **Runtime reads under a docs-only root.**
+  ```
+  cd tests; /usr/bin/grep -rnE '"(\.\./)?(docs|README|CHANGELOG|AGENTS|CONTRIBUTING|RELEASING|SECURITY|BENCHMARKS|projects|decisions|guidance|feedback|reports|skills|\.claude-plugin|gitignore_files_maybe|LICENSE|\.repo-context|\.variant|\.gitignore|\.github/TEMPLATE)[^"]*"' --include='*.rs' --include='*.mjs' --include='*.py' . | /usr/bin/grep -v '^\./fixtures'
+  /usr/bin/grep -rnE '(read_to_string|fs::read|Path::new|join)\("(\.\./)*(docs|README|CHANGELOG|projects|decisions|guidance|skills)' src
+  /usr/bin/grep -rnE 'join\("(docs|skills|projects|decisions|guidance|feedback|reports|\.claude-plugin)' src tests benches examples
+  /usr/bin/grep -rnE '"[A-Za-z0-9_./-]*\.md"' tests src benches examples --include='*.rs' --include='*.mjs' --include='*.py' | /usr/bin/grep -vE 'fixtures/|write\(&dir'
+  ```
+  Hits under a `DOCS` root: `tests/docs_ops.rs:68`/`:143` (→ EXCEPT), `tests/adoption_glue.rs:95`
+  (→ EXCEPT), `tests/lint.rs:1445` (→ EXCEPT, and the derived row). Shown not to be exceptions:
+  `tests/hostile_inputs.rs:121` (`if name == "README.md"` skips a fixture-dir file name),
+  `tests/lint.rs:127` (`write(&dir, "README.md", …)` writes a temp file), `tests/cli.rs:5880`
+  (`run(Some("docs"), "docs")`, a CLI argument), `tests/audit_bench.rs:570` and
+  `tests/demo_copy.rs:66` (under `bench/`, `demo/`: code already). `src/`: no hit. Workflows:
+  `/usr/bin/grep -nE '(docs|projects|decisions|guidance|skills|feedback|reports)/|README|CHANGELOG' .github/workflows/*.yml`
+  → only the `docs/specs only` echo in `ci.yml`. The scripts that read `projects/`/`decisions/`
+  (`cost-audit.sh`, `validate-frontmatter.sh`) run in the ungated `cost-data` and `metadata` jobs,
+  so they run on a docs-only PR anyway.
+- **Where the self-test runs.** `.github/workflows/ci.yml:56` `scripts/ci-code-paths.sh --self-test`,
+  a plain command in the `changes` job's `Classify changed paths` step under `set -euo pipefail`
+  (`:45`). `changes` (`:31-35`) has no `needs:` and no `if:`, and `on:` is `push: branches: [main]`
+  plus every `pull_request` (`:9-11`), so it runs on every PR and every push to `main`, docs-only
+  ones included. It checks out with `fetch-depth: 0` (`:38-40`), so the tree the derived checks read
+  is there. **After the change it stays in `changes`, the one call.** The new derived and pages checks
+  are inside `--self-test`, so they run there too. No new job, no change to `metadata`.
+- **cargo-deny runs on every PR.** `.github/workflows/ci.yml:219-229`:
+  `supply-chain:` / `name: supply-chain policy (cargo-deny)` / `runs-on: ubuntu-latest`, no `needs:`
+  and no `if:`, step `uses: EmbarkStudios/cargo-deny-action@v2` with
+  `command: check advisories bans sources licenses`.
+- **Pages' lists are the only ones that need it.** `/usr/bin/grep -n -A12 'paths' .github/workflows/*.yml`:
+  `pages.yml:27` and `:39` (the two lists), `publish-crates.yml:15` and `publish-npm.yml:15`
+  (release-plumbing triggers, out of scope), nothing else (`ci.yml`, `dco.yml`, `release.yml`,
+  `scheduled-audit.yml` have no `paths:`).
+- **CHANGELOG precedent.** `/usr/bin/grep -n -i 'ci\b\|workflow' CHANGELOG.md` lists only user-facing
+  CI features (the Actions, `lint` exit codes, the scheduled audit). The commit that introduced the
+  docs-only skip (`7827d80`, #165) and SPEC-146's `517acea` (#245) changed no `CHANGELOG.md`
+  (`git show --stat` → 0 hits each). **No CHANGELOG line.**
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `scripts/ci-code-paths.sh` (rewritten), `.github/workflows/ci.yml:21-75` (the
+  `changes` job), `.github/workflows/pages.yml:22-48` (the two lists), `docs/development.md:44-50`.
+- **External APIs:** none.
+- **Related code paths:** the include sites and runtime readers quoted under Design.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** none.
+- **Files modified:**
+  - `scripts/ci-code-paths.sh` — `CODE_PATHS` deny-list replaced by `DOCS` + `EXCEPT`; `classify`
+    rewritten; `include_targets`, `unresolvable_includes`, `pages_paths` added; self-test rows,
+    `check` helper, derived include checks and pages checks added; header rewritten.
+  - `.github/workflows/pages.yml` — `"recipes/**"` and `"assets/**"` in both `paths:` lists, with a
+    two-line comment on the push list.
+  - `.github/workflows/ci.yml` — the `changes` job comment (`:22-26`) and the step comment (`:54-55`)
+    rewritten. No control-flow change; both echo lines unchanged.
+  - `docs/development.md` — a new `## Which PRs skip the Rust gates` section between `## Reports`
+    and `## Key discipline in this variant`.
+- **New exports:** none. **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its checks (FT ids below). Every check names what turns it red (the mutation table).
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 Docs-only paths still skip.** Each of the 15 `DOCS` alternatives has one row that
+  classifies `false`, and a list of only such paths (with a blank line in it) classifies `false`.
+  — FT-D1 to FT-D17, FT-L2; mutations M1 to M15.
+- [ ] **AC-2 Every build and test input runs the gates.** `recipes/web.toml`,
+  `assets/fonts/Go-Regular.ttf`, `clippy.toml`, `deny.toml`, `.pre-commit-hooks.yaml`,
+  `demo/index.html`, `bench/corpus/README.md`, `fuzz/Cargo.toml` classify `true`; the classic code
+  roots (`integrations/ddphotos/…`, `src/`, `.cargo/`, `.github/workflows/`) still do. — FT-C1 to
+  FT-C12; baseline (12 of them red on `main`'s classifier).
+- [ ] **AC-3 The three docs-shaped test inputs are exceptions.** `README.md`, `docs/github-actions.md`,
+  `docs/data-model.md` classify `true`, each from `EXCEPT`. — FT-E1, FT-E2, FT-E3; mutations M16,
+  M17, M18.
+- [ ] **AC-4 An unclassified path runs the gates.** A new top-level directory (`newdir/x.txt`)
+  classifies `true`. — FT-U1.
+- [ ] **AC-5 `DOCS` is anchored and root-only for Markdown.** `src/docs/mod.rs` and
+  `tests/fixtures/x.md` classify `true`; `docs/.cargo/config.toml` and `docs/recipes/web.toml`
+  classify `false`. — FT-U2, FT-U3, FT-D2, FT-D3; mutations M19 (drop `^`), M20 (`.*\.md$`), M21
+  (`src/` added).
+- [ ] **AC-6 List semantics.** An empty list prints `true`; a docs-only list with a blank line prints
+  `false`; a docs path plus one code path prints `true`. — FT-L1, FT-L2, FT-L3.
+- [ ] **AC-7 Every included file classifies as code (derived).** The self-test scans every literal
+  `include_str!`/`include_bytes!` in `src/`, `tests/`, `benches/`, `examples/`, `build.rs`
+  (skipping comment lines), resolves each against the including file's folder, and fails a row when
+  a target (a) is not a canonical repository path, (b) does not exist, or (c) classifies `false`.
+  — FT-I2 (35 rows today); mutations M17, M23, M24, M25, M26, M27.
+- [ ] **AC-8 The include scan cannot silently find nothing.** The scan must find at least
+  `INCLUDE_FLOOR=35` files (the design-time count). — FT-I1; mutation M22.
+- [ ] **AC-9 An include the scan cannot resolve is refused.** Any `include_(str|bytes)!(concat!` or
+  `include_(str|bytes)!(env!` under the scanned roots fails the self-test, naming `file:line`.
+  — FT-I3; mutation M28.
+- [ ] **AC-10 Pages runs for the demo's inputs.** `pages.yml`'s push list names `recipes/**` and
+  `assets/**`. — FT-P2, FT-P3; mutation M31.
+- [ ] **AC-11 Pages' two lists cannot drift.** `push.paths` and `pull_request.paths` are identical and
+  not empty. — FT-P1; mutation M29.
+- [ ] **AC-12 Every pages path is a code path.** Each pages entry, with `**`/`*` replaced by `x`,
+  classifies `true`. — FT-P4 (10 rows); mutation M30.
+- [ ] **AC-13 The self-test exits non-zero on any wrong verdict, and runs on every PR.** The final line
+  is `ci-code-paths self-test: <rows> rows, <m> mismatched, <c> crashed, <j> junk, <f> failed` and the
+  exit code is 0 only when all four are 0; it runs from the `changes` job, unchanged. — the negative
+  control (M32, rc=1); the green run (rc=0); the build PR's own `changes` log.
+- [ ] **AC-14 Every message is the text below, verbatim.** One check per message: see "Every message
+  the script prints".
+- [ ] **AC-15 The comments state the rule.** The script header, the `changes` job comment and the
+  step comment in `ci.yml` are the verbatim text below and carry no spec, stage or DEC id.
+  — `/usr/bin/grep -nE '(SPEC|STAGE|DEC|PROJ)-[0-9]' scripts/ci-code-paths.sh` → no hit; `ci.yml`
+  hunks diffed against the text below.
+- [ ] **AC-16 `docs/development.md` says which PRs skip the gates.** The section below, verbatim, at
+  the place named. — diff against the text below.
+- [ ] **AC-17 No other change.** No Rust source, no file under `tests/`, no CHANGELOG line, no version
+  bump; `git diff --name-only main` lists exactly the 4 files under Outputs.
+- [ ] **AC-18 (ship) The classification is proved on Actions.** A draft PR touching only
+  `recipes/web.toml` shows the code line, three `check` legs running `cargo test`, and `pages`
+  running; it is closed unmerged. The next docs-only push to `main` prints the docs-only line.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+The tests are the rows and checks of `scripts/ci-code-paths.sh --self-test`. Ids are for this spec
+only; the script prints paths and labels, not ids.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`scripts/ci-code-paths.sh --self-test`, path rows (`expect`)**
+  - FT-C1..C4 `expect true` `integrations/ddphotos/edit/edit.js`, `src/lib.rs`, `.cargo/config.toml`,
+    `.github/workflows/ci.yml` (kept from today).
+  - FT-C5..C12 `expect true` `recipes/web.toml`, `assets/fonts/Go-Regular.ttf`, `clippy.toml`,
+    `deny.toml`, `.pre-commit-hooks.yaml`, `demo/index.html`, `bench/corpus/README.md`,
+    `fuzz/Cargo.toml`.
+  - FT-E1..E3 `expect true` `README.md`, `docs/github-actions.md`, `docs/data-model.md`.
+  - FT-U1 `expect true newdir/x.txt`; FT-U2 `expect true src/docs/mod.rs`; FT-U3
+    `expect true tests/fixtures/x.md`.
+  - FT-D1..D17 `expect false` `docs/x.md`, `docs/.cargo/config.toml`, `docs/recipes/web.toml`,
+    `projects/PROJ-017-geometry-as-recipe-steps/specs/SPEC-142-x.md`, `decisions/DEC-001-x.md`,
+    `guidance/constraints.yaml`, `feedback/x.md`, `reports/x.md`, `gitignore_files_maybe/x.txt`,
+    `skills/crustyimg/SKILL.md`, `.claude-plugin/plugin.json`, `CHANGELOG.md`, `LICENSE-MIT`,
+    `.repo-context.yaml`, `.variant`, `.gitignore`, `.github/TEMPLATE_README.md`.
+  - Count: 4 + 8 + 3 + 3 + 17 = **35 path rows**.
+- **List checks (`check`)**: FT-L1 empty list → `true`; FT-L2 `docs/x.md`, blank, `CHANGELOG.md` →
+  `false`; FT-L3 `docs/x.md`, `src/lib.rs` → `true`. **3 rows.**
+- **Derived include checks**: FT-I1 the floor (1 row); FT-I2 one row per resolved target (35 today);
+  FT-I3 no `concat!`/`env!` include (1 row). **37 rows.**
+- **Pages checks**: FT-P1 the two lists identical and not empty (1); FT-P2 `recipes/**` listed (1);
+  FT-P3 `assets/**` listed (1); FT-P4 each push-list entry classifies as code (10 today: the 8 now
+  listed + 2 added). **13 rows.**
+- **Total: 35 + 3 + 37 + 13 = 88 rows**, matching the prototype's last line
+  `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed` (rc=0).
+
+### Baseline the build records before changing `classify` (trap 13)
+
+Put the new self-test, derived checks and pages checks in first with `classify` still today's
+`CODE_PATHS` one-liner and `pages.yml` unchanged except for the two new entries, and run
+`bash scripts/ci-code-paths.sh --self-test`. Driven at design: **rc=1**, last line
+`ci-code-paths self-test: 88 rows, 12 mismatched, 0 crashed, 0 junk, 9 failed`, and exactly these 21
+FAIL lines (quote them in Build Completion):
+
+```
+FAIL recipes/web.toml -> false, expected true
+FAIL assets/fonts/Go-Regular.ttf -> false, expected true
+FAIL clippy.toml -> false, expected true
+FAIL deny.toml -> false, expected true
+FAIL .pre-commit-hooks.yaml -> false, expected true
+FAIL demo/index.html -> false, expected true
+FAIL bench/corpus/README.md -> false, expected true
+FAIL fuzz/Cargo.toml -> false, expected true
+FAIL README.md -> false, expected true
+FAIL docs/github-actions.md -> false, expected true
+FAIL docs/data-model.md -> false, expected true
+FAIL newdir/x.txt -> false, expected true
+FAIL empty list -> false, expected true
+FAIL include target assets/fonts/Go-Regular.ttf classifies as docs-only; add it to EXCEPT
+FAIL include target docs/github-actions.md classifies as docs-only; add it to EXCEPT
+FAIL include target recipes/gallery.toml classifies as docs-only; add it to EXCEPT
+FAIL include target recipes/product.toml classifies as docs-only; add it to EXCEPT
+FAIL include target recipes/web.toml classifies as docs-only; add it to EXCEPT
+FAIL pages.yml path demo/** classifies as code
+FAIL pages.yml path recipes/** classifies as code
+FAIL pages.yml path assets/** classifies as code
+```
+
+(`demo/**` is red on `main` too: today's classifier calls a path pages already builds docs-only.) And
+before adding `recipes/**`/`assets/**` to `pages.yml`, with the new `classify`: rc=1, exactly
+`FAIL pages.yml lists recipes/**` and `FAIL pages.yml lists assets/**`
+(`86 rows, 0 mismatched, 0 crashed, 0 junk, 2 failed`).
+
+### Mutation table (trap 12): apply each alone to the final script, record every red line
+
+All **driven at design** on the prototype, each from the green final script, red set read off the
+full self-test run. "Edit" is the exact change. "Red" lists every FAIL line (paths shown; the full
+text of each is in "Every message"). Every row exited **rc=1**.
+
+- **M1** `DOCS`: delete `docs/|` → red: `docs/x.md`, `docs/.cargo/config.toml`, `docs/recipes/web.toml`
+  (`-> true, expected false`), `docs-only list with a blank line -> true, expected false`. *driven*
+- **M2** delete `projects/|` → red: `projects/PROJ-017-…/SPEC-142-x.md`. *driven*
+- **M3** delete `decisions/|` → red: `decisions/DEC-001-x.md`. *driven*
+- **M4** delete `guidance/|` → red: `guidance/constraints.yaml`. *driven*
+- **M5** delete `feedback/|` → red: `feedback/x.md`. *driven*
+- **M6** delete `reports/|` → red: `reports/x.md`. *driven*
+- **M7** delete `gitignore_files_maybe/|` → red: `gitignore_files_maybe/x.txt`. *driven*
+- **M8** delete `skills/|` → red: `skills/crustyimg/SKILL.md`. *driven*
+- **M9** delete `\.claude-plugin/|` → red: `.claude-plugin/plugin.json`. *driven*
+- **M10** delete `[^/]+\.md$|` → red: `CHANGELOG.md`, `docs-only list with a blank line`. *driven*
+- **M11** delete `LICENSE-[A-Z]+$|` → red: `LICENSE-MIT`. *driven*
+- **M12** delete `\.repo-context\.yaml$|` → red: `.repo-context.yaml`. *driven*
+- **M13** delete `\.variant$|` → red: `.variant`. *driven*
+- **M14** delete `\.gitignore$|` → red: `.gitignore`. *driven*
+- **M15** delete `|\.github/TEMPLATE_README\.md$` → red: `.github/TEMPLATE_README.md`. *driven*
+- **M16** `EXCEPT`: delete `README\.md|` → red: `README.md -> false, expected true`. *driven*
+- **M17** delete `docs/github-actions\.md|` → red: `docs/github-actions.md -> false, expected true`
+  **and** `include target docs/github-actions.md classifies as docs-only; add it to EXCEPT`. *driven*
+- **M18** delete `|docs/data-model\.md` → red: `docs/data-model.md -> false, expected true` (runtime
+  read: the derived row cannot see it, which is why it is hand-listed). *driven*
+- **M19** `DOCS='^(` → `DOCS='(` (drop the leading `^`) → red: `bench/corpus/README.md`,
+  `src/docs/mod.rs`, `tests/fixtures/x.md` (`-> false, expected true`). *driven*
+- **M20** in the `DOCS=` line, `[^/]+\.md$` → `.*\.md$` → red: `bench/corpus/README.md`,
+  `tests/fixtures/x.md`. *driven* (first attempt hit the comment line and stayed green; re-driven on
+  the `DOCS=` line only. The build applies it to the `DOCS=` line.)
+- **M21** `DOCS='^(docs/` → `DOCS='^(src/|docs/` → red: `src/lib.rs`, `src/docs/mod.rs`
+  (`-> false, expected true`), `docs plus one code path -> false, expected true`,
+  `pages.yml path src/** classifies as code`. *driven*
+- **M22** first line of `include_targets()` body: insert `  return 0` → red:
+  `include scan found 0 files, expected at least 35 (lower INCLUDE_FLOOR only if an include was removed on purpose)`
+  (53 rows: the 35 per-target rows vanish, which is why the floor exists). *driven*
+- **M23** in `include_targets`' awk, replace
+  `if (part[i] == "..") { if (depth > 0) depth--; continue }` with a comment (no `..` collapse) →
+  red: 23 lines `include target <file's folder>/../… is not a repository path (the scan did not collapse . or ..)`,
+  one per distinct uncollapsed target reached through `..`. *driven*
+- **M24** in the awk, `dir = file; sub(/\/[^\/]*$/, "", dir)` → `dir = "."` (resolve against the repo
+  root) → red: 25 lines `include target fixtures/… does not exist (the scan resolved a path wrong)`.
+  *driven*
+- **M25** in the awk, delete `if (text ~ /^[ \t]*\/\//) next` (no comment skip) → red:
+  `include target tests/… does not exist (the scan resolved a path wrong)` (from the `///` line at
+  `tests/help_has_no_internal_ids.rs:601`; 89 rows). *driven*
+- **M26** append `const _X: &str = include_str!("../docs/x.md");` to a scratch copy of `src/lib.rs` →
+  red: `include target docs/x.md does not exist (the scan resolved a path wrong)`. *driven* (the
+  prompt's negative control; `docs/x.md` does not exist, so it is red on existence.)
+- **M27** append `const _X: &str = include_str!("../docs/development.md");` to `src/lib.rs` → red:
+  `include target docs/development.md classifies as docs-only; add it to EXCEPT`. *driven* (the
+  classification half of the derived row on a real file.)
+- **M28** append
+  `const _X: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/development.md"));` to
+  `src/lib.rs` → red: `no include_str!/include_bytes! builds its path with concat!/env!: src/lib.rs:101:const _X: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/development.md"));`
+  (the line number is wherever the append lands). *driven*
+- **M29** `pages.yml`: delete `      - "recipes/**"` from the `pull_request` list only → red:
+  `pages.yml push.paths and pull_request.paths are identical and not empty`. *driven*
+- **M30** `pages.yml`: add `      - "docs/**"` after `      - "demo/**"` in both lists → red:
+  `pages.yml path docs/** classifies as code`. *driven*
+- **M31** `pages.yml`: delete `recipes/**` and `assets/**` from both lists → red:
+  `pages.yml lists recipes/**`, `pages.yml lists assets/**`. *driven*
+- **M32 (negative control for the whole self-test)** `  expect true src/lib.rs` →
+  `  expect false src/lib.rs` → red: `src/lib.rs -> true, expected false`; last line
+  `88 rows, 1 mismatched, 0 crashed, 0 junk, 0 failed`; **rc=1**. The green run before it: rc=0. *driven*
+
+Scratch mutants M26-M28 edit `src/lib.rs` in the build's worktree; revert with
+`git checkout src/lib.rs` after each and show `git status --short src` empty before committing.
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
+*Read this section (and the files it points to) before starting the build cycle.*
+
+### The script, verbatim (driven at design; copy it)
+
+`scripts/ci-code-paths.sh` becomes exactly this (227 lines; `git diff --numstat` on the prototype:
+`188 14`). Pieces and where they sit in the new file:
+
+- header comment `:2-12` (the rule and the exception rule);
+- `DOCS` with a comment per alternative `:15-24`;
+- `EXCEPT` with its comment `:26-32`;
+- `classify` `:34-46` (blank lines dropped; empty → `true`; EXCEPT hit → `true`; any non-`DOCS` line →
+  `true`; else `false`);
+- `include_targets` `:48-78` (grep + awk resolver);
+- `unresolvable_includes` `:80-87`;
+- `pages_paths` `:89-98` (awk over `.github/workflows/pages.yml`);
+- `--self-test` `:100-225`: `cd` to the repo root, `expect` (unchanged), `check`, the 35 path rows, 3
+  list checks, the derived checks with `INCLUDE_FLOOR=35`, the pages checks, the summary line;
+- the classifier call `:227`.
+
+```bash
+#!/usr/bin/env bash
+# Classify changed paths for the `changes` job in .github/workflows/ci.yml.
+#
+# Reads file names (one per line) on stdin and prints `false` only when every one
+# of them is provably docs-only, otherwise `true`. Anything not provably docs-only
+# runs the gates: a path outside the DOCS list below, including a new top-level
+# directory nobody has classified yet, counts as code. A docs-shaped file that a
+# build or a test reads goes in EXCEPT, which wins over DOCS. Blank lines are
+# ignored; an empty list prints `true`, because nothing was proved docs-only.
+#
+#   git diff --name-only base...HEAD | scripts/ci-code-paths.sh
+#   scripts/ci-code-paths.sh --self-test
+set -euo pipefail
+
+# Docs and process files: nothing compiles them and no gated job reads them. Every
+# alternative is anchored at the repository root.
+#   docs/ projects/ decisions/ guidance/ feedback/ reports/  prose, specs, ADRs, process records
+#   gitignore_files_maybe/                                   parked notes, read by nothing
+#   skills/ .claude-plugin/                                  agent-skill text and its plugin manifest
+#   [^/]+\.md$                                               a Markdown file at the root only
+#   LICENSE-[A-Z]+$                                          licence texts
+#   .repo-context.yaml .variant .gitignore                   repo metadata; no build reads them
+#   .github/TEMPLATE_README.md                               template prose, not a workflow
+DOCS='^(docs/|projects/|decisions/|guidance/|feedback/|reports/|gitignore_files_maybe/|skills/|\.claude-plugin/|[^/]+\.md$|LICENSE-[A-Z]+$|\.repo-context\.yaml$|\.variant$|\.gitignore$|\.github/TEMPLATE_README\.md$)'
+
+# Docs-shaped files that a test reads, so a change to one must run the gates:
+#   README.md               tests/adoption_glue.rs reads it
+#   docs/github-actions.md  tests/lint.rs includes it
+#   docs/data-model.md      tests/docs_ops.rs reads it
+# A file a build or a test includes with include_str!/include_bytes! is checked by
+# the self-test below; a file read at run time must be listed here by hand.
+EXCEPT='^(README\.md|docs/github-actions\.md|docs/data-model\.md)$'
+
+classify() {
+  local paths
+  paths=$(grep -v '^$' || true)
+  if [ -z "$paths" ]; then
+    echo true
+  elif printf '%s\n' "$paths" | grep -qE "$EXCEPT"; then
+    echo true
+  elif printf '%s\n' "$paths" | grep -qvE "$DOCS"; then
+    echo true
+  else
+    echo false
+  fi
+}
+
+# Every file named by a literal include_str!/include_bytes! under src/, tests/,
+# benches/, examples/ or build.rs, as a repository path, one per line. Comment lines
+# are skipped. The path is resolved against the including file's folder, as rustc does.
+include_targets() {
+  local roots=() r
+  for r in src tests benches examples build.rs; do
+    if [ -e "$r" ]; then roots+=("$r"); fi
+  done
+  grep -rnE --include='*.rs' 'include_(str|bytes)!\("' "${roots[@]}" | awk '
+    {
+      file = $0; sub(/:.*/, "", file)
+      text = $0; sub(/^[^:]*:[0-9]+:/, "", text)
+      if (text ~ /^[ \t]*\/\//) next
+      dir = file; sub(/\/[^\/]*$/, "", dir)
+      if (dir == file) dir = "."
+      while (match(text, /include_(str|bytes)!\("[^"]+"\)/)) {
+        lit = substr(text, RSTART, RLENGTH)
+        text = substr(text, RSTART + RLENGTH)
+        sub(/^include_(str|bytes)!\("/, "", lit); sub(/"\)$/, "", lit)
+        n = split(dir "/" lit, part, "/"); depth = 0
+        for (i = 1; i <= n; i++) {
+          if (part[i] == "" || part[i] == ".") continue
+          if (part[i] == "..") { if (depth > 0) depth--; continue }
+          out[++depth] = part[i]
+        }
+        path = out[1]
+        for (i = 2; i <= depth; i++) path = path "/" out[i]
+        print path
+      }
+    }' | sort -u
+}
+
+# Include forms the scan above cannot resolve: a path built with concat!/env!.
+unresolvable_includes() {
+  local roots=() r
+  for r in src tests benches examples build.rs; do
+    if [ -e "$r" ]; then roots+=("$r"); fi
+  done
+  grep -rnE --include='*.rs' 'include_(str|bytes)!\((concat|env)!' "${roots[@]}" || true
+}
+
+# One of pages.yml's two `paths:` lists (push or pull_request), one entry per line.
+pages_paths() {
+  awk -v want="$1" '
+    /^  [a-z_]+:/ { section = $1; sub(/:$/, "", section); inpaths = 0; next }
+    section == want && /^    paths:/ { inpaths = 1; next }
+    inpaths && /^      - / { e = $0; sub(/^      - /, "", e); gsub(/"/, "", e); print e; next }
+    inpaths && /^ *#/ { next }
+    inpaths { inpaths = 0 }
+  ' .github/workflows/pages.yml
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  # The derived checks read the tree; run them from the repository root.
+  cd "$(dirname "$0")/.."
+  rows=0 mismatched=0 crashed=0 junk=0 failed=0
+  expect() {
+    local want="$1" path="$2" got rc=0
+    rows=$((rows + 1))
+    # Assign first, read the exit code after: `set -e` must not end the run on a crash.
+    got=$(printf '%s\n' "$path" | classify) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "FAIL $path -> classifier exited $rc"
+      crashed=$((crashed + 1))
+    elif [ "$got" != "true" ] && [ "$got" != "false" ]; then
+      echo "FAIL $path -> printed '$got', expected true or false"
+      junk=$((junk + 1))
+    elif [ "$got" = "$want" ]; then
+      echo "PASS $path -> $got"
+    else
+      echo "FAIL $path -> $got, expected $want"
+      mismatched=$((mismatched + 1))
+    fi
+  }
+  # Check rows that are not a single path: print PASS/FAIL with a reason.
+  check() {
+    local ok="$1" label="$2"
+    rows=$((rows + 1))
+    if [ "$ok" = "yes" ]; then
+      echo "PASS $label"
+    else
+      echo "FAIL $label"
+      failed=$((failed + 1))
+    fi
+  }
+
+  # Code: the classic roots.
+  expect true integrations/ddphotos/edit/edit.js
+  expect true src/lib.rs
+  expect true .cargo/config.toml
+  expect true .github/workflows/ci.yml
+  # Code: build and test inputs outside the classic roots.
+  expect true recipes/web.toml
+  expect true assets/fonts/Go-Regular.ttf
+  expect true clippy.toml
+  expect true deny.toml
+  expect true .pre-commit-hooks.yaml
+  expect true demo/index.html
+  expect true bench/corpus/README.md
+  expect true fuzz/Cargo.toml
+  # Code: the docs-shaped test inputs in EXCEPT.
+  expect true README.md
+  expect true docs/github-actions.md
+  expect true docs/data-model.md
+  # Code: a top-level directory nobody has classified yet.
+  expect true newdir/x.txt
+  # Code: DOCS is anchored at the root, and only a root-level *.md is docs.
+  expect true src/docs/mod.rs
+  expect true tests/fixtures/x.md
+  # Docs-only: one path per DOCS alternative.
+  expect false docs/x.md
+  expect false docs/.cargo/config.toml
+  expect false docs/recipes/web.toml
+  expect false projects/PROJ-017-geometry-as-recipe-steps/specs/SPEC-142-x.md
+  expect false decisions/DEC-001-x.md
+  expect false guidance/constraints.yaml
+  expect false feedback/x.md
+  expect false reports/x.md
+  expect false gitignore_files_maybe/x.txt
+  expect false skills/crustyimg/SKILL.md
+  expect false .claude-plugin/plugin.json
+  expect false CHANGELOG.md
+  expect false LICENSE-MIT
+  expect false .repo-context.yaml
+  expect false .variant
+  expect false .gitignore
+  expect false .github/TEMPLATE_README.md
+
+  # Lists, not single paths.
+  got=$(printf '' | classify)
+  check "$([ "$got" = true ] && echo yes || echo no)" "empty list -> $got, expected true"
+  got=$(printf 'docs/x.md\n\nCHANGELOG.md\n' | classify)
+  check "$([ "$got" = false ] && echo yes || echo no)" "docs-only list with a blank line -> $got, expected false"
+  got=$(printf 'docs/x.md\nsrc/lib.rs\n' | classify)
+  check "$([ "$got" = true ] && echo yes || echo no)" "docs plus one code path -> $got, expected true"
+
+  # Every file a build or a test includes must classify as code.
+  INCLUDE_FLOOR=35
+  targets=$(include_targets)
+  count=$(printf '%s\n' "$targets" | grep -c . || true)
+  check "$([ "$count" -ge "$INCLUDE_FLOOR" ] && echo yes || echo no)" \
+    "include scan found $count files, expected at least $INCLUDE_FLOOR (lower INCLUDE_FLOOR only if an include was removed on purpose)"
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    if printf '%s\n' "$t" | grep -qE '(^|/)\.\.?(/|$)'; then
+      check no "include target $t is not a repository path (the scan did not collapse . or ..)"
+    elif [ ! -f "$t" ]; then
+      check no "include target $t does not exist (the scan resolved a path wrong)"
+    elif [ "$(printf '%s\n' "$t" | classify)" != true ]; then
+      check no "include target $t classifies as docs-only; add it to EXCEPT"
+    else
+      check yes "include target $t -> true"
+    fi
+  done <<< "$targets"
+  bad=$(unresolvable_includes)
+  check "$([ -z "$bad" ] && echo yes || echo no)" \
+    "no include_str!/include_bytes! builds its path with concat!/env!${bad:+: $bad}"
+
+  # pages.yml's two lists must match, list the demo's inputs, and be code paths.
+  push_paths=$(pages_paths push)
+  pr_paths=$(pages_paths pull_request)
+  check "$([ -n "$push_paths" ] && [ "$push_paths" = "$pr_paths" ] && echo yes || echo no)" \
+    "pages.yml push.paths and pull_request.paths are identical and not empty"
+  for need in 'recipes/**' 'assets/**'; do
+    check "$(printf '%s\n' "$push_paths" | grep -qxF "$need" && echo yes || echo no)" \
+      "pages.yml lists $need"
+  done
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    sample=$(printf '%s' "$p" | sed 's/\*\*/x/g; s/\*/x/g')
+    check "$([ "$(printf '%s\n' "$sample" | classify)" = true ] && echo yes || echo no)" \
+      "pages.yml path $p classifies as code"
+  done <<< "$push_paths"
+
+  echo "ci-code-paths self-test: $rows rows, $mismatched mismatched, $crashed crashed, $junk junk, $failed failed"
+  [ $((mismatched + crashed + junk + failed)) -eq 0 ]
+  exit
+fi
+
+classify
+```
+
+**Tools: bash + grep -E + awk, no Ruby.** The classifier already is grep; the include resolver is
+one awk program; the pages reader is one awk program. Ruby (`validate-frontmatter.sh`) would parse
+the YAML properly, but the lists are flat `      - "x"` lines and the drift check only needs them as
+text. Flags used: `grep -E -q -v -c -r -n -x -F --include`, awk `match`/`sub`/`gsub`/`split`/`substr`
+with ERE only (no intervals, no gawk extensions), `sed 's/…/…/g'`, `sort -u`; all behave the same on
+BSD and GNU grep and on mawk (Ubuntu's default awk). The script avoids bash 4 features (it ran under
+macOS bash 3.2). **Driven locally only under BSD grep / BSD awk / bash 3.2** (Docker was down); the
+GNU/mawk run of record is the build PR's own `changes` job on `ubuntu-latest`: the build quotes its
+`ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed` line in Build Completion.
+If that leg disagrees with the local run, stop and report.
+
+**`INCLUDE_FLOOR=35`** is the design-time count of distinct resolved targets (derivation under Design).
+A spec that adds includes needs no change; a spec that removes one lowers the floor in the same PR,
+as the failure message says. If SPEC-155 to SPEC-157 change the count before this builds, re-derive
+it with the script's own `include_targets | grep -c .` and record the number.
+
+### The other three files, verbatim (the prototype's diff)
+
+```diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1699f90..3f40e71 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -19,11 +19,13 @@ concurrency:
+   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+ jobs:
+-  # Does this push touch anything the Rust gates can actually judge? A docs- or
+-  # spec-only change ran the full three-OS matrix plus avif/webp-lossy/heic/lean/
+-  # msrv -- roughly 15 minutes of compute, twice over for the two heic legs, to
+-  # prove nothing about a markdown edit. Bookkeeping PRs paid that price four
+-  # times in one day.
++  # Does this push touch anything the Rust gates can judge? Anything not provably
++  # docs-only runs the gates. scripts/ci-code-paths.sh lists the docs-only paths;
++  # any other path, including a new top-level directory nobody has classified,
++  # counts as code. A docs-shaped file that a build or a test reads (README.md,
++  # for one) is listed as an exception and runs the gates too. A docs-only change
++  # skips about 15 minutes of compute across the three-OS matrix and the
++  # avif/webp-lossy/heic/lean/msrv jobs.
+   #
+   # The three `check` jobs are the REQUIRED status checks, so they always run and
+   # always report -- they just skip their expensive steps when no code changed.
+@@ -51,8 +53,10 @@ jobs:
+             files=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "src/")
+           fi
+           echo "changed files:"; echo "$files" | sed 's/^/  /'
+-          # Anything that can affect a build, a test, or a lint result. The regex lives
+-          # in the script so its self-test checks the one the workflow uses.
++          # The lists live in the script so its self-test checks the ones the workflow
++          # uses. The self-test also checks that every file a build or a test includes
++          # classifies as code and that pages.yml's two path lists match. It runs here
++          # because this job runs on every push and pull request, docs-only ones too.
+           scripts/ci-code-paths.sh --self-test
+           # Assign first: a failing command substitution inside `[ ... ]` does not stop a
+           # `bash -e` step, so a crashing classifier would read as "docs only" and skip
+diff --git a/.github/workflows/pages.yml b/.github/workflows/pages.yml
+index d68a2c7..841a117 100644
+--- a/.github/workflows/pages.yml
++++ b/.github/workflows/pages.yml
+@@ -34,6 +34,10 @@ on:
+       - "Cargo.toml"
+       - "Cargo.lock"
+       - "justfile"
++      # The demo smoke reads recipes/web.toml (tests/demo_smoke.mjs) and the wasm
++      # engine embeds assets/fonts/Go-Regular.ttf (src/text/mod.rs).
++      - "recipes/**"
++      - "assets/**"
+       - ".github/workflows/pages.yml"
+   pull_request:
+     paths:
+@@ -44,6 +48,8 @@ on:
+       - "Cargo.toml"
+       - "Cargo.lock"
+       - "justfile"
++      - "recipes/**"
++      - "assets/**"
+       - ".github/workflows/pages.yml"
+   workflow_dispatch:
+
+diff --git a/docs/development.md b/docs/development.md
+index 136e786..f58362c 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -47,6 +47,17 @@ just report-weekly                 # Generate this week's weekly report
+ `reports/daily/` and `reports/weekly/` from spec front-matter and the git log. Reports
+ are stand-alone artifacts — re-running overwrites, so they're always a current snapshot.
+
++## Which PRs skip the Rust gates
++
++CI skips the Rust build, test, clippy and fmt steps only when every changed file is
++provably docs-only: `scripts/ci-code-paths.sh` lists those paths (`docs/`, `projects/`,
++`decisions/`, root-level Markdown and a few more). Anything else runs the full gates,
++because a file that looks like docs can still be compiled in or read by a test:
++`README.md`, `docs/github-actions.md` and `docs/data-model.md` are listed as exceptions
++for that reason, and the script's self-test fails if a build or a test includes a file
++the list calls docs-only. A new top-level directory runs the gates until someone adds it
++to the docs-only list.
++
+ ## Key discipline in this variant
+
+ Because Claude plays every role, context contamination is the biggest risk. Four habits
+```
+
+### Every message the script prints (one check per message)
+
+The `changes` job's two log lines (in `ci.yml`, unchanged, AC-14):
+- `-> code paths touched: running the full gates` — checked at ship (AC-18, the draft PR).
+- `-> docs/specs only: heavy jobs will skip` — checked at ship (the next docs-only push).
+
+Self-test lines (`<…>` is filled in):
+- `PASS <path> -> <verdict>` — the green run.
+- `FAIL <path> -> <got>, expected <want>` — M1 to M21, M32, baseline.
+- `FAIL <path> -> classifier exited <rc>` and `FAIL <path> -> printed '<got>', expected true or false`
+  — kept from today, unchanged; their guard is the existing `ci.yml:60-64` assign-then-validate. No
+  new mutation: they are not touched by this spec.
+- `PASS|FAIL empty list -> <got>, expected true` — FT-L1; red in the baseline.
+- `PASS|FAIL docs-only list with a blank line -> <got>, expected false` — FT-L2; M1, M10.
+- `PASS|FAIL docs plus one code path -> <got>, expected true` — FT-L3; M21.
+- `PASS|FAIL include scan found <n> files, expected at least 35 (lower INCLUDE_FLOOR only if an include was removed on purpose)` — FT-I1; M22.
+- `FAIL include target <t> is not a repository path (the scan did not collapse . or ..)` — FT-I2; M23.
+- `FAIL include target <t> does not exist (the scan resolved a path wrong)` — FT-I2; M24, M25, M26.
+- `FAIL include target <t> classifies as docs-only; add it to EXCEPT` — FT-I2; M17, M27, baseline.
+- `PASS include target <t> -> true` — FT-I2 green.
+- `PASS|FAIL no include_str!/include_bytes! builds its path with concat!/env![: <grep -rn lines>]` — FT-I3; M28.
+- `PASS|FAIL pages.yml push.paths and pull_request.paths are identical and not empty` — FT-P1; M29.
+- `PASS|FAIL pages.yml lists recipes/**`, `PASS|FAIL pages.yml lists assets/**` — FT-P2, FT-P3; M31.
+- `PASS|FAIL pages.yml path <entry> classifies as code` — FT-P4; M21 (`src/**`), M30, baseline.
+- `ci-code-paths self-test: <rows> rows, <m> mismatched, <c> crashed, <j> junk, <f> failed` — every run.
+
+### Comments, verbatim
+
+- Script header: `:2-12` of the script above.
+- `ci.yml` `changes` job comment and step comment: the `ci.yml` hunks above.
+- `pages.yml`: the two-line comment above `"recipes/**"` in the push list.
+No spec, stage, DEC or PROJ id in any of them (AC-15).
+
+### `docs/development.md`
+
+The `## Which PRs skip the Rust gates` section in the diff above, after `## Reports`
+(`docs/development.md:44`) and before `## Key discipline in this variant`.
+
+### CHANGELOG
+
+None (precedent under Design: #165 and #245 added no line for CI-only changes).
+
+### Verification the build runs
+
+1. Baseline (above), quoted.
+2. The final script: `bash scripts/ci-code-paths.sh --self-test; echo rc=$?` (redirect to a file and
+   read `$?`, do not pipe) → 88 rows, rc=0.
+3. Every mutation M1 to M32, one at a time from the green script, each red set quoted. A driver can
+   live in the scratchpad; it is not committed.
+4. Spot verdicts through stdin as `ci.yml` calls it:
+   `printf 'recipes/web.toml\n' | scripts/ci-code-paths.sh` → `true`;
+   `printf 'docs/x.md\nCHANGELOG.md\n' | scripts/ci-code-paths.sh` → `false`;
+   `echo "" | scripts/ci-code-paths.sh` → `true`.
+5. The replay (optional; design ran it): 12 flips, 0 reverse, over the 600 commits named under Design.
+6. `ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yml"); YAML.load_file(".github/workflows/pages.yml")'`.
+7. `/usr/bin/grep -nE '(SPEC|STAGE|DEC|PROJ)-[0-9]' scripts/ci-code-paths.sh` → no hit.
+8. `git diff --name-only origin/main` → exactly the 4 files.
+9. On the PR: the `changes` job's log shows the 88-row line (the GNU run) and
+   `-> code paths touched: running the full gates` (the PR touches `scripts/` and `.github/`).
+
+No `cargo` run is needed (no Rust change), but CI runs the full gates on the build PR anyway.
+**Size: S, holds.** 4 files, +216/−21 lines (`git diff --stat` on the prototype: 11+6+11+188 added,
+7+0+0+14 removed); 88 self-test rows; 32 mutations, all driven at design. No Rust, no `tests/` file.
+Checkpoint: push after the baseline commit and after the final script.
+
+### What the build cannot prove, and ship's step
+
+The build PR touches `scripts/` and `.github/workflows/`, which are code under both the old and the
+new script, so it cannot show the classification change on Actions. **At ship, after merge:**
+
+- The maintainer opens a **draft PR touching only `recipes/web.toml`** (one added comment line, e.g.
+  `# classifier check`), and checks **once**, when they next look:
+  - the `detect changed paths` (`changes`) log prints `-> code paths touched: running the full gates`;
+  - each of the three `build / test / clippy / fmt (<os>)` legs ran its `Test` step (`cargo test`),
+    not skipped;
+  - the `pages` workflow ran (`build + browser smoke`).
+  Then close it **unmerged** and delete its branch.
+- The next docs-only push to `main` (any design or frame commit) should print
+  `-> docs/specs only: heavy jobs will skip` in `changes`.
+No polling and no wait loops (AGENTS §16 habit 6): the maintainer checks in.
+
+### Overlap with other open work (from their file lists, 2026-11-22)
+
+`gh pr list --state open --json number,title,files` and `git branch -r`:
+- **#240** `ci: run clippy on the wasm32 library build` touches `.github/workflows/ci.yml` (also
+  `justfile`, `src/cli/ops.rs`, `src/metadata/mod.rs`). Shared file: `ci.yml`. Its hunks are
+  `@@ -87,6 +87,7 @@` and `@@ -97,6 +98,10 @@` (the `ddphotos-parity`/`wasm-roundtrip` area); this
+  spec's are `:19-29` and `:51-58`. No hunk overlap.
+- **#237** heifer swap touches `.github/workflows/ci.yml` (hunks `@@ -221,20 +221,17 @@`,
+  `@@ -245,18 +242,6 @@`, the `heic` job) and `CHANGELOG.md` (this spec does not touch it). No hunk
+  overlap.
+- **#229** (`docs/roadmap.md`), **#226** (`AGENTS.md`, `src/cli/mod.rs`): no shared file.
+- Branches: no `feat/spec-15[5-8]*` branch is pushed (`origin/feat/spec-150…`, `-151-pad`, `-152-trim`,
+  `-153-…`, `-159-pad-transparent` only); none touches a file this spec touches by its name, and none
+  is open as a PR.
+- If #237 or #240 merges first, the rebase is textual only; re-run the self-test after it (the
+  pages and include checks read the tree, not `ci.yml`).
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- None. No DEC is needed: this is CI plumbing inside the existing gating model.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `clippy-fmt-clean` — the gates this classifier decides to run; unchanged.
+- `one-spec-per-pr` — the build PR carries this spec only.
+- `test-before-implementation` — the baseline commit (new rows, old `classify`) lands red first.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `#165` (`7827d80`) introduced the docs-only skip and the deny-list.
+- `SPEC-146` (#245, `517acea`) and `SPEC-142` (#234) extended `CODE_PATHS`/the self-test.
 
 ### Out of scope (for this spec specifically)
-
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
 
 - Gating semantics: which jobs are required, which are gated on `changes`, and the `check`
   always-run pattern stay as they are. `supply-chain`, `cost-data` and `metadata` stay ungated.
@@ -390,7 +1141,14 @@ necessary during build, create a new spec rather than expanding this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- Copy the script verbatim; do not re-derive the patterns. If a row fails on Linux that passed here,
+  that is a GNU/BSD difference to report, not to patch around silently.
+- Mutation M20 must edit the `DOCS=` line, not the comment above it that holds the same text.
+- The include resolver must collapse `..` against the including file's folder (M23, M24 prove both).
+- `printf '%s\n' "$t" | grep -qE '(^|/)\.\.?(/|$)'` is the canonical-path test; keep the `?` (it
+  catches `./` as well as `../`).
+- `[ -n "$t" ] || continue` guards the here-string's trailing empty line.
+- Commit with `git commit -s` (DCO).
 
 ---
 
