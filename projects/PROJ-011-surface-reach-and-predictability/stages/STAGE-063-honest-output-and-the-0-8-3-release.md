@@ -113,12 +113,21 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   Frame (2026-11-22): GO at [M]. Driven: outputs under 8 KiB exit 0 with a truncated file (both sink
   arms, both lanes), and larger ones exit 5 with the old file destroyed. Folds in `--save-recipe`, which
   overwrites without `-y`, and `write_lock`'s temp. Four maintainer rulings are open; see the spec's Frame.
-- [ ] **SPEC-156** (reserved 2026-11-10) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
+- [ ] **SPEC-156** (framed 2026-11-22) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
   The JPEG strip loop removes `0xE1..=0xEF`, which includes APP14 (`0xEE`, Adobe), the marker that carries the
   colour transform. On `tests/fixtures/lint/cmyk_16x16.jpg`, `crustyimg diff` scored the stripped file 41.94
   SSIMULACRA2 against the original. Keep APP14; the regression compares decoded pixels as well as checking that
   metadata is gone. The sweeps in `src/metadata/mod.rs` that loop over the full range (tests near lines 630 and
   1712) need the same exception.
+  Frame (2026-11-22): GO at [S]. Driven: SSIMULACRA2 41.9374 on the CMYK fixture, and a 3-component Adobe
+  transform-0 file with component IDs 1,2,3 breaks too (−21.30). Keep APP14 (with the `Adobe` signature) only; two
+  maintainer questions open; see the spec's Frame. Build after SPEC-154 merges.
+- [ ] (not yet written) — [S] **`meta strip` drops EXIF orientation, and no doc says so.** Filed by the SPEC-156
+  frame (2026-11-22). Strip removes APP1 (JPEG) and `eXIf` (PNG), so a phone photo tagged `Orientation=6` can display
+  rotated after a strip that promises not to touch pixels. `docs/cli-reference.md:231`, `README.md:193` and
+  `skills/crustyimg/SKILL.md:148` list what is removed but not that it can change how a viewer shows the image (ICC
+  is the same class, owned by the DEC-003 entry folded into SPEC-150). Decide: a docs warning that points at
+  `auto-orient` first, or have strip refuse/warn on a non-identity orientation.
 - [ ] **SPEC-157** (reserved 2026-11-10) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
   A target with `source = "src/photo.png"` and `out = "src"` replaced the source and exited 0; targets writing
   `dist/result.png` and `alias/../dist/result.png` produced one file and a lockfile with two records. The
@@ -203,7 +212,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **16 pending**: 2026-11-22. Re-derived by grep of the backlog checkboxes above `### Items carried` (19 in total, 3 ticked, 16 open). The SPEC-155 frame changed one marker, not the count.
+**Count:** 3 shipped / 0 active / **17 pending** — 2026-11-22 (re-derived by `grep -c '^- \[[ x]\]'` over the backlog above `### Items carried`: 20 in total, 3 ticked, 17 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
