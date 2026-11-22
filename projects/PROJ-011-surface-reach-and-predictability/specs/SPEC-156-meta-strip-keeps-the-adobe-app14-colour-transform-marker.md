@@ -287,6 +287,18 @@ Out (and where each lives):
 - **`meta strip` drops EXIF orientation, so a phone photo can display rotated; no doc says so.**
   Filed as a new `(not yet written)` STAGE-063 entry.
 
+### Maintainer rulings (2026-11-22)
+
+Both recommendations accepted:
+1. **Keep APP14 only when it starts with `Adobe\0`.** Any other APP14 is still stripped. M3 (drop the
+   signature check) is in the mutation set.
+2. **The orientation and ICC warning in strip's docs belongs to the new STAGE-063 entry** ("`meta
+   strip` drops EXIF orientation, and no doc says so"), not this spec. This spec's docs say only what
+   strip now keeps.
+
+The orchestrator recommends framing that orientation entry right after the four P1 specs, inside
+STAGE-063.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
