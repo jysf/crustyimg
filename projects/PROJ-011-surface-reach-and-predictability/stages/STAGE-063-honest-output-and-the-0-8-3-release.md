@@ -128,7 +128,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   `skills/crustyimg/SKILL.md:148` list what is removed but not that it can change how a viewer shows the image (ICC
   is the same class, owned by the DEC-003 entry folded into SPEC-150). Decide: a docs warning that points at
   `auto-orient` first, or have strip refuse/warn on a non-identity orientation.
-- [ ] **SPEC-157** (reserved 2026-11-10) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
+- [ ] **SPEC-157** (framed 2026-11-22) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
   A target with `source = "src/photo.png"` and `out = "src"` replaced the source and exited 0; targets writing
   `dist/result.png` and `alias/../dist/result.png` produced one file and a lockfile with two records. The
   collision key compares path spellings (`output_collision_key`, `check_output_injective`), and the late check
@@ -143,6 +143,12 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   between the two stores new pixels under the old key: decode the bytes that were hashed, including on the
   auto-optimize path. Same pass: record the source format before moving the image into the pipeline in `encode_one`
   instead of cloning the decoded pixel buffer. May split into two specs at frame.
+- [ ] (not yet written) — [S] **`build --check` rewrites every output and the cache, and never reads the outputs on disk.**
+  Filed by the SPEC-157 frame (2026-11-22), driven on `main` (0.8.2 release): an output deleted and `.crustyimg/`
+  removed before `--check` were both back after it (exit 0, lockfile unchanged); with two targets aliasing one
+  file, `--check` passed while the file on disk did not match its lock record. `--check` compares the bytes the
+  run produced, not the tree. SPEC-157 documents this; decide whether a verify-mode build should be read-only
+  and/or hash the files on disk (a behaviour change, so a maintainer call).
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
@@ -212,7 +218,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **17 pending** — 2026-11-22 (re-derived by `grep -c '^- \[[ x]\]'` over the backlog above `### Items carried`: 20 in total, 3 ticked, 17 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry).
+**Count:** 3 shipped / 0 active / **18 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 21 in total, 3 ticked, 18 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
