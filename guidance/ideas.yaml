@@ -239,6 +239,24 @@ ideas:
     gate: null
     notes: "scripts/ci-code-paths.sh's self-test fails when the include scan finds fewer than INCLUDE_FLOOR (35 at SPEC-154) distinct include_str!/include_bytes! targets. It counts targets, not sites, and nothing raises it when includes are added, so a scan that silently loses newly added includes stays green until the count falls below the old floor. Options: derive the floor from a cheaper independent count (for example a plain grep -c of include sites) and require equality, or have the self-test print the count so a reviewer sees it move."
 
+  - id: optimize-note-on-a-failed-write
+    title: "`optimize` prints \"kept the source unchanged\" before a write that then fails"
+    status: proposed
+    source: "2026-11-23 SPEC-155 verify (PR #268)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Under a write limit, `optimize -o` prints `note: kept the … source unchanged` and then exits 5 with `could not write output`. The note means no smaller encoding was found, but next to a failed write it reads as if a file was kept. Pre-existing; the message order and wording, not the write, are at fault. Fix: print the note only after the write succeeds, or word it as `no smaller encoding found`."
+
+  - id: decode-unknown-adobe-transform
+    title: "crustyimg refuses a JPEG whose Adobe APP14 transform is out of range; libjpeg decodes it"
+    status: proposed
+    source: "2026-11-23 SPEC-156 verify (PR #269)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "A 12-byte Adobe APP14 with transform 5: djpeg warns `Unknown Adobe color transform code 5`, assumes YCCK for four components and renders it; zune-jpeg refuses the file (`Unknown Adobe colorspace 5`). Upstream decoder behaviour, unchanged by SPEC-156 (`meta strip` keeps the segment as-is, which is right). Low priority: no real-world file seen; report upstream if one turns up."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"

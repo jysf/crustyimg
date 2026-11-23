@@ -18,6 +18,20 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   `write_lock`; 22 ACs, 39 tests, 15 mutation rows driven on a prototype. Corrections: a rename
   replaces a `0444` file (kept refused by a write-probe), std's Windows rename tries `MoveFileExW`
   first, the `.tmp` suffix (not the dot) keeps staged files out of inputs.
-- [ ] **build**: `prompts/SPEC-155-build.md` (starts after SPEC-154 merges)
-- [ ] **verify**
+- [x] **build** (2026-11-22, Sonnet, $7.61): draft PR #268, head `471a0a7`; CI green on every leg
+  at `47003ae` (the last code push). Baseline: exactly the 15 E rows red on `main`, 8 pins green.
+  22 ACs met; W1–W4 passed on the Windows leg. Mutations matched except M1/M2/M3 also redden E23 and
+  M11 is 48, not 46. `DEC-116`. The orchestrator's "exits 5 (6 for a batch …)" correction applied.
+- [x] **verify** (2026-11-23, Opus, $4.47): ⚠ PUNCH LIST at `471a0a7`. Every failure path driven on
+  release builds; writer sweep clean; M1/M2/M3 → E23 and M11 = 48 confirmed. Two **claims** in the
+  spec's own steps: the mode is copied from a symlink (`write_lock` has no symlink guard; a dangling
+  lockfile link now exits 5), and it is applied after the bytes are written (a killed `-y` over
+  `0600` leaves a `0644` staged file). Two **asserts**: the char-boundary cut and the `.tmp` suffix
+  have no row. Out of spec: `optimize`'s note → `guidance/ideas.yaml`.
+- [x] **punch list** (2026-11-23, Sonnet, $2.56 measured before its last commits): head `4bec99b`;
+  CI green on every leg there (orchestrator-read). Fix 1: no probe and no mode copy through a symlink
+  (FT-E24, FT-E25). Fix 2: the mode is set before the first write (FT-U14). Pins FT-U9b and FT-U13.
+  M12–M15 each red on its row; M4 and M8 re-run. DEC-116 narrowed to exclude the lockfile. The
+  spec's CI line was still `CI_SNAPSHOT_PLACEHOLDER` at report time.
+- [ ] **re-verify** (narrow, the two claims): `prompts/SPEC-155-reverify.md` (Opus)
 - [ ] **ship**
