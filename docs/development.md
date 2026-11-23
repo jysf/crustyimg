@@ -54,8 +54,10 @@ provably docs-only: `scripts/ci-code-paths.sh` lists those paths (`docs/`, `proj
 `decisions/`, root-level Markdown and a few more). Anything else runs the full gates,
 because a file that looks like docs can still be compiled in or read by a test:
 `README.md`, `docs/github-actions.md` and `docs/data-model.md` are listed as exceptions
-for that reason, and the script's self-test fails if a build or a test includes a file
-the list calls docs-only. A new top-level directory runs the gates until someone adds it
+for that reason. The script's self-test fails if a build or a test includes a file the
+list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
+A file a test reads at run time, or includes any other way, must be added to the
+exception list by hand. A new top-level directory runs the gates until someone adds it
 to the docs-only list.
 
 ## Key discipline in this variant

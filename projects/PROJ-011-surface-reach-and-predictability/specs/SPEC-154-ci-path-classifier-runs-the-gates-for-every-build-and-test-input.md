@@ -87,6 +87,34 @@ cost:
       estimated_usd: 1.37
       duration_minutes: null
       note: "Measured from the session JSONL (dedup by message.id, MAX output) after the last push; 23 API messages, no subagents."
+    - cycle: verify
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-opus-5-5
+      rate_anchors: "Opus $5 in / $25 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 5190442
+      tokens_breakdown:
+        input: 82
+        cache_creation: 132899
+        cache_read: 5026203
+        output: 31258
+      estimated_usd: 4.13
+      duration_minutes: null
+      note: "Figures handed over by the orchestrator in the punch-list prompt."
+    - cycle: punchlist
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-sonnet-5-5
+      rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 1397917
+      tokens_breakdown:
+        input: 34
+        cache_creation: 63478
+        cache_read: 1326741
+        output: 7664
+      estimated_usd: 0.75
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) before the commit; 17 API messages, so the push and CI-watch turns after it are not counted."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -526,9 +554,10 @@ Each AC names its checks (FT ids below). Every check names what turns it red (th
   — FT-I2 (35 rows today); mutations M17, M23, M24, M25, M26, M27.
 - [ ] **AC-8 The include scan cannot silently find nothing.** The scan must find at least
   `INCLUDE_FLOOR=35` files (the design-time count). — FT-I1; mutation M22.
-- [ ] **AC-9 An include the scan cannot resolve is refused.** Any `include_(str|bytes)!(concat!` or
-  `include_(str|bytes)!(env!` under the scanned roots fails the self-test, naming `file:line`.
-  — FT-I3; mutation M28.
+- [ ] **AC-9 An include whose path is built with `concat!` or `env!` is refused.** Any
+  `include_(str|bytes)!(concat!` or `include_(str|bytes)!(env!` under the scanned roots fails the
+  self-test, naming `file:line`. Other forms are not scanned: a raw string, a space before the
+  parenthesis, a multi-line `include_str!(`, and `include!`. — FT-I3; mutation M28.
 - [ ] **AC-10 Pages runs for the demo's inputs.** `pages.yml`'s push list names `recipes/**` and
   `assets/**`. — FT-P2, FT-P3; mutation M31.
 - [ ] **AC-11 Pages' two lists cannot drift.** `push.paths` and `pull_request.paths` are identical and
@@ -1036,8 +1065,10 @@ index 136e786..f58362c 100644
 +`decisions/`, root-level Markdown and a few more). Anything else runs the full gates,
 +because a file that looks like docs can still be compiled in or read by a test:
 +`README.md`, `docs/github-actions.md` and `docs/data-model.md` are listed as exceptions
-+for that reason, and the script's self-test fails if a build or a test includes a file
-+the list calls docs-only. A new top-level directory runs the gates until someone adds it
++for that reason. The script's self-test fails if a build or a test includes a file the
++list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
++A file a test reads at run time, or includes any other way, must be added to the
++exception list by hand. A new top-level directory runs the gates until someone adds it
 +to the docs-only list.
 +
  ## Key discipline in this variant
@@ -1115,8 +1146,12 @@ Checkpoint: push after the baseline commit and after the final script.
 The build PR touches `scripts/` and `.github/workflows/`, which are code under both the old and the
 new script, so it cannot show the classification change on Actions. **At ship, after merge:**
 
-- The maintainer opens a **draft PR touching only `recipes/web.toml`** (one added comment line, e.g.
-  `# classifier check`), and checks **once**, when they next look:
+- The maintainer opens a **draft PR touching only `recipes/gallery.toml`** (one added comment line
+  at the end of the file, e.g. `# classifier check`), and checks **once**, when they next look.
+  Not `recipes/web.toml`: `tests/demo_smoke.mjs:853-857` asserts the demo's inlined recipe is
+  byte-identical to it, so a comment there turns `pages` red. Nothing byte-compares `gallery.toml`
+  (its readers parse it, re-emit it without comments, or check its header for forbidden ids), so
+  the three `cargo test` legs and `pages` stay green:
   - the `detect changed paths` (`changes`) log prints `-> code paths touched: running the full gates`;
   - each of the three `build / test / clippy / fmt (<os>)` legs ran its `Test` step (`cargo test`),
     not skipped;
@@ -1261,6 +1296,40 @@ No polling and no wait loops (AGENTS §16 habit 6): the maintainer checks in.
 3. **If you did this task again, what would you do differently?**
    — Drive the mutations from a script from the start (done here), and not leave a `--watch` on a check
    whose status can stay stale.
+
+### Punch list (verify)
+
+- **Ship's step** now adds the comment line to `recipes/gallery.toml`, at the end of the file.
+  Chosen by this grep over `tests/`, `scripts/`, `demo/`, `integrations/`, `src/`:
+  - `tests/demo_smoke.mjs:853-857` reads `recipes/web.toml` and asserts the inlined demo recipe is
+    byte-identical: `web.toml` is compared, so a comment there turns `pages` red.
+  - `gallery.toml` is read by `src/recipe/bundled.rs:46` (`include_str!`; parse test, and a check
+    that the leading `#` header lines hold no forbidden ids), `tests/recipe_strict_params.rs:173`
+    (parse), `tests/recipe_round_trip.rs:303` (re-emit without comments) and
+    `tests/recipe_corpus_output.rs:269` (parse). None compares bytes or comments. A line at the end
+    of the file is outside the header, so even the header check does not see it.
+  - `printf 'recipes/gallery.toml\n' | scripts/ci-code-paths.sh` → `true`; `pages.yml` triggers on
+    `recipes/**`.
+- **`docs/development.md`** now reads: "The script's self-test fails if a build or a test includes a
+  file the list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
+  A file a test reads at run time, or includes any other way, must be added to the exception list by
+  hand." The verbatim copy above matches it byte for byte. Driven by appending one line to
+  `src/lib.rs`, running `--self-test`, restoring:
+  - `include_str!(r"../docs/development.md")` → rc=0, 88 rows (not scanned, as the sentence says);
+  - `include_str! ("../docs/development.md")` → rc=0, 88 rows (not scanned);
+  - `include_str!("../docs/development.md")` → rc=1, `FAIL include target docs/development.md
+    classifies as docs-only; add it to EXCEPT`;
+  - `include_bytes!("../docs/development.md")` → rc=1, same FAIL line.
+- **AC-9** now reads: "An include whose path is built with `concat!` or `env!` is refused", and
+  says a raw string, a space before the parenthesis, a multi-line `include_str!(` and `include!` are
+  not scanned.
+- **Self-test:** `bash scripts/ci-code-paths.sh --self-test > out.txt 2>&1` → rc=0,
+  `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`.
+  `git diff 2a70156 -- scripts/` is empty.
+- **Not changed, for the orchestrator:** AC-18 and the frame's "What only a PR can prove" still say
+  `recipes/web.toml`; the script header sentence "A file a build or a test includes with
+  include_str!/include_bytes! is checked by the self-test below" claims more than the plain form.
+- **CI snapshot:** see the PR (filled in the report, not here: the push has to come first).
 
 ---
 
