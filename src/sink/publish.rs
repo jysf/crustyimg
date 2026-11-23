@@ -23,7 +23,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[derive(Debug)]
 pub(crate) enum PublishError {
     /// The staged file could not be created in `dir`: the directory refuses new
-    /// files, or sixteen staged names in a row were taken.
+    /// files, or seventeen staged names in a row were taken (the first try and
+    /// sixteen retries).
     CreateTemp { dir: PathBuf, source: io::Error },
     /// Any later step: the write-probe on an existing destination, the write,
     /// the flush, the permission copy or the rename.
@@ -138,15 +139,19 @@ pub(crate) fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(),
     // An existing destination this user cannot open for writing is refused, as
     // it was when the write truncated in place (a rename would replace it).
     // Opening without `truncate` changes nothing. Its permission bits carry over.
+    // A symlink is skipped on both counts: the rename replaces the link itself,
+    // so what it points at is neither probed nor the source of the mode (a
+    // dangling link would fail the probe, and a link's own mode is not the
+    // file's).
     let old_perm = match std::fs::symlink_metadata(path) {
-        Ok(meta) => {
+        Ok(meta) if !meta.file_type().is_symlink() => {
             OpenOptions::new()
                 .write(true)
                 .open(path)
                 .map_err(PublishError::Write)?;
             Some(meta.permissions())
         }
-        Err(_) => None,
+        _ => None,
     };
 
     // Stage beside the destination: a rename is atomic only within one filesystem.
@@ -169,6 +174,13 @@ pub(crate) fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(),
         armed: true,
     };
 
+    // Before the first byte: a private file's new bytes must never sit in a
+    // file more readable than the one they replace, even if the process dies.
+    if let Some(perm) = old_perm {
+        fs.set_permissions(&staged.path, perm)
+            .map_err(PublishError::Write)?;
+    }
+
     let mut written = 0;
     while written < bytes.len() {
         match fs.write(&mut file, &bytes[written..]) {
@@ -185,11 +197,6 @@ pub(crate) fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(),
     fs.flush(&mut file).map_err(PublishError::Write)?;
     // Close before the rename: Windows refuses to rename an open file.
     drop(file);
-
-    if let Some(perm) = old_perm {
-        fs.set_permissions(&staged.path, perm)
-            .map_err(PublishError::Write)?;
-    }
 
     fs.rename(&staged.path, path).map_err(PublishError::Write)?;
     // Disarm only after the rename succeeded; before it, the file is still ours.
@@ -414,6 +421,87 @@ mod tests {
             assert_eq!(got, mode);
             assert_eq!(fs::read(&path).unwrap(), payload());
         }
+    }
+
+    // FT-U9b: the byte cut must land on a character boundary. 99 `a`s then `é`
+    // (two bytes) puts byte 100 inside the `é`.
+    #[test]
+    fn a_name_with_a_multibyte_character_at_the_cut_still_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = format!("{}é.png", "a".repeat(99));
+        assert!(
+            !name.is_char_boundary(NAME_KEEP),
+            "precondition: byte 100 is mid-character"
+        );
+        let kept = staged_name(&name, 0);
+        let prefix = kept
+            .strip_prefix('.')
+            .and_then(|k| k.split(".crustyimg-").next())
+            .unwrap();
+        assert!(prefix.len() <= NAME_KEEP, "kept {} bytes", prefix.len());
+        assert!(name.starts_with(prefix), "the prefix is a cut of the name");
+        let path = dir.path().join(&name);
+        publish(&path, &payload(), &RealFs).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), payload());
+        assert_eq!(staged_left(dir.path()), Vec::<String>::new());
+    }
+
+    // FT-U13: the half of the `.tmp` contract the integration row cannot reach:
+    // the names the code makes end in `.tmp`, and the source resolver skips them.
+    #[test]
+    fn a_staged_name_ends_in_tmp_and_is_not_an_input() {
+        let name = next_staged_name("a.png");
+        assert!(name.starts_with('.'), "{name}");
+        assert!(name.ends_with(".tmp"), "{name}");
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(&name), OLD).unwrap();
+        let inputs =
+            crate::source::resolve(dir.path().to_str().unwrap(), &mut io::empty()).unwrap();
+        assert!(inputs.is_empty(), "the resolver took {name} for an image");
+    }
+
+    // FT-U14: the old mode is on the staged file before its first byte is written.
+    #[cfg(unix)]
+    #[test]
+    fn the_old_mode_is_on_the_staged_file_before_the_first_write() {
+        use std::os::unix::fs::PermissionsExt;
+        struct Spy {
+            staged: std::cell::RefCell<Option<PathBuf>>,
+            mode_at_first_write: Cell<Option<u32>>,
+        }
+        impl StageFs for Spy {
+            fn create_new(&self, path: &Path) -> io::Result<File> {
+                *self.staged.borrow_mut() = Some(path.to_path_buf());
+                RealFs.create_new(path)
+            }
+            fn write(&self, file: &mut File, buf: &[u8]) -> io::Result<usize> {
+                if self.mode_at_first_write.get().is_none() {
+                    let path = self.staged.borrow().clone().unwrap();
+                    let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
+                    self.mode_at_first_write.set(Some(mode));
+                }
+                RealFs.write(file, buf)
+            }
+            fn flush(&self, file: &mut File) -> io::Result<()> {
+                RealFs.flush(file)
+            }
+            fn set_permissions(&self, path: &Path, perm: Permissions) -> io::Result<()> {
+                RealFs.set_permissions(path, perm)
+            }
+            fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+                RealFs.rename(from, to)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.png");
+        fs::write(&path, OLD).unwrap();
+        fs::set_permissions(&path, Permissions::from_mode(0o600)).unwrap();
+        let spy = Spy {
+            staged: Default::default(),
+            mode_at_first_write: Cell::new(None),
+        };
+        publish(&path, &payload(), &spy).unwrap();
+        assert_eq!(spy.mode_at_first_write.get(), Some(0o600));
     }
 
     // FT-U12

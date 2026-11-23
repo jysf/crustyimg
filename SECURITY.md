@@ -42,8 +42,8 @@ agent-run workflow this repo uses.
    symlink** (`SinkError::Traversal`, exit 5) **even with `--yes`**, so a planted
    symlink in `--out-dir` cannot redirect a write outside it; and the tool does
    not overwrite an existing file without `--yes`. A write that fails leaves the existing
-file as it was: output is staged beside the destination and renamed into place, and a
-destination crustyimg could not write before is still refused. On input, directory/glob
+   file as it was: output is staged beside the destination and renamed into place, and a
+   destination crustyimg could not write before is still refused. On input, directory/glob
    sources are non-recursive (DEC-010) and **skip any entry whose real path
    escapes the root** (symlink-escape check, always anchored — SPEC-034). Inputs
    are read-only unless explicitly targeted as output.

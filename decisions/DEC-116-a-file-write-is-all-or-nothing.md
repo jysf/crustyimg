@@ -53,9 +53,11 @@ tags:
   if there was none. No staged file survives an error the process returns. A killed process can
   leave one, named `.<name>.crustyimg-<pid>-<n>.tmp`; its `.tmp` extension keeps it out of
   crustyimg's folder and glob inputs.
-- The symlink and overwrite guards (DEC-035) run before anything is created. An existing
-  destination this user cannot open for writing is refused, as it was before writes were staged,
-  so `-y` never replaces a read-only file.
+- The symlink and overwrite guards (DEC-035) run before anything is created, on every output
+  except the build lockfile, which has no symlink guard: a symlinked lockfile is replaced by a
+  regular file, and nothing is read from or written through the link. An existing destination this
+  user cannot open for writing is refused, as it was before writes were staged, so `-y` never
+  replaces a read-only file.
 - `-y` replaces the file at that name with a new file. Its permission bits carry over. Its owner
   (unless crustyimg runs as root), ACLs, extended attributes (on macOS, Finder tags) and hard links
   do not.

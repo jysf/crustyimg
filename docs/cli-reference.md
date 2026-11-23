@@ -61,7 +61,8 @@ renames it over the old one only when every byte is written, so a failed write k
 With `-y` the result is a new file at that name: it keeps the old file's permissions, but not its
 owner, ACLs, extended attributes (Finder tags on macOS) or hard links. The directory must allow
 new files: in a read-only directory `-y` exits `5` (`6` for a batch, after the other inputs are
-written).
+written). A process that is killed mid-write can leave a `.<name>.crustyimg-<…>.tmp` file beside the
+destination; it is safe to delete.
 
 ---
 

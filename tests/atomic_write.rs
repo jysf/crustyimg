@@ -482,6 +482,79 @@ mod unix {
         assert_holds(&root.join("od/b.png"), OLD, "bytes kept");
         assert_eq!(staged_left(&root.join("od")), Vec::<String>::new());
     }
+
+    /// A one-target project with no lockfile yet. Returns the project root.
+    fn lockfile_project() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        small_png(root, "in/a.png");
+        write_file(
+            root,
+            "recipes/r.toml",
+            b"version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n",
+        );
+        write_file(
+            root,
+            "crustyimg.build.toml",
+            b"version = 1\n\n[[target]]\nsource = \"in/*.png\"\nrecipe = \"recipes/r.toml\"\nout = \"dist\"\n",
+        );
+        std::fs::create_dir(root.join("dist")).unwrap();
+        dir
+    }
+
+    /// `build --no-cache` with the umask pinned to 022, so the mode of a file the
+    /// build creates is known.
+    fn build_under_umask_022(root: &Path) -> Output {
+        let script = format!("umask 022; exec {} build --no-cache", single_quote(BIN));
+        Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .current_dir(root)
+            .output()
+            .expect("sh should run")
+    }
+
+    // FT-E24: a symlinked lockfile has no guard (the sink arms refuse one); the
+    // rename replaces the link, and the new file must not inherit the link's mode
+    // or the mode of the file it pointed at.
+    #[test]
+    fn a_lockfile_symlinked_to_a_private_file_is_replaced_by_a_regular_file() {
+        let dir = lockfile_project();
+        let root = dir.path();
+        write_file(root, "real.lock", b"PRIVATE");
+        set_mode(&root.join("real.lock"), 0o600);
+        std::os::unix::fs::symlink("real.lock", root.join("crustyimg.build.lock")).unwrap();
+        let out = build_under_umask_022(root);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_of(&out));
+        let lock = root.join("crustyimg.build.lock");
+        let meta = std::fs::symlink_metadata(&lock).unwrap();
+        assert!(meta.file_type().is_file(), "the link is replaced by a file");
+        assert_eq!(mode_of(&lock), 0o644, "the umask mode, not the link's");
+        assert_holds(
+            &root.join("real.lock"),
+            b"PRIVATE",
+            "the target is untouched",
+        );
+        assert_eq!(staged_left(root), Vec::<String>::new());
+    }
+
+    // FT-E25
+    #[test]
+    fn a_dangling_lockfile_symlink_is_replaced_by_a_regular_file() {
+        let dir = lockfile_project();
+        let root = dir.path();
+        std::os::unix::fs::symlink("nowhere.lock", root.join("crustyimg.build.lock")).unwrap();
+        let out = build_under_umask_022(root);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_of(&out));
+        let lock = root.join("crustyimg.build.lock");
+        let meta = std::fs::symlink_metadata(&lock).unwrap();
+        assert!(meta.file_type().is_file(), "the link is replaced by a file");
+        assert!(
+            !root.join("nowhere.lock").exists(),
+            "nothing is written through the link"
+        );
+        assert_eq!(staged_left(root), Vec::<String>::new());
+    }
 }
 
 // ── Rows for every OS ──────────────────────────────────────────────────────────
