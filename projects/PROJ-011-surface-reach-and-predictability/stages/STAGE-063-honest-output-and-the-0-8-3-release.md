@@ -154,6 +154,13 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   `s2/café.png` (NFD) built into one `out` exit 0 with one file on disk and two lock records, because APFS
   treats the two spellings as one name and the identity compares them as two. Closing it needs NFC/NFD tables
   (`unicode-normalization` or hand-rolled), which `std` lacks: a dependency decision first.
+- [ ] (not yet written) — [S] **A rename out of code into a docs-only folder skips the CI gates.** Filed by the
+  SPEC-154 verify (2026-11-22), driven in a scratch repo with the `changes` job's own diff forms. `git diff
+  --name-only` detects renames by default, so moving `src/x.rs` to `docs/x.rs` lists only `docs/x.rs`, which
+  classifies docs-only: the gates skip and a PR that breaks the build merges green. Pre-existing: `main`'s
+  classifier says the same. The likely fix is `--no-renames` on both `git diff` calls in `ci.yml`'s `changes`
+  job, a control-flow change SPEC-154 scoped out. Drive a rename, a rename with an edit, and a copy, and add a
+  self-test or workflow-level row that can fail.
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
@@ -223,7 +230,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **19 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 22 in total, 3 ticked, 19 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry, the SPEC-157 design changed one marker and added the Unicode-normalization entry).
+**Count:** 3 shipped / 0 active / **20 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 23 in total, 3 ticked, 20 open; the SPEC-154 verify added the rename entry; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry, the SPEC-157 design changed one marker and added the Unicode-normalization entry).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

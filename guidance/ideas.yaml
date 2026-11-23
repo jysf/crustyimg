@@ -221,6 +221,24 @@ ideas:
     gate: null
     notes: "scripts/_lib.sh get_active_project() returns ONE project: the highest-numbered brief with `status: active`. PROJ-017 shipped STAGE-058 and has STAGE-060 active while PROJ-011 (STAGE-054, STAGE-063 active) is still open, so marking PROJ-017 active would hide PROJ-011 from the default views. Ruled 2026-11-13: leave PROJ-017 `proposed` for now and change the script later. Fix: return every active project and make status/backlog/roadmap loop over them (stages already support several active at once, per get_active_stage_files). When it lands, set PROJ-017 to `active`. The upstream template has the same single-project limit (lowest-numbered wins there); feedback filed in spec-driven-template feedback/2026-11-13-crustyimg-many-active-projects.md."
 
+  - id: ci-classifier-unquoted-paths
+    title: "The CI path classifier sees non-ASCII file names quoted, so it runs the gates for them"
+    status: proposed
+    source: "2026-11-22 SPEC-154 verify (PR #266), driven in a scratch repo"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "git quotes a non-ASCII path in `git diff --name-only` (for example \"docs/caf\\303\\251.md\"), so the allow-list classifier sees a path that matches no docs-only root and calls it code. Introduced by SPEC-154's allow-list, but it fails safe: the gates run when they could skip. Fix: `git -c core.quotePath=false diff --name-only` in ci.yml's `changes` job, plus a self-test row with a non-ASCII docs path. Low value until a docs file with a non-ASCII name exists."
+
+  - id: ci-classifier-include-floor-drift
+    title: "The classifier's INCLUDE_FLOOR only guards against losing includes, and lags as includes are added"
+    status: proposed
+    source: "2026-11-22 SPEC-154 verify (PR #266)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "scripts/ci-code-paths.sh's self-test fails when the include scan finds fewer than INCLUDE_FLOOR (35 at SPEC-154) distinct include_str!/include_bytes! targets. It counts targets, not sites, and nothing raises it when includes are added, so a scan that silently loses newly added includes stays green until the count falls below the old floor. Options: derive the floor from a cheaper independent count (for example a plain grep -c of include sites) and require equality, or have the self-test print the count so a reviewer sees it move."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"
