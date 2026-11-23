@@ -74,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A colour with a non-ASCII character is refused, not a crash.** `color = "aéaaa"` in a recipe
   and `--color "aéaaa"` on `watermark` now fail with the colour message instead of panicking
   (`pad`, `watermark`).
+- **`meta strip` keeps a JPEG's colours.** It removed Adobe's APP14 segment along with the
+  metadata, and that segment tells a decoder how the scan's colours are coded: an Adobe CMYK
+  JPEG came back with orange turned green, and some RGB JPEGs changed colour too. Strip now keeps
+  that segment (and JFIF, as before), so the stripped file decodes to the same pixels; it is
+  16 bytes larger than before for a typical file. Any other APP14 is still removed.
 
 ### Breaking
 

@@ -236,7 +236,9 @@ crustyimg auto-orient photo.jpg -o fixed.jpg
 ```
 
 ### `meta strip <INPUT...>`
-Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG.
+Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG. On a JPEG it keeps the two segments a
+decoder needs to read the image, JFIF and Adobe's colour-transform marker, so the stripped file decodes to the
+same pixels.
 ```sh
 crustyimg meta strip photo.jpg -o clean.jpg
 crustyimg meta strip *.jpg --out-dir clean/

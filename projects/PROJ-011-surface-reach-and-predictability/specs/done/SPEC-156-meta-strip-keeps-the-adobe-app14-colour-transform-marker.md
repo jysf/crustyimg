@@ -7,7 +7,7 @@
 task:
   id: SPEC-156
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -83,10 +83,71 @@ cost:
         auto-mode classifier refused a direct push).
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-22
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 6608157
+      tokens_breakdown:
+        input: 98
+        cache_creation: 135697
+        cache_read: 6436853
+        output: 35509
+      estimated_usd: 2.97
+      note: >
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-build.md`), deduped by
+        message.id (49 messages; max output_tokens per id), 0 subagent transcripts. Was 5459639 tokens / $2.53, measured before its last turns.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
+    - cycle: verify
+      date: 2026-11-23
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3430158
+      tokens_breakdown:
+        input: 64
+        cache_creation: 106694
+        cache_read: 3297746
+        output: 25654
+      estimated_usd: 2.96
+      note: >
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-verify.md`), deduped by
+        message.id (31 messages; max output_tokens per id), 0 subagent transcripts. Replaces the numbers the punch-list prompt handed over (3287233 tokens / $2.76), which were taken before verify's last turns.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
+    - cycle: punchlist
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2303187
+      tokens_breakdown:
+        input: 56
+        cache_creation: 68759
+        cache_read: 2220841
+        output: 13531
+      estimated_usd: 1.13
+      note: >
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-punchlist.md`), deduped by
+        message.id (27 messages; max output_tokens per id), 0 subagent transcripts. Was 1430168 tokens / $0.76, measured before the doc commit's own turns.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
+    - cycle: ship
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2405446
+      tokens_breakdown:
+        input: 54
+        cache_creation: 76493
+        cache_read: 2317358
+        output: 11541
+      estimated_usd: 1.16
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-156-ship.md`), deduped by
+        message.id (27 messages; max output_tokens per id), 0 subagent transcripts. Measured before the
+        final bookkeeping commands and the commit's own turns. Rates (Sonnet): $3/MTok input,
+        $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 33710531
+    estimated_usd: 22.40
+    session_count: 6
 ---
 
 # SPEC-156: meta strip keeps the Adobe APP14 colour-transform marker
@@ -434,8 +495,8 @@ Each AC names its checks (FT ids below). Every check names what turns it red.
   header is exactly `APP14 DQT SOF2 DHT SOS` (APP1 ×2, APP2, APP11 ×2, APP13 gone) and carries no C2PA
   manifest; on a seeded JPEG, APP1 and COM are gone and every marker `0xE1..=0xEF` except `0xEE` is absent.
   — FT-3, FT-7.
-- [ ] **AC-3 An APP14 that is not Adobe's, or too short to hold the transform, is removed.** A 12-byte
-  `Ducky…` APP14 and an 11-byte `Adobe…` APP14 are both gone after strip. — FT-5, FT-6.
+- [ ] **AC-3 An APP14 that is not Adobe's, too short to hold the transform, or an `Adobe`-prefixed segment under another marker, is removed** (widened at punch list). A 12-byte
+  `Ducky…` APP14, an 11-byte `Adobe…` APP14, and a 16-byte `Adobe_CM…` APP13 are all gone after strip. — FT-5, FT-6, FT-10 (added at punch list).
 - [ ] **AC-4 A file with nothing to strip comes back unchanged.** `strip_all` and `meta strip` of the CMYK
   fixture, and `strip_all` of the three-component fixture, return the input bytes exactly. — FT-1, FT-2,
   FT-9.
@@ -509,6 +570,11 @@ the buffer, since `signed_gps.jpg` is 2100×1500).
     tests/fixtures/lint/cmyk_16x16.jpg -o -`; asserts exit 0, stdout decodes (`decode_rgba`) to
     `[191, 64, 32, 255]` at pixel (8,8) (index `(8*16+8)*4`), stdout decodes the same as the file, and stdout
     equals the file's bytes. This is the Trap-14 control (it lives outside `src/metadata/mod.rs`).
+  - **FT-10** `strip_all_removes_an_adobe_cm_app13` *(added at punch list)* — input:
+    `with_segments(jpeg_with_exif(), [(0xED, b"Adobe_CM\x00\x01\x00\x00\x0c\x00\x00\x00")])`; asserts one APP13
+    in the input (precondition) and none in the output, and that the payload is at least `ADOBE_APP14_MIN_LEN`
+    bytes and starts with `Adobe`, so a pass can only come from the marker check, not the length or the
+    signature. Photoshop writes an APP13 like this.
 - **C2PA control (existing, unchanged):** `tests/c2pa_manifest.rs::meta_strip_removes_the_jumbf_segment_by_name`
   (`:327`): exit 0, APP11 gone, stderr empty. Green on `main` and on the prototype; FT-3 adds
   `!has_manifest` on the library side.
@@ -566,6 +632,10 @@ Test ids: FT-1…FT-9 above; **C** = `tests/c2pa_manifest.rs::meta_strip_removes
   FT-8 leave with the file (they live in its test module). **Red:** FT-9
   (`pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`). Full 1350 passed / 1 failed. *Driven.*
   FT-9 is the control that survives Trap 14.
+- **MK — the marker clause always true** *(added at punch list)* (`marker == JPEG_ADOBE_MARKER` →
+  `(marker == JPEG_ADOBE_MARKER || true)` in `is_adobe_colour_transform`). **Red:** FT-10 only
+  (`an Adobe-prefixed segment under another marker is metadata`). Full 1357 passed / 1 failed; lib 603/1.
+  Before FT-10, all 1,357 tests stayed green on this mutant. *Driven.*
 
 Also driven: `cargo clippy --all-targets -- -D warnings` clean on the prototype; `cargo build --target
 wasm32-unknown-unknown --lib` with the rustup toolchain on `PATH` (`justfile:119`: a bare `cargo` finds
@@ -835,37 +905,71 @@ comments included. 9 tests (6 + 2 + 1). One new 452-byte fixture. The cost is in
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-156-strip-keeps-app14`
+- **PR (if applicable):** #269 (draft)
+- **All acceptance criteria met?** yes (AC-1 to AC-6; AC-6's exact sentences are for verify's docs review)
+- **New decisions emitted:** none (DEC-003's amendment and DEC-029's note follow at ship)
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 7 files, not counting this spec file or its timeline):
+  - `src/metadata/mod.rs` — two constants, `is_adobe_colour_transform`, `strip_keeps_jpeg_segment`; `strip_all`'s JPEG arm is a `retain`; `strip_all` doc and module doc; test helpers; FT-1 to FT-6 new, FT-7 and FT-8 rewritten
+  - `tests/metadata.rs` — FT-9 (`meta_strip_keeps_the_colours_of_an_adobe_cmyk_jpeg`)
+  - `tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg` — new 452-byte fixture
+  - `tests/fixtures/metadata/README.md` — new, the recipe and three hashes
+  - `docs/cli-reference.md` — the `meta strip` sentence
+  - `docs/api-contract.md` — the `meta strip` sentence
+  - `CHANGELOG.md` — one `### Fixed` line
+  - `Cargo.toml`, `Cargo.lock`, `decisions/`: no change (empty `git diff --stat origin/main...HEAD` for them).
+- **Fixture:** `cjpeg` = libjpeg-turbo 3.2.0 (build 20260630). All three hashes equal the spec's: `grad16.ppm` 9ab37bf5…, `rgbRGB.jpg` 7d106aa3… (452 B), result dd3ec8ba… (452 B). Offsets 97/100/103 and 327/329/331 held `52 47 42`. djpeg (8,8) of the result: `[128,128,191]`; of `meta strip` of it: `[128,128,191]`, bytes identical to the input.
+- **RED baseline** (helpers added, `strip_all` still `main`'s loop; full `cargo test --no-fail-fast`, 2 targets failed, 7 tests red):
+  - FT-1: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [191, 64, 32, 255] -> [93, 134, 30, 255]`
+  - FT-2: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [0, 0, 255, 255] -> [178, 0, 0, 255]`
+  - FT-3: `left: [219, 194, 196, 218]  right: [238, 219, 194, 196, 218]` (header markers)
+  - FT-4: `left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 1, 100, 0, 0, 0, 0, 2]]`
+  - FT-7: `the Adobe APP14 should be kept unchanged  left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 0, 100, 0, 0, 0, 0, 1]]`
+  - FT-8: `strip_all must be byte-identical on unsigned input`
+  - FT-9: `pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`
+  - FT-5 and FT-6 passed on `main` (it strips every APP14), as expected.
+- **Behaviour sentences driven:** B1 FT-7's APP0 assert, M8 red. B2/B3 FT-1 to FT-4 and FT-9. B4 FT-3, FT-7. B5 the M1 row (FT-1, FT-2 red with a pixel mismatch). `crustyimg diff` of the CMYK fixture against its strip: `ssimulacra2: 100.0000`, bytes identical. `signed_gps.jpg` strip: exit 0, 81672 -> 81707 bytes (+35).
+- **Mutations** (scratch worktree of the pushed head, own `CARGO_TARGET_DIR`, `cargo clean -p crustyimg` before each, full `--no-fail-fast` of every target including doc-tests, red set read off the run; edits are the spec's quoted ones). **Every row matches the table; no cell was wrong.**
+  - M1: red FT-1, FT-2, FT-3, FT-4, FT-7, FT-8, FT-9 (1350 passed / 7 failed)
+  - M2a: red FT-3 (1356/1)
+  - M2b: red FT-3, `meta_strip_removes_the_jumbf_segment_by_name` (1355/2)
+  - M3: red FT-5 (1356/1)
+  - M3b: red FT-4 only, on every target (1356/1)
+  - M4: red FT-8 (1356/1)
+  - M5a: red FT-6 (1356/1)
+  - M5b: red FT-1, FT-2, FT-4, FT-7, FT-9 (1352/5)
+  - M6: red FT-3, FT-5, FT-6, `every_printed_fix_run_verbatim_fixes_its_finding`; the run finished, doc-tests included (1353/4)
+  - M7: red FT-7 (1356/1)
+  - M8: red FT-7 only, on every target (1356/1)
+  - T14 (`main`'s `src/metadata/mod.rs` restored): red FT-9 only (1350/1)
+  - The counts are one higher than the design's because FT-4 is in the baseline.
+- **Matrix** (each leg in a fresh `CARGO_TARGET_DIR`; clippy `--all-targets -D warnings`, `fmt --check`, full test): default 1357 passed / 0 failed; `--no-default-features` 1293 / 0; `--features webp-lossy` 1361 / 0. `cargo build --target wasm32-unknown-unknown --lib` (rustup cargo): exit 0, one warning, the existing `MANIFEST_DROPPED_WARNING` unused.
+- **Overlap after the last rebase** (`gh pr list --state open`): #240 touches `src/metadata/mod.rs` (as the spec says; not rebased over, still open). #268 (SPEC-155) touches `CHANGELOG.md` **and also `docs/api-contract.md` and `docs/cli-reference.md`**, which the prompt did not list: a textual conflict is possible in all three. #237 touches `CHANGELOG.md`. #229, #226: no shared file.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The RED commit adds the constants and helpers while `strip_all` keeps `main`'s loop, because FT-8 calls `strip_keeps_jpeg_segment`. That is the M1 shape the design drove.
+  - `with_segments` uses `enumerate` over the insert offset, not a manual counter (clippy `explicit_counter_loop`).
+- **Follow-up work identified:** none new.
+
+### Punch list (verify)
+
+- **FT-10** `strip_all_removes_an_adobe_cm_app13` (test module only; code head `a691427`). Precondition: one APP13 in the input. Asserts none after strip, and that the payload is 16 bytes (at least `ADOBE_APP14_MIN_LEN`) and starts with `Adobe`.
+- **MK** (`marker == JPEG_ADOBE_MARKER` → `(marker == JPEG_ADOBE_MARKER || true)`; scratch worktree, own `CARGO_TARGET_DIR`, `cargo clean -p crustyimg`, full `--no-fail-fast`): 1357 passed / 1 failed. Red: FT-10 only, `an Adobe-prefixed segment under another marker is metadata`. Lib 603/1.
+- **Unmutated head:** 1358 passed / 0 failed.
+- **Clippy `--all-targets -D warnings` and `fmt --check`:** clean on the default and `--no-default-features` builds, each in a fresh `CARGO_TARGET_DIR`.
+- **CI snapshot:** at `a691427`, every leg green: 3-OS build/test/clippy/fmt, lean, msrv, avif, webp-lossy, heic ×2, wasm round-trip, browser smoke, ddphotos parity, cargo-deny, DCO, front-matter, cost-capture (the release legs skip).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocked. FT-8 needs the helper, so the RED baseline needs the helpers present; the spec doesn't say so.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The overlap list names #268 only for `CHANGELOG.md`; it also touches both docs files.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the mutation loop from a script from the start, and keep scratch output in the scratchpad (one run wrote to the system temp dir). No design call turned out wrong.
 
 ---
 
@@ -875,10 +979,30 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Design cost $10.02, 2.4x the frame ($4.16) and about 4x the build ($2.53), for an [S] spec, and it bought
+   three things the build and verify then relied on: the version-byte correction (the byte after `Adobe` is the
+   version's high byte, so "starts with `Adobe\0`" would still have dropped `Adobe\x01...` and left it orange),
+   the reproducible fixture recipe (verify rebuilt it byte for byte, and the shipped binary reproduces its pixels
+   below), and a 12-row mutation table that the build matched with no wrong cell. Most of that was not avoidable:
+   the correction changed the rule. What was avoidable is the table's gap: every guard in
+   `is_adobe_colour_transform` but one had a row, and the one without it, the `marker == 0xEE` clause, was found
+   by verify (mutant MK, 1,357 green) and cost a $1.13 punch list. The table was built from the clauses design
+   judged risky, not from the predicate's clause list. The build's overlap list named #268 only for
+   `CHANGELOG.md`, though #268 also touches both docs files; it was written from memory of the PRs, not from
+   `gh pr list --json files`. Shipped, on `main`'s release build: the fixture and `cmyk_16x16.jpg` strip to
+   byte-identical files, and djpeg's (8,8) is unchanged for both.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Three proposals, none applied. (a) "A predicate with N clauses needs a mutation row per clause, each with an
+   input that passes every other clause" (FT-10's shape): AGENTS section 15-16 and HANDOFF item 12 cover where a
+   row is applied, the target set it is read off, and the all-green row, but none says one row per clause; not
+   covered. (b) "A red baseline that depends on new test helpers must say so": not stated in AGENTS, HANDOFF or
+   `guidance/`; not covered. (c) "The overlap list comes from `gh pr list --state open --json number,title,files`,
+   not from memory": SPEC-154's design prompt tells the design to run that command, but no standing rule or
+   template line does, and SPEC-156's list missed #268's docs files; partly covered, as a per-prompt instruction
+   only. SPEC-154's ship reflection proposed three other items; none of them is these.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The orientation finding is already STAGE-063's "`meta strip` drops EXIF orientation, and no doc
+   says so" entry, and the transform-5 decode refusal is in `guidance/ideas.yaml`
+   (`decode-unknown-adobe-transform`); the evidence names no gap those two miss.
