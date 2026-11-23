@@ -15,6 +15,8 @@ Cycle prompts live in `prompts/SPEC-156-<cycle>.md`.
   with `Adobe` and is ≥ 12 bytes (correction: the byte after `Adobe` is the version's high byte; `Adobe\x01…` still
   decodes orange). New fixture recipe (`cjpeg -rgb` + ids 1,2,3, sha256 recorded); 9 tests (6 new, 2 rewritten,
   1 binary); 12 mutation rows driven (10 on a full run of every target, M3b and M8 on the lib target); DEC-003 amendment + DEC-029 note written for ship.
-- [ ] **build** — `prompts/SPEC-156-build.md` (after SPEC-154 has merged)
-- [ ] **verify**
+- [x] **build** (2026-11-22, Sonnet, $2.53) — draft PR #269, head `b0b870d`; CI 18 green, 8 skipped
+  (release-only). Fixture hashes equal the spec's; baseline red on FT-1–4 and FT-7–9 with the spec's
+  messages; 6 ACs met; every mutation row matched, none wrong; no DEC edited (ship applies the text).
+- [ ] **verify** — `prompts/SPEC-156-verify.md` (Opus, read-only)
 - [ ] **ship**
