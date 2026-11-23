@@ -40,4 +40,4 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   DEC-116 says the lockfile lacks only the symlink guard; it has neither. Out of spec: `build --check`
   reads a symlinked lockfile through the link.
 - [x] **merge** (2026-11-23, maintainer) — PR #268 as 7819db6, before the re-verify ran.
-- [x] **ship** (2026-11-23, Sonnet): merge 7819db6, PR #268. DEC-116's lockfile sentence corrected, CI line filled, reflection written, cost re-measured for every session. Spec total $43.77 across 7 sessions (reverify = two transcripts, $5.18).
+- [x] **ship** (2026-11-23, Sonnet): merge 7819db6, PR #268. DEC-116's lockfile sentence corrected, CI line filled, reflection written, cost re-measured for every session. Spec total $44.16 across 7 sessions (reverify = two transcripts, $5.18).
