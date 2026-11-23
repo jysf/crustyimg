@@ -7,7 +7,7 @@
 task:
   id: SPEC-156
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -835,37 +835,63 @@ comments included. 9 tests (6 + 2 + 1). One new 452-byte fixture. The cost is in
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-156-strip-keeps-app14`
+- **PR (if applicable):** #269 (draft)
+- **All acceptance criteria met?** yes (AC-1 to AC-6; AC-6's exact sentences are for verify's docs review)
+- **New decisions emitted:** none (DEC-003's amendment and DEC-029's note follow at ship)
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 7 files, not counting this spec file or its timeline):
+  - `src/metadata/mod.rs` — two constants, `is_adobe_colour_transform`, `strip_keeps_jpeg_segment`; `strip_all`'s JPEG arm is a `retain`; `strip_all` doc and module doc; test helpers; FT-1 to FT-6 new, FT-7 and FT-8 rewritten
+  - `tests/metadata.rs` — FT-9 (`meta_strip_keeps_the_colours_of_an_adobe_cmyk_jpeg`)
+  - `tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg` — new 452-byte fixture
+  - `tests/fixtures/metadata/README.md` — new, the recipe and three hashes
+  - `docs/cli-reference.md` — the `meta strip` sentence
+  - `docs/api-contract.md` — the `meta strip` sentence
+  - `CHANGELOG.md` — one `### Fixed` line
+  - `Cargo.toml`, `Cargo.lock`, `decisions/`: no change (empty `git diff --stat origin/main...HEAD` for them).
+- **Fixture:** `cjpeg` = libjpeg-turbo 3.2.0 (build 20260630). All three hashes equal the spec's: `grad16.ppm` 9ab37bf5…, `rgbRGB.jpg` 7d106aa3… (452 B), result dd3ec8ba… (452 B). Offsets 97/100/103 and 327/329/331 held `52 47 42`. djpeg (8,8) of the result: `[128,128,191]`; of `meta strip` of it: `[128,128,191]`, bytes identical to the input.
+- **RED baseline** (helpers added, `strip_all` still `main`'s loop; full `cargo test --no-fail-fast`, 2 targets failed, 7 tests red):
+  - FT-1: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [191, 64, 32, 255] -> [93, 134, 30, 255]`
+  - FT-2: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [0, 0, 255, 255] -> [178, 0, 0, 255]`
+  - FT-3: `left: [219, 194, 196, 218]  right: [238, 219, 194, 196, 218]` (header markers)
+  - FT-4: `left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 1, 100, 0, 0, 0, 0, 2]]`
+  - FT-7: `the Adobe APP14 should be kept unchanged  left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 0, 100, 0, 0, 0, 0, 1]]`
+  - FT-8: `strip_all must be byte-identical on unsigned input`
+  - FT-9: `pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`
+  - FT-5 and FT-6 passed on `main` (it strips every APP14), as expected.
+- **Behaviour sentences driven:** B1 FT-7's APP0 assert, M8 red. B2/B3 FT-1 to FT-4 and FT-9. B4 FT-3, FT-7. B5 the M1 row (FT-1, FT-2 red with a pixel mismatch). `crustyimg diff` of the CMYK fixture against its strip: `ssimulacra2: 100.0000`, bytes identical. `signed_gps.jpg` strip: exit 0, 81672 -> 81707 bytes (+35).
+- **Mutations** (scratch worktree of the pushed head, own `CARGO_TARGET_DIR`, `cargo clean -p crustyimg` before each, full `--no-fail-fast` of every target including doc-tests, red set read off the run; edits are the spec's quoted ones). **Every row matches the table; no cell was wrong.**
+  - M1: red FT-1, FT-2, FT-3, FT-4, FT-7, FT-8, FT-9 (1350 passed / 7 failed)
+  - M2a: red FT-3 (1356/1)
+  - M2b: red FT-3, `meta_strip_removes_the_jumbf_segment_by_name` (1355/2)
+  - M3: red FT-5 (1356/1)
+  - M3b: red FT-4 only, on every target (1356/1)
+  - M4: red FT-8 (1356/1)
+  - M5a: red FT-6 (1356/1)
+  - M5b: red FT-1, FT-2, FT-4, FT-7, FT-9 (1352/5)
+  - M6: red FT-3, FT-5, FT-6, `every_printed_fix_run_verbatim_fixes_its_finding`; the run finished, doc-tests included (1353/4)
+  - M7: red FT-7 (1356/1)
+  - M8: red FT-7 only, on every target (1356/1)
+  - T14 (`main`'s `src/metadata/mod.rs` restored): red FT-9 only (1350/1)
+  - The counts are one higher than the design's because FT-4 is in the baseline.
+- **Matrix** (each leg in a fresh `CARGO_TARGET_DIR`; clippy `--all-targets -D warnings`, `fmt --check`, full test): default 1357 passed / 0 failed; `--no-default-features` 1293 / 0; `--features webp-lossy` 1361 / 0. `cargo build --target wasm32-unknown-unknown --lib` (rustup cargo): exit 0, one warning, the existing `MANIFEST_DROPPED_WARNING` unused.
+- **Overlap after the last rebase** (`gh pr list --state open`): #240 touches `src/metadata/mod.rs` (as the spec says; not rebased over, still open). #268 (SPEC-155) touches `CHANGELOG.md` **and also `docs/api-contract.md` and `docs/cli-reference.md`**, which the prompt did not list: a textual conflict is possible in all three. #237 touches `CHANGELOG.md`. #229, #226: no shared file.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The RED commit adds the constants and helpers while `strip_all` keeps `main`'s loop, because FT-8 calls `strip_keeps_jpeg_segment`. That is the M1 shape the design drove.
+  - `with_segments` uses `enumerate` over the insert offset, not a manual counter (clippy `explicit_counter_loop`).
+- **Follow-up work identified:** none new.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocked. FT-8 needs the helper, so the RED baseline needs the helpers present; the spec doesn't say so.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The overlap list names #268 only for `CHANGELOG.md`; it also touches both docs files.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the mutation loop from a script from the start, and keep scratch output in the scratchpad (one run wrote to the system temp dir). No design call turned out wrong.
 
 ---
 
