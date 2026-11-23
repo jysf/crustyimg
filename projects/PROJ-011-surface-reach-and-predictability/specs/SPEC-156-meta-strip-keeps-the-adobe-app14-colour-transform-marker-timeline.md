@@ -23,5 +23,7 @@ Cycle prompts live in `prompts/SPEC-156-<cycle>.md`.
   green). Fixture rebuilt byte for byte; nine extra JPEG shapes render the same under djpeg/ImageMagick;
   M1/M3/M3b/M5a/M5b/T14 match. Merges clean with #268. Out of spec: zune-jpeg refuses transform 5 →
   `guidance/ideas.yaml`.
-- [ ] **punch list** — `prompts/SPEC-156-punchlist.md` (Sonnet; no re-verify)
-- [ ] **ship**
+- [x] **punch list** (2026-11-23, Sonnet, $0.76 measured before its doc commit) — FT-10
+  `strip_all_removes_an_adobe_cm_app13`, test code only (`a691427`); MK reddens FT-10 alone (1,357/1),
+  unmutated 1,358/0; AC-3 widened. Head `3aaa700`; every CI leg green there (orchestrator-read).
+- [ ] **ship** — `prompts/SPEC-156-ship.md` (Sonnet), after the maintainer merges PR #269
