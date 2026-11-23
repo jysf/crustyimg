@@ -41,7 +41,9 @@ agent-run workflow this repo uses.
    path separator, or contains `..`; the destination is **refused if it is a
    symlink** (`SinkError::Traversal`, exit 5) **even with `--yes`**, so a planted
    symlink in `--out-dir` cannot redirect a write outside it; and the tool does
-   not overwrite an existing file without `--yes`. On input, directory/glob
+   not overwrite an existing file without `--yes`. A write that fails leaves the existing
+file as it was: output is staged beside the destination and renamed into place, and a
+destination crustyimg could not write before is still refused. On input, directory/glob
    sources are non-recursive (DEC-010) and **skip any entry whose real path
    escapes the root** (symlink-escape check, always anchored — SPEC-034). Inputs
    are read-only unless explicitly targeted as output.
@@ -84,7 +86,7 @@ it is enforced:
 | 1 | Untrusted image inputs (decode bomb, decoder bug, panic) | `image::Limits` on the one decode path (dimensions ≤ 65 535, alloc ≤ 512 MiB) → typed `LimitsExceeded` (exit 1), never panic/OOM; all errors typed (DEC-007) | `src/image/` (SPEC-033 / DEC-034) |
 | 1b | Untrusted **font** input (`--font PATH`) | parsed by `skrifa`+`zeno` (maintained `fontations`, no hand-written font parser) → malformed font is a typed `TextError::Font` (exit 2), never panic; raster composition bounds-checks every write | `src/text/` (SPEC-044 · DEC-045) |
 | 2 | Untrusted recipes (bad version, unknown op, parse/build DoS, op-param bomb) | version + unknown-op + invalid-param rejection; recipe text ≤ 64 KiB + ≤ 1024 steps; **resize output ≤ 512 MiB** (upscale-bomb) | `src/recipe/`, `src/operation/` (SPEC-006/035/037 · DEC-005/036/038) |
-| 3 | Path traversal on output | `safe_join` rejects `..`/separator/absolute names; **symlinked destinations refused even with `--yes`** (image output AND `--save-recipe`); no overwrite without `--yes`; dir/glob sources skip symlink-escaping entries (always anchored) | `src/sink/`, `src/source/` (SPEC-005/034/037 · DEC-035) |
+| 3 | Path traversal on output | `safe_join` rejects `..`/separator/absolute names; **symlinked destinations refused even with `--yes`** (image output AND `--save-recipe`); no overwrite without `--yes` (image output AND `--save-recipe`); writes are staged and renamed, all or nothing; dir/glob sources skip symlink-escaping entries (always anchored) | `src/sink/`, `src/source/` (SPEC-005/034/037 · DEC-035) |
 | 4 | Metadata leakage / privacy | pixel-lane encodes drop all metadata, GPS included (`--keep-gps` refused); `clean --gps` / `strip` (container lane, no re-encode) | `src/metadata/` (SPEC-026 · DEC-003) |
 | 4b | In-house **EXIF/TIFF-IFD** parsing (malformed/cyclic EXIF → panic/DoS) | bounds-checked reads (`checked_add`/`checked_mul` → typed `Overflow`/`OutOfBounds`); sub-IFD + IFD1 recursion **depth-capped (`MAX_IFD_DEPTH=8`) and cycle-guarded** (visited-offset set); typed `MetadataError::Exif` (exit 1), never panic; in-bounds serializer. Independent post-v0.1.0 audit: PASS | `src/metadata/tiff.rs` (SPEC-045 · DEC-046) |
 | 5 | Untrusted repo content + agents | process control (review what an agent runs; treat external briefs as untrusted) — not a code mitigation | workflow / this doc |

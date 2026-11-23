@@ -57,7 +57,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
 | `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
 | `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. Also a recipe step that writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG), refused before anything is written. |
-| `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
+| `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035; a failed write leaves the existing file as it was). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
 
