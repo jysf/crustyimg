@@ -16,10 +16,19 @@ git checkout --detach origin/feat/spec-155-atomic-writes
 ```
 
 When this was written, draft PR #268's head was `4bec99b`. The orchestrator read its check-runs
-there: 18 passed, 8 skipped (release-only), none failed, Windows and lean included. The punch-list
-session may push one more commit that only replaces `CI_SNAPSHOT_PLACEHOLDER` in the spec's
-`### Punch list (verify)`. If the head has moved, check that `git diff 4bec99b HEAD` touches only that
-line; if it touches anything else, stop and report. Record the SHA you verify. The maintainer pastes
+there: 18 passed, 8 skipped (release-only), none failed, Windows and lean included. The head will
+have moved since:
+- the maintainer updated the branch from `main` (a merge commit, possibly bringing in SPEC-156's
+  PR #269, which also edits `docs/cli-reference.md`);
+- the punch-list session may have pushed one commit that only replaces `CI_SNAPSHOT_PLACEHOLDER`
+  in the spec's `### Punch list (verify)`.
+
+Check both: `/usr/bin/git log --first-parent --no-merges --oneline 4bec99b..HEAD` lists nothing, or
+only that placeholder commit (show its diff). If `4bec99b` is not an ancestor of the head (the branch
+was rebased, not merged), use `git range-diff origin/main 4bec99b HEAD` instead and show that the
+PR's own commits are unchanged. If a merge resolved a conflict, show the resolved hunks with
+`git show --remerge-diff <merge>` and check that none changes a line of the punch list's fixes.
+Anything else: stop and report. Record the SHA you verify. The maintainer pastes
 your final message back to the orchestrator, so it must stand on its own. **Write it as plain lists,
 not box-drawn tables.**
 
@@ -47,13 +56,14 @@ scratch worktree with its own `CARGO_TARGET_DIR` under your scratchpad; both are
 ## Read first
 - The spec on the PR branch: the mutation table, Failing Tests, AC-8, AC-14, the DEC's verbatim copy,
   and `### Punch list (verify)` under Build Completion.
-- `git diff 471a0a7 HEAD -- src/sink/publish.rs tests/atomic_write.rs decisions/` in full.
+- The punch list's diff in full: `git diff 471a0a7 4bec99b -- src/sink/publish.rs tests/atomic_write.rs decisions/`.
 - AGENTS §15: a bound or "can't happen" is a claim until its worst input is driven.
 
 ## Check, in order
-1. **Scope.** `git diff --stat 471a0a7 HEAD` shows only `src/sink/publish.rs`, `tests/atomic_write.rs`,
+1. **Scope.** `git diff --stat 471a0a7 4bec99b` shows only `src/sink/publish.rs`, `tests/atomic_write.rs`,
    `docs/cli-reference.md`, `SECURITY.md`, the DEC and the spec. Every commit is signed off. The PR
-   still merges cleanly onto current `main`.
+   still merges cleanly onto current `main`, and `git diff --stat origin/main...HEAD` lists only
+   SPEC-155's own files.
 2. **Fix 1, driven end to end.** Build `main` and the PR head `--release`, each in its own fresh
    `CARGO_TARGET_DIR`. On both, with umask 022, drive `build` with `crustyimg.build.lock` as:
    - a symlink to a `0600` file;
