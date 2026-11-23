@@ -197,7 +197,9 @@ pub(crate) fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(),
     Ok(())
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+// Two attributes, not `all(test, …)`: clippy's test exemption looks for a bare `cfg(test)`.
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
     use std::cell::Cell;
