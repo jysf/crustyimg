@@ -9,7 +9,8 @@
 //!
 //! Division of labor (DEC-003 / DEC-046):
 //! - **`strip_all`** removes *all* user metadata at the segment/chunk level via
-//!   [`img_parts`] (JPEG APP1..APP15 + COM; PNG `eXIf`/`iCCP`/`tEXt`/…).
+//!   [`img_parts`] (JPEG APP1..APP15 except Adobe's colour-transform APP14, + COM;
+//!   PNG `eXIf`/`iCCP`/`tEXt`/…).
 //! - **`clean_gps`** removes *only* the GPS IFD at the tag level via the
 //!   in-house [`tiff`] writer, preserving every other tag (orientation,
 //!   copyright, …).
@@ -185,7 +186,9 @@ fn strip_keeps_jpeg_segment(marker: u8, contents: &[u8]) -> bool {
 /// Remove **all** container metadata, preserving pixels exactly.
 ///
 /// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/**JUMBF/C2PA
-///   at `0xEB`**/…) and COM (`0xFE`). APP0/JFIF is structural and kept.
+///   at `0xEB`**/…) and COM (`0xFE`). Two segments a decoder needs are kept:
+///   APP0/JFIF, and the Adobe APP14 colour-transform segment, without which
+///   some CMYK and RGB JPEGs decode to different colours.
 /// - **PNG:** drop the [`PNG_METADATA_CHUNKS`] (EXIF/ICC/text/time/**C2PA**);
 ///   keep critical/render chunks.
 ///
@@ -196,11 +199,10 @@ pub fn strip_all(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
         Lane::Jpeg => {
             let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
-            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF kept.
-            for marker in 0xE1u8..=0xEF {
-                jpeg.remove_segments_by_marker(marker);
-            }
-            jpeg.remove_segments_by_marker(0xFE);
+            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF and the
+            // Adobe colour-transform APP14 are kept.
+            jpeg.segments_mut()
+                .retain(|segment| strip_keeps_jpeg_segment(segment.marker(), segment.contents()));
             let mut out = Vec::new();
             jpeg.encoder()
                 .write_to(&mut out)
