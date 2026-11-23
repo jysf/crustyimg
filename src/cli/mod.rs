@@ -117,7 +117,8 @@ pub struct GlobalArgs {
     pub no_cache: bool,
 
     /// `build` only: check the build against the committed `crustyimg.build.lock` instead of
-    /// refreshing it: exit 7 on drift, and never modify the lockfile.
+    /// refreshing it: exit 7 on drift, and never modify the lockfile (outputs and the
+    /// cache are still written).
     ///
     /// `--frozen` and `--locked` are aliases of `--check`: crustyimg never uses the
     /// network, so cargo's "don't update" and "don't hit the registry" mean the same
@@ -539,7 +540,9 @@ pub enum Commands {
     /// FILE defaults to `./crustyimg.build.toml`. Each target binds sources (a
     /// glob / dir / path, or a list) to a recipe file, an output directory, and
     /// an optional name template. Unlike `apply`, `build` overwrites its own
-    /// declared outputs without `--yes` — a build must be re-runnable.
+    /// declared outputs without `--yes` — a build must be re-runnable. It never
+    /// overwrites a file the build reads, and refuses (exit 2, nothing written)
+    /// outputs that collide or resolve outside the tree.
     Build { file: Option<String> },
 
     /// Lint an image asset tree: report problems, with a runnable fix where one exists,

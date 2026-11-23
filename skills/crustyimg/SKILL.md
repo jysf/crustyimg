@@ -299,7 +299,9 @@ format is `name`'s extension (`"{stem}.webp"`), else the recipe's `format`. `bui
 `--format`, `-o`/`--output`, `--out-dir` and `--name-template` with exit 2 and writes nothing,
 including with `--watch` and `--check`.
 
-`build` overwrites its own outputs without `-y`. Commit `crustyimg.build.lock`; add
+`build` overwrites its own outputs without `-y`, but never a file it reads (a source, recipe,
+watermark file, manifest or lockfile). That, two outputs that are one file (letter case ignored), or
+an `out` that links outside the project is refused with exit 2 and nothing written. Commit `crustyimg.build.lock`; add
 `.crustyimg/` (the local cache) to `.gitignore`. `recipe` can be a path to your own recipe
 file; editing a watermark's logo or font rebuilds the outputs that use it.
 

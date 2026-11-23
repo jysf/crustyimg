@@ -1798,7 +1798,8 @@ mod tests {
             "{stem}.{ext}",
             Overwrite::Allow,
         );
-        assert!(result.is_err(), "a moved folder must refuse the write");
+        let err = result.expect_err("a moved folder must refuse the write");
+        assert_eq!(err.code(), 5, "the sink's refusal exits 5");
         assert_eq!(
             std::fs::read_dir(other.path()).unwrap().count(),
             0,
