@@ -28,5 +28,10 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   lockfile link now exits 5), and it is applied after the bytes are written (a killed `-y` over
   `0600` leaves a `0644` staged file). Two **asserts**: the char-boundary cut and the `.tmp` suffix
   have no row. Out of spec: `optimize`'s note → `guidance/ideas.yaml`.
-- [ ] **punch list**: `prompts/SPEC-155-punchlist.md` (Sonnet), then a narrow re-verify of the two claims
+- [x] **punch list** (2026-11-23, Sonnet, $2.56 measured before its last commits): head `4bec99b`;
+  CI green on every leg there (orchestrator-read). Fix 1: no probe and no mode copy through a symlink
+  (FT-E24, FT-E25). Fix 2: the mode is set before the first write (FT-U14). Pins FT-U9b and FT-U13.
+  M12–M15 each red on its row; M4 and M8 re-run. DEC-116 narrowed to exclude the lockfile. The
+  spec's CI line was still `CI_SNAPSHOT_PLACEHOLDER` at report time.
+- [ ] **re-verify** (narrow, the two claims): `prompts/SPEC-155-reverify.md` (Opus)
 - [ ] **ship**
