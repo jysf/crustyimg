@@ -113,17 +113,13 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   Frame (2026-11-22): GO at [M]. Driven: outputs under 8 KiB exit 0 with a truncated file (both sink
   arms, both lanes), and larger ones exit 5 with the old file destroyed. Folds in `--save-recipe`, which
   overwrites without `-y`, and `write_lock`'s temp. Four maintainer rulings are open; see the spec's Frame.
-- [ ] **SPEC-156** (designed 2026-11-22) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
-  The JPEG strip loop removes `0xE1..=0xEF`, which includes APP14 (`0xEE`, Adobe), the marker that carries the
-  colour transform. On `tests/fixtures/lint/cmyk_16x16.jpg`, `crustyimg diff` scored the stripped file 41.94
-  SSIMULACRA2 against the original. Keep APP14; the regression compares decoded pixels as well as checking that
-  metadata is gone. The sweeps in `src/metadata/mod.rs` that loop over the full range (tests near lines 630 and
-  1712) need the same exception.
-  Frame (2026-11-22): GO at [S]. Driven: SSIMULACRA2 41.9374 on the CMYK fixture, and a 3-component Adobe
-  transform-0 file with component IDs 1,2,3 breaks too (−21.30). Keep APP14 (with the `Adobe` signature) only; two
-  maintainer questions open; see the spec's Frame. Build after SPEC-154 merges.
-  Design (2026-11-22): [S] holds. Keep an APP14 whose payload starts with `Adobe` and is ≥ 12 bytes (the byte
-  after `Adobe` is the version, not a NUL); 9 tests, 12 mutation rows driven (10 full runs, 2 lib-only); `docs/api-contract.md:501` added.
+- [x] **SPEC-156** (merged 2026-11-23, PR #269) — [S] **`meta strip` keeps the Adobe APP14 colour-transform marker (review P1).**
+  `strip_all`'s JPEG sweep now keeps APP0 and an APP14 whose payload starts with `Adobe` and is at least 12 bytes
+  (`ADOBE_APP14_MIN_LEN`); any other APP14 and every other `0xE1..=0xEF`/`0xFE` segment is still removed. The stripped
+  `cmyk_16x16.jpg` renders `srgb(191,64,32)` again (was `srgb(93,134,30)`, SSIMULACRA2 41.94), and a new reproducible
+  fixture, `tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg`, covers the 3-component ids-1,2,3 case. Verify's one assert
+  (nothing pinned the marker clause) became FT-10. DEC-003 amended, DEC-029 noted. Out of spec, filed: the orientation
+  entry below, and `guidance/ideas.yaml` `decode-unknown-adobe-transform`.
 - [ ] (not yet written) — [S] **`meta strip` drops EXIF orientation, and no doc says so.** Filed by the SPEC-156
   frame (2026-11-22). Strip removes APP1 (JPEG) and `eXIf` (PNG), so a phone photo tagged `Orientation=6` can display
   rotated after a strip that promises not to touch pixels. `docs/cli-reference.md:231`, `README.md:193` and
@@ -236,7 +232,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 4 shipped / 0 active / **19 pending** — 2026-11-23 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 23 in total, 4 ticked, 19 open; the SPEC-154 ship ticked its entry; no other session changed the stage meanwhile).
+**Count:** 5 shipped / 0 active / **18 pending** — 2026-11-23 (re-derived by `awk` counts of the backlog checkboxes above `### Items carried`: 23 in total, 5 ticked, 18 open; the SPEC-156 ship ticked its entry; no other session changed the stage meanwhile).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

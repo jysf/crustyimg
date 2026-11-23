@@ -7,7 +7,7 @@
 task:
   id: SPEC-156
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -87,53 +87,67 @@ cost:
       date: 2026-11-22
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 5459639
+      tokens_total: 6608157
       tokens_breakdown:
-        input: 84
-        cache_creation: 128435
-        cache_read: 5300612
-        output: 30508
-      estimated_usd: 2.53
+        input: 98
+        cache_creation: 135697
+        cache_read: 6436853
+        output: 35509
+      estimated_usd: 2.97
       note: >
-        Measured from the session JSONL (found by its first message, `prompts/SPEC-156-build.md`), deduped by
-        message.id (42 messages; max output_tokens per id), 0 subagent transcripts. Measured after the last
-        push, before this cost commit's own turns. Rates (Sonnet): $3/MTok input, $3.75 cache_creation
-        (x1.25), $0.3 cache_read (x0.10), $15 output.
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-build.md`), deduped by
+        message.id (49 messages; max output_tokens per id), 0 subagent transcripts. Was 5459639 tokens / $2.53, measured before its last turns.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
     - cycle: verify
       date: 2026-11-23
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 3287233
+      tokens_total: 3430158
       tokens_breakdown:
-        input: 62
-        cache_creation: 105395
-        cache_read: 3160954
-        output: 20822
-      estimated_usd: 2.76
+        input: 64
+        cache_creation: 106694
+        cache_read: 3297746
+        output: 25654
+      estimated_usd: 2.96
       note: >
-        Numbers handed over by the punch-list prompt, not re-measured here.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-verify.md`), deduped by
+        message.id (31 messages; max output_tokens per id), 0 subagent transcripts. Replaces the numbers the punch-list prompt handed over (3287233 tokens / $2.76), which were taken before verify's last turns.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
     - cycle: punchlist
       date: 2026-11-23
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 1430168
+      tokens_total: 2303187
       tokens_breakdown:
-        input: 36
-        cache_creation: 61089
-        cache_read: 1360996
-        output: 8047
-      estimated_usd: 0.76
+        input: 56
+        cache_creation: 68759
+        cache_read: 2220841
+        output: 13531
+      estimated_usd: 1.13
       note: >
-        Measured from the session JSONL (found by the prompt's header text), deduped by
-        message.id (18 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        code push, before the doc commit's own turns. Rates (Sonnet): $3/MTok input,
+        Re-measured at ship (2026-11-23) from the session JSONL (found by its first message, `prompts/SPEC-156-punchlist.md`), deduped by
+        message.id (27 messages; max output_tokens per id), 0 subagent transcripts. Was 1430168 tokens / $0.76, measured before the doc commit's own turns.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
+    - cycle: ship
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2405446
+      tokens_breakdown:
+        input: 54
+        cache_creation: 76493
+        cache_read: 2317358
+        output: 11541
+      estimated_usd: 1.16
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-156-ship.md`), deduped by
+        message.id (27 messages; max output_tokens per id), 0 subagent transcripts. Measured before the
+        final bookkeeping commands and the commit's own turns. Rates (Sonnet): $3/MTok input,
         $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 33710531
+    estimated_usd: 22.40
+    session_count: 6
 ---
 
 # SPEC-156: meta strip keeps the Adobe APP14 colour-transform marker
@@ -965,10 +979,30 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Design cost $10.02, 2.4x the frame ($4.16) and about 4x the build ($2.53), for an [S] spec, and it bought
+   three things the build and verify then relied on: the version-byte correction (the byte after `Adobe` is the
+   version's high byte, so "starts with `Adobe\0`" would still have dropped `Adobe\x01...` and left it orange),
+   the reproducible fixture recipe (verify rebuilt it byte for byte, and the shipped binary reproduces its pixels
+   below), and a 12-row mutation table that the build matched with no wrong cell. Most of that was not avoidable:
+   the correction changed the rule. What was avoidable is the table's gap: every guard in
+   `is_adobe_colour_transform` but one had a row, and the one without it, the `marker == 0xEE` clause, was found
+   by verify (mutant MK, 1,357 green) and cost a $1.13 punch list. The table was built from the clauses design
+   judged risky, not from the predicate's clause list. The build's overlap list named #268 only for
+   `CHANGELOG.md`, though #268 also touches both docs files; it was written from memory of the PRs, not from
+   `gh pr list --json files`. Shipped, on `main`'s release build: the fixture and `cmyk_16x16.jpg` strip to
+   byte-identical files, and djpeg's (8,8) is unchanged for both.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Three proposals, none applied. (a) "A predicate with N clauses needs a mutation row per clause, each with an
+   input that passes every other clause" (FT-10's shape): AGENTS section 15-16 and HANDOFF item 12 cover where a
+   row is applied, the target set it is read off, and the all-green row, but none says one row per clause; not
+   covered. (b) "A red baseline that depends on new test helpers must say so": not stated in AGENTS, HANDOFF or
+   `guidance/`; not covered. (c) "The overlap list comes from `gh pr list --state open --json number,title,files`,
+   not from memory": SPEC-154's design prompt tells the design to run that command, but no standing rule or
+   template line does, and SPEC-156's list missed #268's docs files; partly covered, as a per-prompt instruction
+   only. SPEC-154's ship reflection proposed three other items; none of them is these.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The orientation finding is already STAGE-063's "`meta strip` drops EXIF orientation, and no doc
+   says so" entry, and the transform-5 decode refusal is in `guidance/ideas.yaml`
+   (`decode-unknown-adobe-transform`); the evidence names no gap those two miss.

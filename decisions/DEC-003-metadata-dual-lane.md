@@ -25,6 +25,7 @@ affected_scope:
   - src/sink/**
   - src/cli/mod.rs
   - src/cli/global_flags.rs
+  - tests/fixtures/metadata/**
 
 tags:
   - architecture
@@ -143,6 +144,24 @@ of `tests/fixtures/c2pa/signed_gps.jpg`, which carries an `sRGB IEC61966-2.1` IC
 (DEC-030); with a PNG on either side it exits 4 (driven). The `--keep-gps` refusal message already says
 "(JPEG only)". A selective preserve (a working `--keep-gps`, ICC kept) remains PROJ-013 STAGE-052's work. The
 glossary (`AGENTS.md`) and `docs/architecture.md` are corrected by SPEC-150's build.
+
+## Amendment (2026-11-23, SPEC-156)
+
+**`strip` keeps the two segments a JPEG decoder needs to read the scan.** The Validation line above
+says *"`strip` removes everything"*, and DEC-029's probe recorded *"decoded pixels byte-identical"*. Both
+held only because the probe JPEG had no Adobe APP14. Strip's JPEG sweep removed APP14 (`0xEE`), whose
+transform byte tells a decoder how the scan's components are coded; without it a decoder guesses from the
+component ids. Driven at SPEC-156's frame and design: an Adobe YCCK JPEG
+(`tests/fixtures/lint/cmyk_16x16.jpg`) went from `srgb(191,64,32)` to `srgb(93,134,30)` at (8,8) in
+libjpeg-turbo, ImageMagick and crustyimg's own decoder (SSIMULACRA2 41.94), and a 3-component Adobe RGB JPEG
+with component ids 1,2,3 broke the same way (SSIMULACRA2 −35.79).
+
+**Corrected claim:** `strip` removes all metadata segments and keeps APP0 (JFIF) and Adobe's
+colour-transform APP14: an APP14 whose payload starts with `Adobe` and is at least 12 bytes long, the test
+libjpeg and zune-jpeg apply before reading the transform. Any other APP14 is removed. Its promise is that the
+image decodes to the same pixels, not only that the scan bytes are unchanged. It still drops ICC and EXIF
+orientation, which can change how a viewer shows the image (STAGE-063's orientation entry; the ICC question
+under the SPEC-150 amendment above).
 
 ## References
 
