@@ -450,8 +450,8 @@ Each AC names its checks (FT ids below). Every check names what turns it red.
   header is exactly `APP14 DQT SOF2 DHT SOS` (APP1 ×2, APP2, APP11 ×2, APP13 gone) and carries no C2PA
   manifest; on a seeded JPEG, APP1 and COM are gone and every marker `0xE1..=0xEF` except `0xEE` is absent.
   — FT-3, FT-7.
-- [ ] **AC-3 An APP14 that is not Adobe's, or too short to hold the transform, is removed.** A 12-byte
-  `Ducky…` APP14 and an 11-byte `Adobe…` APP14 are both gone after strip. — FT-5, FT-6.
+- [ ] **AC-3 An APP14 that is not Adobe's, too short to hold the transform, or an `Adobe`-prefixed segment under another marker, is removed** (widened at punch list). A 12-byte
+  `Ducky…` APP14, an 11-byte `Adobe…` APP14, and a 16-byte `Adobe_CM…` APP13 are all gone after strip. — FT-5, FT-6, FT-10 (added at punch list).
 - [ ] **AC-4 A file with nothing to strip comes back unchanged.** `strip_all` and `meta strip` of the CMYK
   fixture, and `strip_all` of the three-component fixture, return the input bytes exactly. — FT-1, FT-2,
   FT-9.
@@ -525,6 +525,11 @@ the buffer, since `signed_gps.jpg` is 2100×1500).
     tests/fixtures/lint/cmyk_16x16.jpg -o -`; asserts exit 0, stdout decodes (`decode_rgba`) to
     `[191, 64, 32, 255]` at pixel (8,8) (index `(8*16+8)*4`), stdout decodes the same as the file, and stdout
     equals the file's bytes. This is the Trap-14 control (it lives outside `src/metadata/mod.rs`).
+  - **FT-10** `strip_all_removes_an_adobe_cm_app13` *(added at punch list)* — input:
+    `with_segments(jpeg_with_exif(), [(0xED, b"Adobe_CM\x00\x01\x00\x00\x0c\x00\x00\x00")])`; asserts one APP13
+    in the input (precondition) and none in the output, and that the payload is at least `ADOBE_APP14_MIN_LEN`
+    bytes and starts with `Adobe`, so a pass can only come from the marker check, not the length or the
+    signature. Photoshop writes an APP13 like this.
 - **C2PA control (existing, unchanged):** `tests/c2pa_manifest.rs::meta_strip_removes_the_jumbf_segment_by_name`
   (`:327`): exit 0, APP11 gone, stderr empty. Green on `main` and on the prototype; FT-3 adds
   `!has_manifest` on the library side.
@@ -582,6 +587,10 @@ Test ids: FT-1…FT-9 above; **C** = `tests/c2pa_manifest.rs::meta_strip_removes
   FT-8 leave with the file (they live in its test module). **Red:** FT-9
   (`pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`). Full 1350 passed / 1 failed. *Driven.*
   FT-9 is the control that survives Trap 14.
+- **MK — the marker clause always true** *(added at punch list)* (`marker == JPEG_ADOBE_MARKER` →
+  `(marker == JPEG_ADOBE_MARKER || true)` in `is_adobe_colour_transform`). **Red:** FT-10 only
+  (`an Adobe-prefixed segment under another marker is metadata`). Full 1357 passed / 1 failed; lib 603/1.
+  Before FT-10, all 1,357 tests stayed green on this mutant. *Driven.*
 
 Also driven: `cargo clippy --all-targets -- -D warnings` clean on the prototype; `cargo build --target
 wasm32-unknown-unknown --lib` with the rustup toolchain on `PATH` (`justfile:119`: a bare `cargo` finds

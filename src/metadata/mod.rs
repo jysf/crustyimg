@@ -899,6 +899,33 @@ mod tests {
         );
     }
 
+    /// Photoshop writes an APP13 that starts with `Adobe_CM`. It passes the
+    /// length and signature checks, so only the marker check removes it.
+    #[test]
+    fn strip_all_removes_an_adobe_cm_app13() {
+        let payload: &[u8] = b"Adobe_CM\x00\x01\x00\x00\x0c\x00\x00\x00";
+        // Guard the test's own premise: it must clear the length and signature
+        // checks, so a pass can only come from the marker check.
+        assert!(payload.len() >= ADOBE_APP14_MIN_LEN, "long enough");
+        assert!(payload.starts_with(b"Adobe"), "Adobe-prefixed");
+        let app13 = |bytes: &[u8]| {
+            walk_segments(bytes)
+                .into_iter()
+                .filter(|(m, _)| *m == 0xED)
+                .count()
+        };
+        let input = with_segments(jpeg_with_exif(), &[(0xED, payload)]);
+        assert_eq!(app13(&input), 1, "precondition: one APP13");
+
+        let out = strip_all(&input).expect("strip");
+
+        assert_eq!(
+            app13(&out),
+            0,
+            "an Adobe-prefixed segment under another marker is metadata"
+        );
+    }
+
     #[test]
     fn strip_all_jpeg_preserves_pixels() {
         let input = jpeg_with_exif();
