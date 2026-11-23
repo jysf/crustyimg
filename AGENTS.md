@@ -520,6 +520,23 @@ corrections, and grep DECs, code comments and docs for the old rule.
 SPEC-159's DEC-115 contradicted its own correction 2; SPEC-160 fixed the
 DEC and missed the same rule in `run_pixel_op`'s comment.
 
+Before writing the mutation table, build its coverage map and put it in
+the spec:
+- **Shapes × reads.** List every shape of input the change reads (for a
+  path: missing, regular file, symlink to a file, dangling symlink,
+  symlink to a directory, read-only) against every step or clause that
+  reads it. For a predicate, take each clause in turn with an input that
+  passes every *other* clause.
+- **Between steps.** For an ordering that matters (create, set mode,
+  write, rename), list what an observer or a killed process sees between
+  each pair of steps, not only at the end.
+
+Each cell gets a test row or a one-line reason it needs none. A mutation
+table only tests the rows someone thought to write: SPEC-156 missed the
+one clause of its APP14 check without a row, and SPEC-155's two verify
+claims (a symlinked destination, a mode applied after the write) were
+cells no row covered.
+
 ### During **build**
 
 Start a **new Claude session**. Do not continue from the design session.
