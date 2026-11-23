@@ -1371,8 +1371,8 @@ write-probe and the mode copy when `symlink_metadata` says the destination is a 
 - FT-U14 `the_old_mode_is_on_the_staged_file_before_the_first_write`. Red before:
   `left: Some(420)  right: Some(384)` (`0644` against `0600`). Green after.
 - By hand, `-y` over a `0600` file under `ulimit -f 1` with XFSZ at its default: exit 153 (128 + 25),
-  `-rw-------  1024  .priv.png.crustyimg-53871-0.tmp` and `-rw-------  4  priv.png` (`OLD`). Before the
-  fix the same staged file would be `0644`; FT-U14 is the row that pins it.
+  `-rw-------  1024  .priv.png.crustyimg-53871-0.tmp` and `-rw-------  4  priv.png` (`OLD`). I did not re-drive
+  this by hand on `471a0a7`'s code; the red-before evidence for the early mode is FT-U14's `0644`.
 
 **Fix 3: FT-U9b** `a_name_with_a_multibyte_character_at_the_cut_still_writes`. Green today by design; M14
 turns it red.
