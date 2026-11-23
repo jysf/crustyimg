@@ -670,22 +670,18 @@ fn load_lock(path: &str) -> Result<Option<crate::build::lock::BuildLock>, CliErr
     Ok(Some(BuildLock::from_toml(&text)?))
 }
 
-/// Write the lockfile atomically: stage beside it, then `rename` into place.
+/// Write the lockfile atomically: staged beside it and renamed into place, like
+/// every file output.
 ///
 /// A reader (a concurrent `--check`, a `git status`) therefore never sees a
-/// half-written lockfile — the same temp→rename discipline the cache store uses.
+/// half-written lockfile, and a failed write keeps the old one.
 fn write_lock(path: &str, contents: &str) -> Result<(), CliError> {
-    let write_err = |source: std::io::Error| CliError::LockWrite {
-        path: path.to_owned(),
-        source,
-    };
-    let tmp = format!("{path}.tmp{}", std::process::id());
-    std::fs::write(&tmp, contents).map_err(write_err)?;
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(write_err(e));
-    }
-    Ok(())
+    crate::sink::publish_file_io(Path::new(path), contents.as_bytes()).map_err(|source| {
+        CliError::LockWrite {
+            path: path.to_owned(),
+            source,
+        }
+    })
 }
 
 /// The `build` path: run every `[[target]]` in a declared build manifest.

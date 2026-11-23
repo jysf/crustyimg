@@ -11,9 +11,12 @@
 //!   absolute component. The check is on the EXPANDED name, not the raw stem,
 //!   because a user-supplied `--name-template` can inject separators.
 //! - **Overwrite guard:** [`Sink::write`] checks `Path::exists()` BEFORE
-//!   opening for write; returns [`SinkError::AlreadyExists`] when
+//!   anything is created; returns [`SinkError::AlreadyExists`] when
 //!   [`Overwrite::Forbid`] (the default). Only [`Overwrite::Allow`] (`--yes`)
 //!   proceeds.
+//! - **All or nothing:** a file output is staged in a new file beside the
+//!   destination and renamed over it only when every byte is written, so a
+//!   failed write keeps the old file and exits non-zero.
 //!
 //! ## Encoding
 //!
@@ -21,8 +24,8 @@
 //! or supplied explicitly. Pixels are encoded via
 //! `img.pixels().write_to(&mut Cursor<Vec<u8>>, format)` (the Cursor gives the
 //! `Write + Seek` bound some encoders require) and the resulting bytes are then
-//! written to the final destination — a `BufWriter<File>` or the injected `out`
-//! writer. This uniform buffer-then-write path keeps `out: &mut dyn Write`
+//! written to the final destination — a staged file renamed into place, or the
+//! injected `out` writer. This uniform buffer-then-write path keeps `out: &mut dyn Write`
 //! simple and keeps all diagnostics off `out` (DEC-002, DEC-004).
 //!
 //! The pixel lane writes no container metadata: no EXIF and no ICC profile
@@ -36,13 +39,14 @@
 //! Layering: this module depends on `::image` and [`crate::image`] only. It
 //! must NOT touch `clap`, recipes, source internals, or terminals beyond viuer.
 
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Cursor, IsTerminal, Write};
+use std::io::{Cursor, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use ::image::{ColorType, ImageFormat};
 
 use crate::image::Image;
+
+mod publish;
 
 // ── AVIF encode constants (SPEC-018, DEC-020) ─────────────────────────────────
 
@@ -208,9 +212,25 @@ pub enum Overwrite {
 /// (`docs/api-contract.md`).
 #[derive(Debug, thiserror::Error)]
 pub enum SinkError {
-    /// An I/O error while opening, creating, or writing the output.
+    /// An I/O error while writing to stdout.
     #[error("could not write output")]
     Io(#[from] std::io::Error),
+
+    /// A file output could not be written. The destination keeps whatever it
+    /// held before (or stays absent).
+    #[error("could not write output {path}: {source}")]
+    WriteFailed {
+        path: String,
+        source: std::io::Error,
+    },
+
+    /// The directory refuses a new file, so the output could not be staged in it.
+    #[error("could not write output {path}: cannot create a new file in {dir}: {source}")]
+    DirNotWritable {
+        path: String,
+        dir: String,
+        source: std::io::Error,
+    },
 
     /// The `image` crate could not encode the pixels to the chosen format.
     #[error("could not encode image: {0}")]
@@ -494,18 +514,12 @@ impl Sink {
                 };
                 // Symlink-destination guard: reject even with --yes (DEC-035).
                 reject_symlink_destination(path)?;
-                // Overwrite guard: check before opening (never truncate then error).
+                // Overwrite guard: runs before anything is created.
                 guard_overwrite(path, overwrite)?;
-                // Encode to bytes, then write to a BufWriter<File>.
+                // Encode to bytes, then stage them beside the destination and
+                // rename them into place, so a failed write keeps the old file.
                 let bytes = encode_to_bytes(img, fmt, quality)?;
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path)?;
-                let mut writer = BufWriter::new(file);
-                writer.write_all(&bytes)?;
-                Ok(())
+                publish_file(path, &bytes)
             }
 
             Sink::Dir {
@@ -532,14 +546,7 @@ impl Sink {
                 guard_overwrite(&full_path, overwrite)?;
                 // Encode and write.
                 let bytes = encode_to_bytes(img, fmt, quality)?;
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&full_path)?;
-                let mut writer = BufWriter::new(file);
-                writer.write_all(&bytes)?;
-                Ok(())
+                publish_file(&full_path, &bytes)
             }
 
             Sink::Stdout { format } => {
@@ -642,14 +649,7 @@ impl Sink {
                 // Symlink-destination guard: reject even with --yes (DEC-035).
                 reject_symlink_destination(path)?;
                 guard_overwrite(path, overwrite)?;
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path)?;
-                let mut writer = BufWriter::new(file);
-                writer.write_all(bytes)?;
-                Ok(())
+                publish_file(path, bytes)
             }
             Sink::Dir { dir, template, .. } => {
                 // Auto-create the output directory (and parents) if missing (DEC-044).
@@ -662,14 +662,7 @@ impl Sink {
                 // Symlink-destination guard: reject even with --yes (DEC-035).
                 reject_symlink_destination(&full_path)?;
                 guard_overwrite(&full_path, overwrite)?;
-                let file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&full_path)?;
-                let mut writer = BufWriter::new(file);
-                writer.write_all(bytes)?;
-                Ok(())
+                publish_file(&full_path, bytes)
             }
             Sink::Stdout { .. } => {
                 out.write_all(bytes)?;
@@ -877,12 +870,40 @@ pub(crate) fn reject_symlink_destination(path: &Path) -> Result<(), SinkError> {
 /// Check the overwrite guard for a File or Dir sink.
 ///
 /// If the path already exists and `overwrite == Overwrite::Forbid`, return
-/// [`SinkError::AlreadyExists`] WITHOUT truncating the file.
-fn guard_overwrite(path: &Path, overwrite: Overwrite) -> Result<(), SinkError> {
+/// [`SinkError::AlreadyExists`] before anything is created.
+pub(crate) fn guard_overwrite(path: &Path, overwrite: Overwrite) -> Result<(), SinkError> {
     if path.exists() && overwrite == Overwrite::Forbid {
         return Err(SinkError::AlreadyExists(path.display().to_string()));
     }
     Ok(())
+}
+
+/// Write `bytes` to `path` all or nothing: stage them in a new file beside the
+/// destination and rename it into place, so a failed write leaves the old file
+/// as it was. The guards run before this; see [`publish`].
+pub(crate) fn publish_file(path: &Path, bytes: &[u8]) -> Result<(), SinkError> {
+    publish::publish(path, bytes, &publish::RealFs).map_err(|e| match e {
+        publish::PublishError::CreateTemp { dir, source } => SinkError::DirNotWritable {
+            path: path.display().to_string(),
+            dir: dir.display().to_string(),
+            source,
+        },
+        publish::PublishError::Write(source) => SinkError::WriteFailed {
+            path: path.display().to_string(),
+            source,
+        },
+    })
+}
+
+/// [`publish_file`] for a caller that has its own error type: the bare I/O
+/// error. Only the CLI calls it (the build lockfile).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn publish_file_io(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    publish::publish(path, bytes, &publish::RealFs).map_err(|e| match e {
+        publish::PublishError::CreateTemp { source, .. } | publish::PublishError::Write(source) => {
+            source
+        }
+    })
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────

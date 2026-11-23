@@ -52,9 +52,17 @@ Available on every command (before or after the subcommand):
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
 | `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`), or a recipe step writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG). |
-| `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
+| `5` | Output write refused or failed (exists without `--yes`; path traversal; symlinked destination; a read-only destination; a directory that can't take a new file; the write itself failed, in which case the existing file is left as it was). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). |
+
+**Replacing a file.** crustyimg writes each output to a new file beside the destination and
+renames it over the old one only when every byte is written, so a failed write keeps the old file.
+With `-y` the result is a new file at that name: it keeps the old file's permissions, but not its
+owner, ACLs, extended attributes (Finder tags on macOS) or hard links. The directory must allow
+new files: in a read-only directory `-y` exits `5` (`6` for a batch, after the other inputs are
+written). A process that is killed mid-write can leave a `.<name>.crustyimg-<…>.tmp` file beside the
+destination; it is safe to delete.
 
 ---
 
@@ -336,7 +344,8 @@ and lists the steps in the order they ran. A pixel `--crop` is saved as fraction
 step received (`x`, `y`, `width`, `height`), and a border `--pad N` as `border`, N over that
 image's long edge; either needs one input image when `--save-recipe` is given (a directory or
 glob naming several exits 2; use an aspect `--crop W:H` or `--pad W:H`, or edit each image on its
-own). A failed run writes no recipe.
+own). A failed run writes no recipe. An existing FILE is replaced only with `-y`; without it
+`edit` exits `5` before writing anything.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
 crustyimg edit photo.jpg --rotate 90 --crop 1200x800+0+100 -o out.jpg

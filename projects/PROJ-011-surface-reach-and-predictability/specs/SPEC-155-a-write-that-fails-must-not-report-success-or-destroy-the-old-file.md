@@ -7,7 +7,7 @@
 task:
   id: SPEC-155
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -85,6 +85,56 @@ cost:
         mutation runs on a prototype.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-22
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 18797882
+      tokens_breakdown:
+        input: 184
+        cache_creation: 238403
+        cache_read: 18481198
+        output: 78097
+      estimated_usd: 7.61
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-155 — BUILD prompt"), deduped by
+        message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        last code push, before this cost commit's own turns. Most of it is cache_read across the
+        15-row mutation run, the three-leg matrix and the CI waits.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read
+        (x0.10), $15 output.
+    - cycle: verify
+      date: 2026-11-22
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5715694
+      tokens_breakdown:
+        input: 82
+        cache_creation: 148361
+        cache_read: 5536277
+        output: 30974
+      estimated_usd: 4.47
+      note: >
+        Numbers handed over by the orchestrator in the punch-list prompt, not re-measured here.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
+    - cycle: punchlist
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5853853
+      tokens_breakdown:
+        input: 106
+        cache_creation: 112982
+        cache_read: 5712523
+        output: 28242
+      estimated_usd: 2.56
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-155 — PUNCH LIST prompt"), deduped by
+        message.id (53 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        last code push, before this cost commit's own turns and the CI wait.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -607,7 +657,8 @@ before; "no staged file" means the directory holds no name containing `.crustyim
   message. — FT-E12.
 - [ ] **AC-8 `-y` keeps the permission bits.** `-y` over a `0600` and a `0640` file leaves the new
   content at the old mode (two modes, each non-default, so a skipped copy shows). — FT-U11 (helper),
-  FT-E13 (CLI).
+  FT-E13 (CLI). The mode is on the staged file before its first byte is written (FT-U14, added at
+  punch list), and is taken from the file itself, never through a symlink (FT-E24).
 - [ ] **AC-9 A new file follows the umask.** A new output is `0644` under umask 022 and `0600` under
   umask 077. — FT-E10.
 - [ ] **AC-10 A destination this user can't write is refused, as today.** `-y` over a `0444` file
@@ -625,7 +676,9 @@ before; "no staged file" means the directory holds no name containing `.crustyim
 - [ ] **AC-14 A failed lockfile write keeps the old lockfile.** `build --no-cache` in a `0555` project
   directory (outputs into a writable `dist/`) exits 5 with
   `error: could not write build lockfile crustyimg.build.lock: Permission denied (os error 13)`, the
-  old lockfile's bytes kept, no staged file. — FT-E21.
+  old lockfile's bytes kept, no staged file. — FT-E21. A lockfile that is a symlink (to a `0600` file,
+  or dangling) is replaced by a regular file at the umask mode, exit 0, nothing written through the
+  link. — FT-E24, FT-E25 (added at punch list).
 - [ ] **AC-15 Parallel writes into one directory don't collide.** Four targets over the same 60
   inputs into one `dist`, `-j 8 --no-cache`: exit 0, 240 outputs, no staged file in `dist` or the
   project. Staged names taken from eight threads are all different. — FT-E14, FT-U10.
@@ -634,8 +687,10 @@ before; "no staged file" means the directory holds no name containing `.crustyim
   `b.png` written. Every write in a two-input batch failing (`ulimit -f 1`): exit 6, both old files
   kept. — FT-E19, FT-E23.
 - [ ] **AC-17 A staged file is never read as an input.** A folder with `a.png` and
-  `.a.png.crustyimg-1-0.tmp` gives one output for the folder and for `folder/*`. — FT-E20.
-- [ ] **AC-18 A long name still writes.** A 244-byte file name (240 `a`s + `.png`) writes. — FT-U9.
+  `.a.png.crustyimg-1-0.tmp` gives one output for the folder and for `folder/*`. — FT-E20. A name the code makes starts with `.`,
+  ends with `.tmp` and is not taken for an input. — FT-U13 (added at punch list).
+- [ ] **AC-18 A long name still writes.** A 244-byte file name (240 `a`s + `.png`) writes. A name whose multi-byte character straddles byte 100 (99 `a`s, `é`,
+  `.png`) writes too. — FT-U9, FT-U9b (added at punch list).
 - [ ] **AC-19 Output bytes don't change.** The file a sink writes equals the bytes the same command
   sends to stdout, for `convert --format png` and `meta strip`. A successful helper write leaves
   exactly the payload. — FT-E18, FT-U8.
@@ -672,12 +727,21 @@ prototype (`atomic_write`: 23 passed; the 12 unit tests passed in the 64-target 
   - FT-U8 `a_successful_write_replaces_the_file_and_leaves_no_staged_file` — `FailingFs` that never
     fails (chunked writes): the file equals the 5,000-byte payload, no staged file.
   - FT-U9 `a_long_file_name_still_writes` — 244-byte name, `RealFs`: written.
+  - FT-U9b `a_name_with_a_multibyte_character_at_the_cut_still_writes` (added at punch list) — 99
+    `a`s, `é`, `.png`: `staged_name` keeps a prefix of at most 100 bytes that is a prefix of the name
+    (so valid UTF-8), and `publish` writes it.
   - FT-U10 `staged_names_differ_across_threads` — eight `std::thread::scope` threads each call
     `next_staged_name("a.png")`; all eight differ.
   - FT-U11 `a_replaced_file_keeps_its_mode` (unix) — `0600` and `0640`, `publish` over each, mode
     kept.
   - FT-U12 `a_read_only_destination_is_refused_and_kept` (unix) — `0444`: asserts the precondition
     (opening it for write fails, else "running as root?"), then `Err`, old bytes, no staged file.
+  - FT-U13 `a_staged_name_ends_in_tmp_and_is_not_an_input` (added at punch list) — a name from
+    `next_staged_name` starts with `.` and ends with `.tmp`; a directory holding a file of that name
+    resolves (`crate::source::resolve`) to no inputs.
+  - FT-U14 `the_old_mode_is_on_the_staged_file_before_the_first_write` (unix, added at punch list) —
+    a `StageFs` wrapper reads the staged path's mode at its first `write`; over a `0600` file it is
+    `0600`.
 - **`tests/atomic_write.rs`** (new). Helpers: `small_png` (`resize <fixture> --max 40`, 1,328 B),
   `big_png` (copy of `tests/fixtures/classify/photo_entropy_floor.png`, 83,916 B), `staged_left(dir)`,
   `limited(dir, ignore_xfsz, args)` = `sh -c "[trap '' XFSZ; ]ulimit -f 1; exec <BIN> <args>"`.
@@ -736,6 +800,13 @@ prototype (`atomic_write`: 23 passed; the 12 unit tests passed in the 64-target 
   - FT-E23 (unix) `a_batch_where_every_write_fails_exits_6_and_keeps_every_file` — `in/a.png`,
     `in/b.png` (small), `od/a.png`, `od/b.png` = `OLD`; `limited(…, true, "convert in --format png
     --out-dir od -y")`: exit 6, both `OLD` kept, no staged file. Red on `main` (exit 0, 512 B each).
+  - FT-E24 (unix) `a_lockfile_symlinked_to_a_private_file_is_replaced_by_a_regular_file` (added at
+    punch list) — project as FT-E21 with `crustyimg.build.lock` a symlink to a `0600` file; `build
+    --no-cache` under umask 022: exit 0, the lockfile is a regular file at `0644`, the target keeps
+    its bytes. Red before the fix (`0755`).
+  - FT-E25 (unix) `a_dangling_lockfile_symlink_is_replaced_by_a_regular_file` (added at punch list) —
+    the lockfile is a dangling symlink: exit 0, a regular file, nothing written through the link. Red
+    before the fix (exit 5, `No such file or directory`).
   - FT-W1 (windows) `windows_yes_replaces_an_existing_file` — exit 0, content changed, no staged file.
   - FT-W2 (windows) `windows_a_destination_held_open_without_share_delete_is_kept` — hold
     `OpenOptions::new().read(true).share_mode(0x1 | 0x2)` (`std::os::windows::fs::OpenOptionsExt`;
@@ -764,21 +835,21 @@ red set on its PR.
 
 - **M1, a write error is swallowed.** `src/sink/publish.rs`, `publish`'s write loop:
   `Err(e) => return Err(PublishError::Write(e)),` → `Err(_) => break,`. Red: FT-U2, FT-U3,
-  FT-E1…FT-E8, FT-E22. Green: FT-U4 (flush), FT-E18 (no failure in that row). *Driven.*
+  FT-E1…FT-E8, FT-E22, FT-E23 (corrected at punch list). Green: FT-U4 (flush), FT-E18 (no failure in that row). *Driven.*
 - **M1b, a flush error is swallowed.** `fs.flush(&mut file).map_err(PublishError::Write)?;` →
   `let _ = fs.flush(&mut file);`. Red: FT-U4 only (a real `File::flush` cannot fail, so no CLI row can
   see it). *Driven.*
 - **M2, write in place.** `src/sink/mod.rs`, `publish_file`'s body → `OpenOptions::new().write(true)
   .create(true).truncate(true).open(path)` then `write_all`, both errors mapped to `WriteFailed`
-  (keeping the `?`). Red: FT-E1…FT-E9, FT-E11, FT-E22. Green: every FT-U (they call `publish`
+  (keeping the `?`). Red: FT-E1…FT-E9, FT-E11, FT-E22, FT-E23 (corrected at punch list). Green: every FT-U (they call `publish`
   directly), FT-E21 (the lockfile uses `publish_file_io`), and the error/message halves of every red
   row. That split is the point. *Driven.*
 - **M3, the remover does nothing.** `StagedFile::drop`: delete `let _ = fs::remove_file(&self.path);`.
-  Red: FT-U2…FT-U6, FT-E1…FT-E8, FT-E22. Green: FT-U1 and FT-E21 (staging fails before a file
+  Red: FT-U2…FT-U6, FT-E1…FT-E8, FT-E22, FT-E23 (corrected at punch list). Green: FT-U1 and FT-E21 (staging fails before a file
   exists). *Driven.*
 - **M4, the mode isn't copied.** `if let Some(perm) = old_perm {` →
   `if let Some(perm) = old_perm.filter(|_| false) {`. Red: FT-U5 (no set-permissions call, so no
-  `Err`), FT-U11, FT-E13. *Driven.*
+  `Err`), FT-U11, FT-E13, and FT-U14 (added at punch list; re-driven there). *Driven.*
 - **M5, the pixel-lane `Sink::File` overwrite guard is dropped.** `src/sink/mod.rs` `write`,
   `Sink::File`: replace `guard_overwrite(path, overwrite)?;` (and its comment) with
   `let _ = overwrite;`. Red: `tests/sink.rs::overwrite_guard_forbids_then_allows` (existing), FT-E12.
@@ -799,18 +870,20 @@ red set on its PR.
   *Driven.*
 - **M9, a read-only directory falls back to writing in place.** In the create loop, before the
   catch-all: `Err(source) if source.kind() == io::ErrorKind::PermissionDenied => { return
-  fs::write(path, bytes).map_err(PublishError::Write); }`. Red: FT-E11, FT-E21. *Driven.*
+  std::fs::write(path, bytes).map_err(PublishError::Write); }` (corrected at punch list) (inside `publish` the parameter `fs`
+  shadows the module, so the edit applied is `std::fs::write`). Red: FT-E11, FT-E21. *Driven.*
 - **M10, the write-probe on an existing destination is dropped.** Delete the
   `OpenOptions::new().write(true).open(path).map_err(PublishError::Write)?;` statement. Red: FT-U12,
   FT-E15, FT-E19. *Driven.*
 - **M11, a short write reported as full** (the bytes pin, trap 13). `RealFs::write`: `file.write(buf)`
-  → `file.write(&buf[..buf.len().min(4096)]).map(|_| buf.len())`. Red: 46 tests across the suite,
-  including **FT-E18 by content** (`assertion left == right failed: ["meta", "strip", …]`: the
+  → `file.write(&buf[..buf.len().min(4096)]).map(|_| buf.len())`. Red: 48 tests across the suite (corrected at punch list), including FT-U9 and FT-U11 (the `RealFs` rows;
+  count and names from verify's drive), **FT-E18 by content** (`assertion left == right failed: ["meta", "strip", …]`: the
   83,916 B case; the 1,328 B `convert` case fits under 4,096 B, which is why FT-E18 carries both) and
   FT-E23 (exit 0). *Driven.*
-- **Trap 14a, `main`'s `src/sink/mod.rs` restored verbatim, alone.** Does not compile (5 errors:
-  `cannot find function publish_file_io in module crate::sink`, `… publish_file …`,
-  `function guard_overwrite is private`), so every target is red at compile. *Driven.*
+- **Trap 14a, `main`'s `src/sink/mod.rs` restored verbatim, alone.** Does not compile (3 distinct
+  errors, each reported for the lib and for the lib test (corrected at punch list): `cannot find function
+  publish_file_io in module crate::sink`, `… publish_file …`, `function guard_overwrite is
+  private`), so every target is red at compile. *Driven.*
 - **Trap 14b, `main`'s `src/sink/mod.rs`, `src/cli/ops.rs` and `src/cli/build.rs` restored**
   (`publish.rs` then isn't compiled, so no FT-U runs). Red, 15: FT-E1…FT-E9, FT-E11, FT-E15, FT-E16,
   FT-E19, FT-E22, FT-E23. Green on `main` (pins of behaviour that must not change): FT-E10, FT-E12,
@@ -818,6 +891,18 @@ red set on its PR.
   `write_lock` already keeps the old lockfile; F2's fix (an exclusive, unpredictable staged name that
   never follows a symlink) rests on `create_new`'s documented semantics and FT-U1, *reasoned*.
   *Driven.*
+- **M12, `old_perm` taken through a symlink again** (added at punch list). `Ok(meta) if
+  !meta.file_type().is_symlink() =>` → `Ok(meta) =>`. Red: FT-E24, FT-E25, and nothing else (full
+  `cargo test --no-fail-fast`, 64 targets). *Driven.*
+- **M13, the mode applied late** (added at punch list). The `set_permissions` block moved from before
+  the write loop back to just before the rename. Red: FT-U14 only. *Driven.*
+- **M14, the byte cut** (added at punch list). In `staged_name`, delete the `while
+  !file_name.is_char_boundary(cut) { cut -= 1; }` loop. Red: FT-U9b only. *Driven.*
+- **M15, the `.tmp` suffix dropped** (added at punch list). `".{}.crustyimg-{}-{}.tmp"` →
+  `".{}.crustyimg-{}-{}"`. Red: FT-U13 only. **FT-E20 stays green**: it plants a hand-written `.tmp`
+  name, so it never sees the names the code makes. *Driven.*
+- **M4 and M8, re-driven at punch list** (item 2 moved code next to both). M4 red: FT-U5, FT-U11,
+  FT-U14, FT-E13. M8 red: FT-U6 only. *Driven.*
 
 ## Implementation Context
 
@@ -856,7 +941,10 @@ into the spec since there is no separate receiving agent.*
        any other error returns `Write`.
     5. `fs.flush`, then `drop(file)`. The file is closed before the rename because Windows refuses to
        rename an open file.
-    6. If permissions were kept: `fs.set_permissions(staged, perm)`.
+    6. (Corrected at punch list: this step now runs straight after step 3's `create_new`, before the
+       write loop, so a private file's new bytes are never in a more readable file. It also runs only
+       when the destination is not a symlink; a symlink is neither write-probed nor the source of
+       the mode.)
     7. `fs.rename(staged, path)`, then disarm the remover. The remover is disarmed **after** the rename
        returns `Ok`, never before.
     No `BufWriter`, no `sync_all`, no directory `fsync`.
@@ -960,9 +1048,11 @@ claimed ids since). `affected_scope` in **block-list form** (HANDOFF trap 7):
 >   if there was none. No staged file survives an error the process returns. A killed process can
 >   leave one, named `.<name>.crustyimg-<pid>-<n>.tmp`; its `.tmp` extension keeps it out of
 >   crustyimg's folder and glob inputs.
-> - The symlink and overwrite guards (DEC-035) run before anything is created. An existing
->   destination this user cannot open for writing is refused, as it was before writes were staged,
->   so `-y` never replaces a read-only file.
+> - The symlink and overwrite guards (DEC-035) run before anything is created, on every output
+>   except the build lockfile, which has no symlink guard: a symlinked lockfile is replaced by a
+>   regular file, and nothing is read from or written through the link. An existing destination this
+>   user cannot open for writing is refused, as it was before writes were staged, so `-y` never
+>   replaces a read-only file.
 > - `-y` replaces the file at that name with a new file. Its permission bits carry over. Its owner
 >   (unless crustyimg runs as root), ACLs, extended attributes (on macOS, Finder tags) and hard links
 >   do not.
@@ -1004,7 +1094,9 @@ quotes the result in Build Completion; verify drives them again.
    renames it over the old one only when every byte is written, so a failed write keeps the old file.
    With `-y` the result is a new file at that name: it keeps the old file's permissions, but not its
    owner, ACLs, extended attributes (Finder tags on macOS) or hard links. The directory must allow
-   new files: in a read-only directory `-y` exits `5`." Paths: `-y` mode kept (FT-E13), read-only
+   new files: in a read-only directory `-y` exits `5`. A process that is killed mid-write can leave a
+   `.<name>.crustyimg-<…>.tmp` file beside the destination; it is safe to delete." (Sentence added at
+   punch list.) Paths: `-y` mode kept (FT-E13), read-only
    directory (FT-E11), failed write (FT-E1).
 5. `docs/cli-reference.md:332-337`, `--save-recipe`. After "A failed run writes no recipe." add:
    "An existing FILE is replaced only with `-y`; without it `edit` exits `5` before writing anything."
@@ -1171,37 +1263,169 @@ edit `projects/PROJ-017-geometry-as-recipe-steps/`.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-155-atomic-writes`
+- **PR (if applicable):** #268 (draft; verify approves, the orchestrator marks it ready)
+- **All acceptance criteria met?** yes: AC-1 to AC-19, AC-21 and AC-22 driven locally. AC-20 (Windows) rests on the Windows CI leg: W1–W4 all passed on the Windows leg: `windows_yes_replaces_an_existing_file ... ok`, `windows_a_destination_held_open_without_share_delete_is_kept ... ok`, `windows_a_read_only_destination_is_refused_and_kept ... ok`, `windows_yes_over_the_input_itself_replaces_it ... ok`. W2 got exit 5 and the `could not write output old.png:` prefix with the old bytes kept, as reasoned; the OS text was not asserted.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-116` — A file write is all or nothing (next free id at build time: `main` ended at DEC-115)
+- **Files this diff touches** (13, from `git diff --name-only origin/main...HEAD`, including this spec file):
+  - `src/sink/publish.rs` (new) — `StageFs` seam, `RealFs`, `StagedFile` guard, `publish`, staged names, unit tests (FT-U1…U12 at build; FT-U9b, FT-U13, FT-U14 added at punch list)
+  - `src/sink/mod.rs` — four arms call `publish_file`; `WriteFailed`/`DirNotWritable`; `guard_overwrite` is `pub(crate)`; `publish_file`, `publish_file_io` (non-wasm); module docs
+  - `src/cli/ops.rs` — `run_edit` guards `--save-recipe` before the run, writes it with `publish_file`; `SinkError` import dropped
+  - `src/cli/build.rs` — `write_lock` only: body and doc comment
+  - `src/cli/mod.rs` — `--save-recipe` help gains "An existing FILE needs --yes."
+  - `tests/atomic_write.rs` (new) — FT-E1…E23 and FT-W1…W4 (FT-E24, FT-E25 added at punch list)
+  - `SECURITY.md`, `docs/cli-reference.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md` — the doc sentences
+  - `CHANGELOG.md` — one Fixed and two Changed entries
+  - `decisions/DEC-116-a-file-write-is-all-or-nothing.md` (new)
+  - this spec file — Build Completion and cost
+  - `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION`, the lockfile format: no diff (`git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock` prints nothing)
 - **Deviations from spec:**
-  - [list]
+  - The orchestrator's correction: wherever a doc sentence names the failed-write exit code for a case a batch can reach, it reads "exits 5 (6 for a batch, after the other inputs are written)": the CHANGELOG Fixed line, the CHANGELOG `-y`-into-a-read-only-directory line, and the `docs/cli-reference.md` "Replacing a file" note. The spec's text said "exits 5" in all three. Driven on both paths (below).
+  - The unit-test module is `#[cfg(test)]` plus a separate `#[cfg(not(target_arch = "wasm32"))]`, not `all(test, …)`: clippy's test exemption (`clippy.toml`) matches only a bare `cfg(test)`, and the `all()` form failed clippy `-D warnings` with six `unwrap_used` errors on every leg. Fixed in 3802b14.
+  - The Windows leg's first run failed clippy on two dead-code warnings in `tests/atomic_write.rs` (above); `single_quote` and `limited` are now `cfg(unix)`.
+  - M9's quoted edit calls `fs::write`; inside `publish` the parameter `fs` shadows the module, so the edit applied is `std::fs::write(path, bytes)`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The mutation table's M1/M2/M3 "Red" lists omit FT-E23 (below); M11's 46 is 48 here.
+
+### Build-phase evidence
+
+**RED baseline on `main`'s code** (test file only, `cargo test --test atomic_write --no-fail-fast`, stdout to a file, `$?` read: 101; 8 passed, 15 failed). The first run was invalid: six rows panicked in `small_png` (`could not write output`, because `in/` didn't exist), so the helper creates parent directories. Baseline after that fix, each red row's failure line:
+  - E1–E4 `efbig_small_{pixel,bytes}_{file,dir}`: `assertion left == right failed: stderr: … left: Some(0) right: Some(5)`
+  - E5–E8 `efbig_big_*`: `bytes kept: …/old.png holds 1024 bytes, expected 29 bytes` (and `…/od/in.png` for the dir rows)
+  - E9 `sigxfsz_kill_keeps_the_old_file`: `bytes kept: …/old.png holds 1024 bytes, expected 29 bytes`
+  - E11 `a_read_only_directory_is_refused_by_name`: `left: Some(0) right: Some(5)`
+  - E15 `yes_over_a_read_only_file_is_refused`: `stderr: error: could not write output` (no path, no cause)
+  - E16 `save_recipe_without_yes_refuses_an_existing_recipe`: `left: Some(0) right: Some(5)`
+  - E19 `a_batch_with_one_refused_destination…`: `stderr: error: …/in/a.png: could not write output` / `error: 1 of 2 inputs failed`
+  - E22 `save_recipe_failed_write_keeps_the_old_recipe`: `bytes kept: …/r.toml holds 0 bytes, expected 8 bytes`
+  - E23 `a_batch_where_every_write_fails…`: `left: Some(0) right: Some(6)`
+  - Green on `main` (pins): E10, E12, E13, E14, E17, E18, E20, E21. Exactly the spec's 15 red rows, each for its stated reason.
+
+**After the build:** `cargo test --test atomic_write`: 23 passed. `cargo test --lib publish`: 13 passed (12 FT-U plus one existing). Full `cargo test --no-fail-fast`, stdout redirected, `$?` = 0: 64 targets, all `ok`.
+
+**Acceptance criteria, one line each**
+  - AC-1 met (E1–E4). AC-2 met (E1–E8). AC-3 met (U1–U7). AC-4 met (E9). AC-5 met (E1–E8, E15, E22). AC-6 met (E11). AC-7 met (E12). AC-8 met (U11, E13). AC-9 met (E10). AC-10 met (U12, E15; W3 on CI). AC-11 met (E16). AC-12 met (E17). AC-13 met (E22). AC-14 met (E21). AC-15 met (E14, U10). AC-16 met (E19, E23). AC-17 met (E20). AC-18 met (U9). AC-19 met (E18, U8). AC-20 W1–W4 all passed on the Windows leg: `windows_yes_replaces_an_existing_file ... ok`, `windows_a_destination_held_open_without_share_delete_is_kept ... ok`, `windows_a_read_only_destination_is_refused_and_kept ... ok`, `windows_yes_over_the_input_itself_replaces_it ... ok`. W2 got exit 5 and the `could not write output old.png:` prefix with the old bytes kept, as reasoned; the OS text was not asserted.. AC-21 met (below). AC-22 met: `just wasm-check` rc 0 (one warning, `MANIFEST_DROPPED_WARNING`, which is not from this diff), `just wasm-test` rc 0, 56 passed.
+
+**Each behaviour sentence, driven on every exit path it names** (debug binary built from the pushed code; paths shortened):
+  1. SECURITY threat 3 ("a write that fails leaves the existing file as it was…"):
+     - one input `-o`: `convert big.png --format png -o old.png -y` under `ulimit -f 1`, XFSZ ignored → `exit=5`, `error: could not write output old.png: File too large (os error 27)`, `old.png` still `OLDOLD`, no staged file.
+     - `--out-dir`, one input: `exit=5`, `error: could not write output od/small.png: File too large (os error 27)`, `od/small.png` still `OLDOLD`, `od` holds only `small.png`.
+     - batch with one failing input (`od2/a.png` 0444): `exit=6`, `error: in/a.png: could not write output od2/a.png: Permission denied (os error 13)`, `error: 1 of 2 inputs failed`, `a.png` still `OLDOLD`, `b.png` written.
+     - batch where every write fails (`ulimit -f 1`): `exit=6`, one `error: in/X.png: could not write output od2/X.png: File too large (os error 27)` per input, `error: 2 of 2 inputs failed`, both `OLDOLD`.
+     - `build` with a read-only project directory: `exit=5`, `error: could not write build lockfile crustyimg.build.lock: Permission denied (os error 13)`, lockfile still `OLD LOCK`.
+     - "a destination crustyimg could not write before is still refused": `-y` over a 0444 file → `exit=5`, `error: could not write output ro.png: Permission denied (os error 13)`.
+  2. SECURITY row 3 (`--save-recipe`, "staged and renamed"): `-o`: covered above. `--save-recipe` without `-y` → `exit=5`, `error: output file already exists (use --yes to overwrite): r.toml`, `r.toml` still `PRECIOUS`, `e.png` not created. With `-y` → `exit=0`, `r.toml` starts `version = "1"`.
+  3. cli-reference exit 5 row: `-o` and `--out-dir` as above; read-only directory `-y` → `exit=5`, `error: could not write output rd/old.png: cannot create a new file in rd: Permission denied (os error 13)`; `--save-recipe` as above.
+  4. cli-reference "Replacing a file" note: mode kept: `-y` over a 0640 file → `640` afterwards (E13 also 0600); read-only directory, one input → exit 5 (above); read-only directory, batch of two → `exit=6`, `error: in/a.png: could not write output rd/a.png: cannot create a new file in rd: Permission denied (os error 13)` (and b.png), `error: 2 of 2 inputs failed`. That is the case the orchestrator's correction covers; a failed write: E1 above.
+  5. cli-reference `--save-recipe`: without `-y` exit 5 before writing anything; with `-y` exit 0 (above).
+  6. api-contract exit 5: `-o`, `--out-dir` (above).
+  7. SKILL.md: `--save-recipe` (above), read-only directory (above).
+  8. `--help`: `edit --help` prints `Write the op chain as a TOML recipe to FILE after a successful edit. An existing FILE needs --yes.`
+
+**Mutations**, each alone in a scratch worktree of the pushed head with its own `CARGO_TARGET_DIR`, `git diff` non-empty, `cargo clean -p crustyimg` before each, full `cargo test --no-fail-fast`, red set read off the run (the per-row diffs and outputs are in the session scratchpad). Edits applied are the spec's quoted edits except where noted.
+  - M1 (`Err(_) => break,`): red 12 = U2, U3, E1–E8, E22, **E23**. Table: U2, U3, E1–E8, E22. **E23 is a cell the table misses** (every write swallowed → exit 0). U4 and E18 green, as the table says.
+  - M1b (`let _ = fs.flush(…)`): red 1 = U4. Matches.
+  - M2 (in-place write in `publish_file`): red 12 = E1–E9, E11, E22, **E23**. Table: E1–E9, E11, E22. Every FT-U, E21 and the message halves green, as the table says. E23 is missing from the table.
+  - M3 (remover's `remove_file` deleted): red 15 = U2–U6, E1–E8, E22, **E23**. Table: U2–U6, E1–E8, E22. U1 and E21 green. E23 missing from the table.
+  - M4 (`old_perm.filter(|_| false)`): red 3 = U5, U11, E13. Matches.
+  - M5 (guard dropped in the pixel-lane `Sink::File`): red 2 = `tests/sink.rs::overwrite_guard_forbids_then_allows`, E12. Matches.
+  - M6 (`--save-recipe` guard dropped): red 1 = E16. Matches.
+  - M7 (fixed `<n>`): red 1 = U10; E14 green. Matches.
+  - M7b (fixed `<n>`, `tries < 0`): red 1 = U10 only; E14 still green over this run. **The by-design claim holds:** U10 is the only row that sees a collision.
+  - M8 (disarm before the rename): red 1 = U6. Matches.
+  - M9 (in-place fallback on `PermissionDenied`, with `std::fs::write`): red 2 = E11, E21. Matches.
+  - M10 (write-probe deleted): red 3 = U12, E15, E19. Matches.
+  - M11 (`file.write(&buf[..buf.len().min(4096)]).map(|_| buf.len())`): red **48**, table says 46. The run includes E18 (`file and stdout bytes differ`, by content) and E23 (exit 0). The two extra are my unit rows **U9** and **U11** (`a_long_file_name_still_writes`, `a_replaced_file_keeps_its_mode`): they publish through `RealFs` with the 5,000 B payload, which is over 4,096 B. U8 stays green because `FailingFs` hands `RealFs` at most 1,024 B a call.
+  - Trap 14a (`main`'s `src/sink/mod.rs` alone): does not compile, 3 distinct errors reported for the lib and again for the lib test: `cannot find function publish_file_io in module crate::sink`, `cannot find function publish_file …`, `function guard_overwrite is private`. Every target red at compile. The table says 5 errors; it counts the same three plus the repeats.
+  - Trap 14b (`main`'s `mod.rs`, `ops.rs`, `build.rs`): red 15 = E1–E9, E11, E15, E16, E19, E22, E23. Matches exactly; E10, E12, E13, E14, E17, E18, E20, E21 green.
+  - Restored and rebuilt clean: the scratch worktree at the pushed head, `cargo test --no-fail-fast`, `$?` = 0.
+
+**Matrix** (each leg in a fresh `CARGO_TARGET_DIR`, each deleted after): `fmt --check`, `clippy --all-targets -D warnings` and `cargo test --no-fail-fast`, default, `--no-default-features`, and `--features webp-lossy`. The first pass failed clippy on all three legs (the test-module attribute, deviation 2); tests passed on all three with rc 0 on that pass, 64 targets on default. After the fix, clippy and `fmt --check` were re-run on all three legs in fresh directories: rc 0 each. The three test legs were not re-run for the attribute change, which does not alter what compiles in a test build; `cargo test --lib publish` is 13 passed on the final head. `just wasm-check` rc 0, `just wasm-test` rc 0.
+
+**CI legs** (PR #268): head 47003ae, every required leg green: build/test/clippy/fmt on ubuntu, macos and windows; lean; msrv 1.90.0; avif; webp-lossy; heic (ubuntu, macos); wasm round-trip (Node); ddphotos parity; browser smoke; cargo-deny; DCO; front-matter; cost-capture audit. The first run (head 3802b14) had one red leg: Windows, at clippy `-D warnings` with two dead-code warnings (`single_quote`, `limited`, which only the Unix rows call) while its tests passed W1–W4. Fixed in 47003ae by gating both to `cfg(unix)`; I could not run a Windows clippy locally (no Windows target installed), so CI was the check, and it is green. The last `gh pr checks --watch` exited with nothing pending.
+
+**Overlap with open PRs, after the last rebase onto `origin/main`:** #240 touches `src/cli/ops.rs` (its `use super::common` block and the metadata lane); no conflict arose on rebase. #237 touches `CHANGELOG.md` (new lines at the top of Unreleased): no conflict. #226 touches `src/cli/mod.rs`: no conflict. New since the first check: **SPEC-156 now has draft PR #269** (`feat/spec-156-strip-keeps-app14`): it touches `CHANGELOG.md`, `docs/api-contract.md` and `docs/cli-reference.md`, which this PR also edits (different hunks; expect a trivial conflict in whichever merges second), plus `src/metadata/mod.rs` and tests. It takes no decision id (`decisions/` on its branch ends at DEC-115, so DEC-116 is still free). No SPEC-157 build branch or PR exists.
+
+### Punch list (verify)
+
+Code is `92aeae9` on top of `471a0a7`. Every red-before was driven against `471a0a7`'s code with the
+new row added; every green-after is the same row on the fix.
+
+**Fix 1: the mode comes from the file, never through a symlink.** `publish`'s step 2 skips the
+write-probe and the mode copy when `symlink_metadata` says the destination is a symlink.
+- FT-E24 `a_lockfile_symlinked_to_a_private_file_is_replaced_by_a_regular_file`. Red before:
+  `assertion left == right failed: the umask mode, not the link's  left: 493  right: 420` (493 is
+  `0755`). Green after.
+- FT-E25 `a_dangling_lockfile_symlink_is_replaced_by_a_regular_file`. Red before: exit `Some(5)`,
+  `error: could not write build lockfile crustyimg.build.lock: No such file or directory (os error 2)`.
+  Green after.
+- The DEC's one sentence that said the guards run before anything is created, on every output, now
+  reads "…run before anything is created, on every output except the build lockfile, which has no
+  symlink guard: a symlinked lockfile is replaced by a regular file, and nothing is read from or
+  written through the link." Driven by FT-E24 and FT-E25. `SECURITY.md` and the docs make no
+  claim about the lockfile. The spec's verbatim DEC copy matches.
+
+**Fix 2: the old mode lands before the first byte.** `set_permissions` moved to straight after
+`create_new`, still on the `StageFs` seam, still `PublishError::Write`.
+- FT-U14 `the_old_mode_is_on_the_staged_file_before_the_first_write`. Red before:
+  `left: Some(420)  right: Some(384)` (`0644` against `0600`). Green after.
+- By hand, `-y` over a `0600` file under `ulimit -f 1` with XFSZ at its default: exit 153 (128 + 25),
+  `-rw-------  1024  .priv.png.crustyimg-53871-0.tmp` and `-rw-------  4  priv.png` (`OLD`). I did not re-drive
+  this by hand on `471a0a7`'s code; the red-before evidence for the early mode is FT-U14's `0644`.
+
+**Fix 3: FT-U9b** `a_name_with_a_multibyte_character_at_the_cut_still_writes`. Green today by design; M14
+turns it red.
+
+**Fix 4: FT-U13** `a_staged_name_ends_in_tmp_and_is_not_an_input`. It starts with `.`, ends with `.tmp`,
+and `crate::source::resolve` on a directory holding that name returns no inputs (`has_image_extension` is
+private, so `resolve` is the reachable door). Green today by design; M15 turns it red. FT-E20 is
+untouched.
+
+**Fix 5: wording.**
+- `PublishError::CreateTemp`'s doc: "…or seventeen staged names in a row were taken (the first try and
+  sixteen retries)." `PublishError::Write`'s doc now lists the steps in the order they run.
+- `SECURITY.md`: the two lines that sat outside item 3 are indented three spaces into it.
+- `docs/cli-reference.md`, "Replacing a file": "A process that is killed mid-write can leave a
+  `.<name>.crustyimg-<…>.tmp` file beside the destination; it is safe to delete." Driven: the XFSZ
+  kill above left `.priv.png.crustyimg-53871-0.tmp`; deleting it left `priv.png` at `OLD`, mode `600`.
+- The spec's verbatim copies (DEC bullet, docs item 4, code shape step 6) match. `CHANGELOG.md` is
+  untouched.
+
+**Fix 6: the mutation table** corrected in place, each change marked "(corrected at punch list)", and
+M12 to M15 added.
+
+**Mutants** (each alone, in a scratch worktree at `92aeae9` with its own `CARGO_TARGET_DIR`,
+`cargo clean -p crustyimg`, full `cargo test --no-fail-fast`, red set read off the run):
+- M12: FT-E24, FT-E25. Nothing else.
+- M13: FT-U14. Nothing else.
+- M14: FT-U9b. Nothing else.
+- M15: FT-U13. Nothing else; FT-E20 stays green.
+- M4 (re-driven): FT-U5, FT-U11, FT-U14, FT-E13.
+- M8 (re-driven): FT-U6. Nothing else.
+
+**Matrix** (each leg in a fresh `CARGO_TARGET_DIR`; 64 test targets each):
+- `fmt --check`: clean.
+- default: clippy `--all-targets -D warnings` clean; test 1,390 passed, 0 failed.
+- `--no-default-features`: clippy clean; test 1,326 passed, 0 failed.
+- `--features webp-lossy`: clippy clean; test 1,394 passed, 0 failed. (My first run of this leg passed
+  the flag as one argument and errored; rerun with the flag split.)
+- `just wasm-check`: exit 0. It prints one `dead_code` warning for `MANIFEST_DROPPED_WARNING` in
+  `src/metadata/mod.rs`, a file this diff does not touch.
+
+**CI snapshot:** CI_SNAPSHOT_PLACEHOLDER
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. Two small things: the FT-E fixture helper must create parent directories (six rows panicked on a missing `in/` before they reached the code under test), and the spec's M1/M2/M3 "Red" cells omit FT-E23, so a reader checking the table sees an unlisted red.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The clippy test exemption: the lint config exempts tests only through a bare `#[cfg(test)]`, and the spec's code shape didn't say how to gate a test module that must also skip wasm32.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy `-D warnings` on the first commit with the unit tests, not at the matrix. And never use `pgrep -f` for a wait loop: it matches its own shell, so each of my waiters waited on itself (I killed them; no data was affected).
+   — No design call turned out wrong.
 
 ---
 

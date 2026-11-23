@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`-y` into a directory that can't take new files is refused.** It exits 5 (6 for a batch,
+  after the other inputs are written) with
+  `could not write output <file>: cannot create a new file in <dir>: …`. 0.8.2 and earlier rewrote
+  the file in place, which is the write that could destroy it.
+- **`edit --save-recipe` needs `-y` to replace an existing recipe.** Without it `edit` exits 5 with
+  `output file already exists (use --yes to overwrite): <file>` before writing anything. 0.8.2 and
+  earlier replaced the recipe silently.
 - **`edit` runs its op flags in the order you type them.** `edit --invert --resize-max N` now
   inverts, then resizes (0.8.2 resized first whatever the order), so its output changes;
   `--resize-max N --invert` and every other invocation of 0.8.2's flags are unchanged. Each op
@@ -55,6 +62,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed write no longer leaves a short or empty file.** Every file crustyimg writes (image
+  outputs on every verb, `build` outputs, `meta` writing in place, `edit --save-recipe` and the build
+  lockfile) now goes to a new file beside the destination and is renamed over it only when every
+  byte is written. A write that fails (a full disk, a file-size limit) exits 5 (6 for a batch, after
+  the other inputs are written), names the file and the cause, and leaves the file that was there as
+  it was. 0.8.2 and earlier exited 0 over a truncated output under 8 KiB, and destroyed the old file
+  on a larger one. `-y` now makes a new file: it keeps the old file's permissions, but not its owner,
+  ACLs, extended attributes (Finder tags on macOS) or hard links, and replacing a file needs room for
+  both at once.
 - **A colour with a non-ASCII character is refused, not a crash.** `color = "aéaaa"` in a recipe
   and `--color "aéaaa"` on `watermark` now fail with the colour message instead of panicking
   (`pad`, `watermark`).

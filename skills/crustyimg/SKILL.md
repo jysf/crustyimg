@@ -53,6 +53,7 @@ Prebuilt binaries: https://github.com/jysf/crustyimg/releases
   `-o` is a usage error (exit 2). `--out-dir` is created if missing.
 - **Existing outputs are not overwritten** without `-y` (exit 5). Add `-y` in
   non-interactive runs, but only when overwriting is what the user wants.
+  The same holds for `edit --save-recipe FILE`.
 - **Quote globs** so crustyimg expands them, including recursive `**`:
   `'assets/**/*.jpg'`. A directory works as an input too, but reads only the images directly
   inside it, not its subfolders (a folder of only subfolders exits 3); use `'assets/**/*'`
@@ -332,7 +333,7 @@ medium.
 | 2 | Usage error, or a watermark refused on a single input | Fix the flags; check `--help` |
 | 3 | Input not found, or the glob matched nothing | Check the path / quoting |
 | 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it, or a recipe's fill alpha the output format can't store (`pad` with `transparent` into JPEG) | Use another format (PNG, WebP, AVIF), rebuild with the feature, or `convert` first |
-| 5 | Output write refused (exists, symlink, path traversal) | Add `-y` if overwriting is intended |
+| 5 | Output write refused or failed (exists, symlink, path traversal, read-only directory; a failed write keeps the old file) | Add `-y` if overwriting is intended; write to a directory you can create files in |
 | 6 | Some inputs in a batch failed | Others were written; read the summary |
 | 7 | A check failed (`diff --fail-under`, `build --check`, `lint` error) | Report it; this is a gate, not a crash |
 
