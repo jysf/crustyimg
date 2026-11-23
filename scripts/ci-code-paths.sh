@@ -31,10 +31,18 @@ DOCS='^(docs/|projects/|decisions/|guidance/|feedback/|reports/|gitignore_files_
 # the self-test below; a file read at run time must be listed here by hand.
 EXCEPT='^(README\.md|docs/github-actions\.md|docs/data-model\.md)$'
 
-CODE_PATHS='^(src/|tests/|examples/|benches/|Cargo\.(toml|lock)|rust-toolchain|\.cargo/|\.github/workflows/|justfile|scripts/|integrations/ddphotos/)'
-
 classify() {
-  if grep -qE "$CODE_PATHS"; then echo true; else echo false; fi
+  local paths
+  paths=$(grep -v '^$' || true)
+  if [ -z "$paths" ]; then
+    echo true
+  elif printf '%s\n' "$paths" | grep -qE "$EXCEPT"; then
+    echo true
+  elif printf '%s\n' "$paths" | grep -qvE "$DOCS"; then
+    echo true
+  else
+    echo false
+  fi
 }
 
 # Every file named by a literal include_str!/include_bytes! under src/, tests/,
