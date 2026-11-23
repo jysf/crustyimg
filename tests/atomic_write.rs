@@ -97,6 +97,7 @@ fn assert_holds(path: &Path, want: &[u8], what: &str) {
     );
 }
 
+#[cfg(unix)]
 fn single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -106,6 +107,7 @@ fn single_quote(s: &str) -> String {
 /// larger than 1,024 B, so either unit stops it. Stderr is captured through a
 /// pipe by `output()`: a stderr redirect inside the shell would be capped by the
 /// same limit.
+#[cfg(unix)]
 fn limited(dir: &Path, ignore_xfsz: bool, blocks: u32, args: &str) -> Output {
     let trap = if ignore_xfsz { "trap '' XFSZ; " } else { "" };
     let script = format!(
