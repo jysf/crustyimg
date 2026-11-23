@@ -99,6 +99,37 @@ cost:
         message.id (42 messages; max output_tokens per id), 0 subagent transcripts. Measured after the last
         push, before this cost commit's own turns. Rates (Sonnet): $3/MTok input, $3.75 cache_creation
         (x1.25), $0.3 cache_read (x0.10), $15 output.
+    - cycle: verify
+      date: 2026-11-23
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3287233
+      tokens_breakdown:
+        input: 62
+        cache_creation: 105395
+        cache_read: 3160954
+        output: 20822
+      estimated_usd: 2.76
+      note: >
+        Numbers handed over by the punch-list prompt, not re-measured here.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
+    - cycle: punchlist
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1430168
+      tokens_breakdown:
+        input: 36
+        cache_creation: 61089
+        cache_read: 1360996
+        output: 8047
+      estimated_usd: 0.76
+      note: >
+        Measured from the session JSONL (found by the prompt's header text), deduped by
+        message.id (18 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        code push, before the doc commit's own turns. Rates (Sonnet): $3/MTok input,
+        $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -904,6 +935,14 @@ comments included. 9 tests (6 + 2 + 1). One new 452-byte fixture. The cost is in
   - The RED commit adds the constants and helpers while `strip_all` keeps `main`'s loop, because FT-8 calls `strip_keeps_jpeg_segment`. That is the M1 shape the design drove.
   - `with_segments` uses `enumerate` over the insert offset, not a manual counter (clippy `explicit_counter_loop`).
 - **Follow-up work identified:** none new.
+
+### Punch list (verify)
+
+- **FT-10** `strip_all_removes_an_adobe_cm_app13` (test module only; code head `a691427`). Precondition: one APP13 in the input. Asserts none after strip, and that the payload is 16 bytes (at least `ADOBE_APP14_MIN_LEN`) and starts with `Adobe`.
+- **MK** (`marker == JPEG_ADOBE_MARKER` → `(marker == JPEG_ADOBE_MARKER || true)`; scratch worktree, own `CARGO_TARGET_DIR`, `cargo clean -p crustyimg`, full `--no-fail-fast`): 1357 passed / 1 failed. Red: FT-10 only, `an Adobe-prefixed segment under another marker is metadata`. Lib 603/1.
+- **Unmutated head:** 1358 passed / 0 failed.
+- **Clippy `--all-targets -D warnings` and `fmt --check`:** clean on the default and `--no-default-features` builds, each in a fresh `CARGO_TARGET_DIR`.
+- **CI snapshot:** at `a691427`, every leg green: 3-OS build/test/clippy/fmt, lean, msrv, avif, webp-lossy, heic ×2, wasm round-trip, browser smoke, ddphotos parity, cargo-deny, DCO, front-matter, cost-capture (the release legs skip).
 
 ### Build-phase reflection (3 questions, short answers)
 
