@@ -27,4 +27,4 @@ Cycle prompts live in `prompts/SPEC-156-<cycle>.md`.
   `strip_all_removes_an_adobe_cm_app13`, test code only (`a691427`); MK reddens FT-10 alone (1,357/1),
   unmutated 1,358/0; AC-3 widened. Head `3aaa700`; every CI leg green there (orchestrator-read).
 - [x] **merge** (2026-11-23, maintainer) — PR #269 as 58740ba8752f65080342bab3b16e408f8cd9d31c.
-- [x] **ship** (2026-11-23, Sonnet, $1.16) — merged 58740ba (PR #269); DEC-003 amendment and DEC-029 note applied; shipped binary drives the fixture and `cmyk_16x16.jpg` to byte-identical strips; build, verify and punch list re-measured (total $22.40 over six sessions).
+- [x] **ship** (2026-11-23, Sonnet, $1.56) — merged 58740ba (PR #269); DEC-003 amendment and DEC-029 note applied; shipped binary drives the fixture and `cmyk_16x16.jpg` to byte-identical strips; build, verify and punch list re-measured (total $22.80 over six sessions).
