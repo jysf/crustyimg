@@ -7,7 +7,7 @@
 task:
   id: SPEC-154
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -73,6 +73,48 @@ cost:
       estimated_usd: 5.70
       duration_minutes: null
       note: "Measured from the session JSONL (dedup by message.id, MAX output) after the design push, before this cost commit; 53 API messages, no subagents."
+    - cycle: build
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-sonnet-5-5
+      rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 2616300
+      tokens_breakdown:
+        input: 48
+        cache_creation: 105819
+        cache_read: 2495740
+        output: 14693
+      estimated_usd: 1.37
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) after the last push; 23 API messages, no subagents."
+    - cycle: verify
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-opus-5-5
+      rate_anchors: "Opus $5 in / $25 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 5190442
+      tokens_breakdown:
+        input: 82
+        cache_creation: 132899
+        cache_read: 5026203
+        output: 31258
+      estimated_usd: 4.13
+      duration_minutes: null
+      note: "Figures handed over by the orchestrator in the punch-list prompt."
+    - cycle: punchlist
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-sonnet-5-5
+      rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 1397917
+      tokens_breakdown:
+        input: 34
+        cache_creation: 63478
+        cache_read: 1326741
+        output: 7664
+      estimated_usd: 0.75
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) before the commit; 17 API messages, so the push and CI-watch turns after it are not counted."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -512,9 +554,10 @@ Each AC names its checks (FT ids below). Every check names what turns it red (th
   — FT-I2 (35 rows today); mutations M17, M23, M24, M25, M26, M27.
 - [ ] **AC-8 The include scan cannot silently find nothing.** The scan must find at least
   `INCLUDE_FLOOR=35` files (the design-time count). — FT-I1; mutation M22.
-- [ ] **AC-9 An include the scan cannot resolve is refused.** Any `include_(str|bytes)!(concat!` or
-  `include_(str|bytes)!(env!` under the scanned roots fails the self-test, naming `file:line`.
-  — FT-I3; mutation M28.
+- [ ] **AC-9 An include whose path is built with `concat!` or `env!` is refused.** Any
+  `include_(str|bytes)!(concat!` or `include_(str|bytes)!(env!` under the scanned roots fails the
+  self-test, naming `file:line`. Other forms are not scanned: a raw string, a space before the
+  parenthesis, a multi-line `include_str!(`, and `include!`. — FT-I3; mutation M28.
 - [ ] **AC-10 Pages runs for the demo's inputs.** `pages.yml`'s push list names `recipes/**` and
   `assets/**`. — FT-P2, FT-P3; mutation M31.
 - [ ] **AC-11 Pages' two lists cannot drift.** `push.paths` and `pull_request.paths` are identical and
@@ -1022,8 +1065,10 @@ index 136e786..f58362c 100644
 +`decisions/`, root-level Markdown and a few more). Anything else runs the full gates,
 +because a file that looks like docs can still be compiled in or read by a test:
 +`README.md`, `docs/github-actions.md` and `docs/data-model.md` are listed as exceptions
-+for that reason, and the script's self-test fails if a build or a test includes a file
-+the list calls docs-only. A new top-level directory runs the gates until someone adds it
++for that reason. The script's self-test fails if a build or a test includes a file the
++list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
++A file a test reads at run time, or includes any other way, must be added to the
++exception list by hand. A new top-level directory runs the gates until someone adds it
 +to the docs-only list.
 +
  ## Key discipline in this variant
@@ -1101,8 +1146,12 @@ Checkpoint: push after the baseline commit and after the final script.
 The build PR touches `scripts/` and `.github/workflows/`, which are code under both the old and the
 new script, so it cannot show the classification change on Actions. **At ship, after merge:**
 
-- The maintainer opens a **draft PR touching only `recipes/web.toml`** (one added comment line, e.g.
-  `# classifier check`), and checks **once**, when they next look:
+- The maintainer opens a **draft PR touching only `recipes/gallery.toml`** (one added comment line
+  at the end of the file, e.g. `# classifier check`), and checks **once**, when they next look.
+  Not `recipes/web.toml`: `tests/demo_smoke.mjs:853-857` asserts the demo's inlined recipe is
+  byte-identical to it, so a comment there turns `pages` red. Nothing byte-compares `gallery.toml`
+  (its readers parse it, re-emit it without comments, or check its header for forbidden ids), so
+  the three `cargo test` legs and `pages` stay green:
   - the `detect changed paths` (`changes`) log prints `-> code paths touched: running the full gates`;
   - each of the three `build / test / clippy / fmt (<os>)` legs ran its `Test` step (`cargo test`),
     not skipped;
@@ -1170,37 +1219,117 @@ No polling and no wait loops (AGENTS §16 habit 6): the maintainer checks in.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-154-ci-allow-list`
+- **PR (if applicable):** #266 (draft)
+- **All acceptance criteria met?** yes, except AC-18 (ship's step, after merge). AC-15's id grep has two
+  fixture-path hits, see Deviations.
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 4 files, plus this spec
+  file's Build Completion and cost entry, which land in the final commit):
+  - `scripts/ci-code-paths.sh` — deny-list replaced by `DOCS` + `EXCEPT`; `include_targets`,
+    `unresolvable_includes`, `pages_paths`, 88-row self-test
+  - `.github/workflows/pages.yml` — `recipes/**` and `assets/**` in both lists, two-line comment
+  - `.github/workflows/ci.yml` — `changes` job comment and step comment rewritten; no control-flow change
+  - `docs/development.md` — new `## Which PRs skip the Rust gates` section
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - AC-15 / verification step 7 says the id grep (`(SPEC|STAGE|DEC|PROJ)-[0-9]`) finds no hit. It finds
+    two: `scripts/ci-code-paths.sh:161` (`projects/PROJ-017-…/SPEC-142-x.md`) and `:162`
+    (`decisions/DEC-001-x.md`). Both are the spec's own verbatim self-test fixture paths, not comments or
+    messages; the script is byte-identical to the spec's text, so I kept them.
+  - No GNU-tools local run: no GNU grep or gawk installed (brew has only `bash`), no Docker. The
+    Linux run of record is the PR's `changes` job (below).
+- **Follow-up work identified:** none.
+
+### Evidence
+
+- **Step 0:** rebased onto `origin/main` (already current); spec at `cycle: build`; `cbdf66b` in history;
+  `CODE_PATHS` one-liner present; `include_targets | grep -c .` = 35 = the floor.
+- **Baseline 1** (new rows, old `classify`, `pages.yml` with the two new entries): rc=1,
+  `ci-code-paths self-test: 88 rows, 12 mismatched, 0 crashed, 0 junk, 9 failed`, 21 FAIL lines;
+  `diff` against the spec's 21-line list: identical.
+- **Baseline 2** (final `classify`, `pages.yml` without the two entries): rc=1,
+  `86 rows, 0 mismatched, 0 crashed, 0 junk, 2 failed`, exactly `FAIL pages.yml lists recipes/**` and
+  `FAIL pages.yml lists assets/**`.
+- **Script byte diff** against the spec's extracted block (227 lines): no differences. The three
+  other files were applied with `git apply` of the spec's diff, cleanly.
+- **Green run:** rc=0, `88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`.
+- **Spot verdicts** (stdin): `recipes/web.toml` → `true`; `docs/x.md`+`CHANGELOG.md` → `false`; empty
+  line → `true`.
+- **YAML load** of `ci.yml` and `pages.yml` (ruby): ok.
+- **`git diff --name-only origin/main`:** exactly the 4 files.
+- **Mutations**, each applied alone to a scratch copy of the tree (script, `src/lib.rs`, `pages.yml`
+  copied fresh each time, the build worktree never touched; `git status` clean after), diff against
+  green checked non-empty, every run rc=1. M20 edited the `DOCS=` line. **All 32 red sets equal the
+  design table; no cell was wrong.**
+  - M1 `docs/x.md`, `docs/.cargo/config.toml`, `docs/recipes/web.toml`, `docs-only list with a blank line`
+  - M2 `projects/PROJ-017-…/SPEC-142-x.md`; M3 `decisions/DEC-001-x.md`; M4 `guidance/constraints.yaml`;
+    M5 `feedback/x.md`; M6 `reports/x.md`; M7 `gitignore_files_maybe/x.txt`; M8 `skills/crustyimg/SKILL.md`;
+    M9 `.claude-plugin/plugin.json`
+  - M10 `CHANGELOG.md`, `docs-only list with a blank line`; M11 `LICENSE-MIT`; M12 `.repo-context.yaml`;
+    M13 `.variant`; M14 `.gitignore`; M15 `.github/TEMPLATE_README.md`
+  - M16 `README.md`; M17 `docs/github-actions.md` and `include target docs/github-actions.md classifies as docs-only; add it to EXCEPT`; M18 `docs/data-model.md`
+  - M19 `bench/corpus/README.md`, `src/docs/mod.rs`, `tests/fixtures/x.md`; M20 `bench/corpus/README.md`, `tests/fixtures/x.md`
+  - M21 `src/lib.rs`, `src/docs/mod.rs`, `docs plus one code path`, `pages.yml path src/** classifies as code`
+  - M22 `include scan found 0 files, expected at least 35 (…)`, 53 rows
+  - M23 23 `is not a repository path` lines; M24 25 `does not exist` lines; M25 1 line
+    `include target tests/… does not exist` (the `///` comment at `tests/help_has_no_internal_ids.rs:601`), 89 rows
+  - M26 `include target docs/x.md does not exist`; M27 `include target docs/development.md classifies as docs-only; add it to EXCEPT`
+  - M28 `no include_str!/include_bytes! builds its path with concat!/env!: src/lib.rs:101:…`
+  - M29 `pages.yml push.paths and pull_request.paths are identical and not empty`; M30 `pages.yml path docs/** classifies as code`; M31 `pages.yml lists recipes/**`, `pages.yml lists assets/**`
+  - M32 `src/lib.rs -> true, expected false`; `88 rows, 1 mismatched, 0 crashed, 0 junk, 0 failed`
+- **Overlap after the last rebase:** `gh pr list` shows #240 and #237 (`ci.yml`, other hunks), #229, #226;
+  unchanged from the spec. Neither merged.
+- **Linux self-test (PR #266 `changes` job, ubuntu-latest, GNU grep/awk):**
+  `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`, then
+  `-> code paths touched: running the full gates`. No GNU/BSD difference.
+- **CI legs at head `e20126b`:** all pass (3 `check` legs, avif, webp-lossy, heic x2, lean, msrv,
+  ddphotos parity, wasm round-trip, pages smoke, supply-chain, DCO, front-matter, detect changed paths).
+  `cost-capture audit` shows `pending` with every step already `success` (a stale status; this commit's
+  push re-runs it).
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
-
+   — Nothing blocking. The AC-15 id grep claim ("no hit") contradicts the verbatim script's fixture paths.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
+   — No. No design call turned out wrong; all 32 mutation cells and both baselines reproduced exactly.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive the mutations from a script from the start (done here), and not leave a `--watch` on a check
+   whose status can stay stale.
+
+### Punch list (verify)
+
+- **Ship's step** now adds the comment line to `recipes/gallery.toml`, at the end of the file.
+  Chosen by this grep over `tests/`, `scripts/`, `demo/`, `integrations/`, `src/`:
+  - `tests/demo_smoke.mjs:853-857` reads `recipes/web.toml` and asserts the inlined demo recipe is
+    byte-identical: `web.toml` is compared, so a comment there turns `pages` red.
+  - `gallery.toml` is read by `src/recipe/bundled.rs:46` (`include_str!`; parse test, and a check
+    that the leading `#` header lines hold no forbidden ids), `tests/recipe_strict_params.rs:173`
+    (parse), `tests/recipe_round_trip.rs:303` (re-emit without comments) and
+    `tests/recipe_corpus_output.rs:269` (parse). None compares bytes or comments. A line at the end
+    of the file is outside the header, so even the header check does not see it.
+  - `printf 'recipes/gallery.toml\n' | scripts/ci-code-paths.sh` → `true`; `pages.yml` triggers on
+    `recipes/**`.
+- **`docs/development.md`** now reads: "The script's self-test fails if a build or a test includes a
+  file the list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
+  A file a test reads at run time, or includes any other way, must be added to the exception list by
+  hand." The verbatim copy above matches it byte for byte. Driven by appending one line to
+  `src/lib.rs`, running `--self-test`, restoring:
+  - `include_str!(r"../docs/development.md")` → rc=0, 88 rows (not scanned, as the sentence says);
+  - `include_str! ("../docs/development.md")` → rc=0, 88 rows (not scanned);
+  - `include_str!("../docs/development.md")` → rc=1, `FAIL include target docs/development.md
+    classifies as docs-only; add it to EXCEPT`;
+  - `include_bytes!("../docs/development.md")` → rc=1, same FAIL line.
+- **AC-9** now reads: "An include whose path is built with `concat!` or `env!` is refused", and
+  says a raw string, a space before the parenthesis, a multi-line `include_str!(` and `include!` are
+  not scanned.
+- **Self-test:** `bash scripts/ci-code-paths.sh --self-test > out.txt 2>&1` → rc=0,
+  `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`.
+  `git diff 2a70156 -- scripts/` is empty.
+- **Not changed, for the orchestrator:** AC-18 and the frame's "What only a PR can prove" still say
+  `recipes/web.toml`; the script header sentence "A file a build or a test includes with
+  include_str!/include_bytes! is checked by the self-test below" claims more than the plain form.
+- **CI snapshot:** see the PR (filled in the report, not here: the push has to come first).
 
 ---
 

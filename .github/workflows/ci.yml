@@ -19,11 +19,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Does this push touch anything the Rust gates can actually judge? A docs- or
-  # spec-only change ran the full three-OS matrix plus avif/webp-lossy/heic/lean/
-  # msrv -- roughly 15 minutes of compute, twice over for the two heic legs, to
-  # prove nothing about a markdown edit. Bookkeeping PRs paid that price four
-  # times in one day.
+  # Does this push touch anything the Rust gates can judge? Anything not provably
+  # docs-only runs the gates. scripts/ci-code-paths.sh lists the docs-only paths;
+  # any other path, including a new top-level directory nobody has classified,
+  # counts as code. A docs-shaped file that a build or a test reads (README.md,
+  # for one) is listed as an exception and runs the gates too. A docs-only change
+  # skips about 15 minutes of compute across the three-OS matrix and the
+  # avif/webp-lossy/heic/lean/msrv jobs.
   #
   # The three `check` jobs are the REQUIRED status checks, so they always run and
   # always report -- they just skip their expensive steps when no code changed.
@@ -51,8 +53,10 @@ jobs:
             files=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "src/")
           fi
           echo "changed files:"; echo "$files" | sed 's/^/  /'
-          # Anything that can affect a build, a test, or a lint result. The regex lives
-          # in the script so its self-test checks the one the workflow uses.
+          # The lists live in the script so its self-test checks the ones the workflow
+          # uses. The self-test also checks that every file a build or a test includes
+          # classifies as code and that pages.yml's two path lists match. It runs here
+          # because this job runs on every push and pull request, docs-only ones too.
           scripts/ci-code-paths.sh --self-test
           # Assign first: a failing command substitution inside `[ ... ]` does not stop a
           # `bash -e` step, so a crashing classifier would read as "docs only" and skip
