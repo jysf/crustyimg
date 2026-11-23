@@ -720,3 +720,85 @@ fn watch_with_asset_roots_does_not_self_trigger() {
     assert_eq!(attempts(&log), settled, "an idle watch must not build");
     assert_eq!(bytes(&out).as_deref(), Some(output.as_slice()));
 }
+
+// ── Destinations resolved before the watch set is built ──────────────────────────
+
+/// Every `built ` summary line the watcher has logged so far.
+#[cfg(unix)]
+fn summaries(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.starts_with("built "))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_out_under_a_source_root_does_not_rebuild_itself() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "r.toml", RESIZE_16.as_bytes());
+    write_png(root, "src/a.png", 32, 32, [200, 30, 30]);
+    std::fs::create_dir_all(root.join("src/gen")).unwrap();
+    std::os::unix::fs::symlink("src/gen", root.join("outlink")).unwrap();
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        b"version = 1\n\n[[target]]\nsource = \"src/*.png\"\nrecipe = \"r.toml\"\nout = \"outlink\"\n",
+    );
+
+    let (_guard, _logdir, log) = spawn_watch(root, &[]);
+    assert!(
+        poll_until(|| !summaries(&log).is_empty()),
+        "the first build should log a summary"
+    );
+    // A quiet window: the build's own writes, seen through the link, must not
+    // wake the watcher. Count builds; do not wait on an event that may not come.
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        summaries(&log).len(),
+        1,
+        "the build must not rebuild itself: {:?}",
+        summaries(&log)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_source_edit_inside_out_rebuilds() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "r.toml", RESIZE_16.as_bytes());
+    write_png(root, "src/a.png", 32, 32, [200, 30, 30]);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        b"version = 1\n\n[[target]]\nsource = \"src/a.png\"\nrecipe = \"r.toml\"\nout = \"src\"\nname = \"{stem}_w.{ext}\"\n",
+    );
+
+    let (_guard, _logdir, log) = spawn_watch(root, &[]);
+    assert!(
+        poll_until(|| summaries(&log).len() == 1 && root.join("src/a_w.png").exists()),
+        "the first build should write src/a_w.png"
+    );
+
+    // Edit the source (it sits inside `out`): the build reads it, so it must rebuild.
+    let rebuilt = |log: &Path| {
+        summaries(log)
+            .iter()
+            .filter(|l| l.contains("(0 cached, 1 rebuilt)"))
+            .count()
+    };
+    assert!(
+        nudge_until(
+            || {
+                write_png(root, "src/a.png", 3, 3, [10, 220, 10]);
+            },
+            || rebuilt(&log) >= 2
+        ),
+        "an edit to a source inside out should rebuild: {:?}",
+        summaries(&log)
+    );
+}
