@@ -7,7 +7,7 @@
 task:
   id: SPEC-157
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -92,6 +92,24 @@ cost:
         `cargo test --no-fail-fast` runs for the mutation table (local CPU, not tokens).
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 13458758
+      tokens_breakdown:
+        input: 150
+        cache_creation: 218799
+        cache_read: 13168879
+        output: 70930
+      estimated_usd: 5.84
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-157 — BUILD prompt"), deduped by
+        message.id (70 messages; max output_tokens per id), 0 subagent transcripts. Measured before
+        the final advance-cycle commit's own turns. Wall time was mostly 17 full
+        `cargo test --no-fail-fast` mutation runs (local CPU, not tokens).
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1069,39 +1087,45 @@ case, reads), three OS legs, a watch change, a DEC and DEC-061's amendment, and 
 
 ## Build Completion
 
-*Filled in at the end of the **build** cycle, before advancing to verify.*
-
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-157-build-destinations`
+- **PR (if applicable):** #270 (draft)
+- **All acceptance criteria met?** yes (AC-22's Windows row is evidenced only by the Windows CI leg)
+- **New decisions emitted:** none (the new DEC and DEC-061's amendment are ship's)
+- **Files this diff touches** (9 files, not counting this spec file or its cost/cycle edit; from `git diff --name-only origin/main...HEAD`):
+  - `src/cli/build.rs` — resolver (`build_root`, `fold_case`, `resolve_out_dir`, `root_relative`, `join_rel`, `first_link`, `OUTPUT_EXTENSIONS`), `check_destinations`/`reads_of`, `write_planned`, root-relative lock path, `--watch` exclusion and read carve-out, unit rows (FT-28, 32, 33, 34)
+  - `src/cli/mod.rs` — three exit-2 variants, `code()` arms, `exit_code_mapping_is_total` rows, `build` and `--check` help text
+  - `src/build/mod.rs` — `Target::validate` comment
+  - `tests/build_destinations.rs` — new: FT-1 to FT-27
+  - `tests/build_watch.rs` — FT-29, FT-30
+  - `docs/cli-reference.md` — §build, §--watch, lockfile paragraphs, exit-code row 2
+  - `SECURITY.md` — threat 3 sentence and row 3
+  - `skills/crustyimg/SKILL.md` — the `build` overwrite sentence
+  - `CHANGELOG.md` — Changed and Fixed entries, verbatim
+  - `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION`, lock version: untouched (empty `git diff --stat`).
+- **RED baseline** (main's code, src untouched): FT-5, FT-19, FT-20, FT-27 green; 23 other destination rows red for their reason (exit 0 or exit 7 instead of 2, or lock path unchanged); FT-22 failed at its `assert_ne`; FT-29 saw 15 builds in a 3 s window; FT-30 saw only one `(0 cached, 1 rebuilt)`. FT-28, FT-31 to FT-34 did not exist.
+- **Behaviour drives** (real binary): collision via `alias/../dist` exit 2; `out = "src"` exit 2; `.crustyimg/x` exit 2; out-of-tree link exit 2 with the outside dir empty; in-tree link exit 0 and lock `build/dist/a.png`; `./dist/` and `a/../dist` lock as `dist/...` exit 0; `--check` exit 0, exit 7 on drift, exit 2 with nothing written; `--check` after deleting an output and `.crustyimg/` wrote both back (exit 0) and left the lock sha unchanged; sink re-check exit 5 (FT-28 asserts `code() == 5`).
+- **Upgrade drive:** main's binary built through an in-tree link locked `dist/a.png`; this branch's `--check` exited 7 with `drift: "build/dist/a.png": not in the lockfile` and `drift: "dist/a.png": in the lockfile, not built`; one plain build rewrote it to `build/dist/a.png`; `--check` then exited 0.
+- **Mutations** (each in a scratch worktree, clean rebuild, full suite): M1, M2, M3, M3b, M4, M5, M6, M7 (24 red, exactly the table's set), M8, M9, M10, M13, M14 match the table. M11 all green (equivalent on Unix). **M12 differs:** FT-28 (`write_planned_refuses_...`) is also red, because the mutant's inserted containment check in `write_planned` fires on that test's temp dir; the table lists only FT-25. Trap 14 (main's `build.rs`): the 25 rows in the table red, FT-5, 19, 20, 27 green.
+- **Matrix:** default, `--no-default-features`, `--features webp-lossy`, each a fresh target dir: tests, clippy `-D warnings`, `fmt --check` all rc=0. `just wasm-check` rc=0 (one pre-existing dead-code warning on `MANIFEST_DROPPED_WARNING`, not this change).
+- **Overlap after last rebase:** open PRs #240, #237, #229, #226 touch none of my files except #226 on `src/cli/mod.rs` (module doc only) and #237 on `CHANGELOG.md`.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Stages 2 and 3 were committed and pushed together (one commit), not separately.
+  - `check_output_injective` does not take `root` (not needed once `rel_dir` is set).
+  - The new variants and the CHANGELOG are as specified; no DEC file written.
+- **Follow-up work identified:** none beyond the spec's filed NFC/NFD item.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocking. Message wording and mutation edits were exact enough to apply as written; the only gap was M12's red set missing FT-28.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. Windows `\\?\` paths reject `/`, so the read-set lookup joins one component onto `out_dir` rather than a `/` string; worth one line in the design.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Commit stages 2 and 3 separately for the checkpoint trail. No design call turned out wrong.
 
 ---
 
