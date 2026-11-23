@@ -739,9 +739,13 @@ the build writes its own code from this text.
     `guard_overwrite` (DEC-035) and, after SPEC-155, its staged-write helper: **the helper receives the
     resolved file path, and its temp goes in `path.parent()`, the resolved directory.** `write_encoded`
     stays for `apply` (`src/cli/common.rs:129`), unchanged.
-    ⚠ SPEC-155's design was not on `main` when this was written. After rebasing onto SPEC-155's merge,
-    re-check that the `Sink::File` arm of `write_bytes` calls the helper (SPEC-155 frame Q2 lists it,
-    `src/sink/mod.rs:645` on `main`); if SPEC-155 changed `write_bytes`'s signature, adapt the one call.
+    SPEC-155's design landed on `main` during this design (`c16a202`, re-read after the rebase): its
+    `write_bytes` `Sink::File` arm (`src/sink/mod.rs:645-652` on `main`) keeps `reject_symlink_destination`
+    and `guard_overwrite` and then calls `publish_file(path, bytes)`, whose `publish` stages in
+    `path.parent()`. So `write_planned` needs no change for it: the staged temp lands in the resolved
+    directory. Its new `SinkError::WriteFailed`/`DirNotWritable` reach `build` through this arm (exit 5).
+    After rebasing onto SPEC-155's merge, re-check only that the `Sink::File` arm of `write_bytes` still
+    calls `publish_file`.
 13. **`lock_output_path`** (:473) becomes `(rel_dir, template, input, ext)`; `lock_record` (:489) passes
     `&prepared.rel_dir`. The post-write collision check (:893-912) keys on `fold_case(r.path)` too.
 14. **`--watch`.** `watch_set_for` (:1087) appends each target's `resolve_out_dir(build_root, out)` to
