@@ -104,15 +104,15 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   and a `pages.yml` drift check sit in the 88-row self-test, and `pages.yml` triggers on `recipes/**` and
   `assets/**`. Proved on Actions by a draft `recipes/gallery.toml`-only PR (#267, closed unmerged). Out of spec,
   filed below: the rename hole, quoted non-ASCII paths, the include floor's drift.
-- [ ] **SPEC-155** (designed 2026-11-22) — [M] **A write that fails must not report success or destroy the old file (review P1).**
-  `Sink::File` and `Sink::Dir` truncate the destination, then `BufWriter::write_all` and drop with no `flush()`
-  (`src/sink/mod.rs`, both the pixel and the byte sink), so a short write exits 0 and leaves a truncated file. Stage
-  the bytes beside the destination, flush and sync, then rename; keep the symlink and overwrite guards ahead of
-  it. Test with an injected failing writer. The rename-over-existing behaviour differs on Windows: verify on the
-  full OS matrix.
-  Frame (2026-11-22): GO at [M]. Driven: outputs under 8 KiB exit 0 with a truncated file (both sink
-  arms, both lanes), and larger ones exit 5 with the old file destroyed. Folds in `--save-recipe`, which
-  overwrites without `-y`, and `write_lock`'s temp. Four maintainer rulings are open; see the spec's Frame.
+- [x] **SPEC-155** (merged 2026-11-23, PR #268) — [M] **A write that fails must not report success or destroy the old file (review P1).**
+  One helper, `src/sink/publish.rs`, now sits under the four sink arms, `--save-recipe` and the build lockfile: it stages
+  the bytes beside the destination, flushes and syncs, then renames. A failed write exits non-zero (5, or 6 for a batch)
+  and leaves the old bytes or no file; before, outputs under 8 KiB exited 0 with a truncated file and larger ones
+  destroyed the old one. `--save-recipe` now needs `-y` to overwrite. The symlink and overwrite guards run first, a
+  destination this user can't write is still refused under `-y`, and the mode is set before the first byte is written.
+  New DEC-116 (narrowed at ship: the lockfile has neither guard). Verify's two claims (a symlinked or dangling lockfile
+  link; a killed `-y` leaving a `0644` staged file) and two asserts were fixed at the punch list. Out of spec, filed:
+  `optimize`'s "kept the source unchanged" note in `guidance/ideas.yaml`.
 - [x] **SPEC-156** (merged 2026-11-23, PR #269) — [S] **`meta strip` keeps the Adobe APP14 colour-transform marker (review P1).**
   `strip_all`'s JPEG sweep now keeps APP0 and an APP14 whose payload starts with `Adobe` and is at least 12 bytes
   (`ADOBE_APP14_MIN_LEN`); any other APP14 and every other `0xE1..=0xEF`/`0xFE` segment is still removed. The stripped
@@ -232,7 +232,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 5 shipped / 0 active / **18 pending** — 2026-11-23 (re-derived by `awk` counts of the backlog checkboxes above `### Items carried`: 23 in total, 5 ticked, 18 open; the SPEC-156 ship ticked its entry; no other session changed the stage meanwhile).
+**Count:** 6 shipped / 0 active / **17 pending** — 2026-11-23 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 23 in total, 6 ticked, 17 open; the SPEC-155 ship ticked its entry; no other session changed the stage meanwhile).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

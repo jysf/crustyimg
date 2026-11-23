@@ -54,8 +54,8 @@ tags:
   leave one, named `.<name>.crustyimg-<pid>-<n>.tmp`; its `.tmp` extension keeps it out of
   crustyimg's folder and glob inputs.
 - The symlink and overwrite guards (DEC-035) run before anything is created, on every output
-  except the build lockfile, which has no symlink guard: a symlinked lockfile is replaced by a
-  regular file, and nothing is read from or written through the link. An existing destination this
+  except the build lockfile, which has neither guard: it is always rewritten, a symlinked lockfile
+  is replaced by a regular file, and nothing is written through the link. An existing destination this
   user cannot open for writing is refused, as it was before writes were staged, so `-y` never
   replaces a read-only file.
 - `-y` replaces the file at that name with a new file. Its permission bits carry over. Its owner

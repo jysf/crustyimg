@@ -7,7 +7,7 @@
 task:
   id: SPEC-155
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -54,91 +54,104 @@ cost:
       date: 2026-11-22
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 5158426
+      tokens_total: 5781548
       tokens_breakdown:
-        input: 90
-        cache_creation: 121766
-        cache_read: 4999745
-        output: 36825
-      estimated_usd: 4.18
+        input: 98
+        cache_creation: 124565
+        cache_read: 5615605
+        output: 41280
+      estimated_usd: 4.62
       note: >
-        Measured from the session JSONL, found by content ("SPEC-155 — FRAME prompt"), deduped by
-        message.id (45 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        push, before this cost commit's own turns.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Re-measured at ship (was 4.18, taken before the session's last turns). Found by first user message ("SPEC-155-frame.md"), deduped by message.id (49 messages; max output_tokens per id), 0 subagent transcripts.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.)
     - cycle: design
       date: 2026-11-22
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 23760498
+      tokens_total: 25177779
       tokens_breakdown:
-        input: 290
-        cache_creation: 246555
-        cache_read: 23402100
-        output: 111553
-      estimated_usd: 16.03
+        input: 302
+        cache_creation: 249299
+        cache_read: 24809117
+        output: 119061
+      estimated_usd: 16.94
       note: >
-        Measured from the session JSONL, found by content ("SPEC-155 — DESIGN prompt"), deduped by
-        message.id (124 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        push, before this cost commit's own turns. Most of it is cache_read across ~15 full-suite
-        mutation runs on a prototype.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Re-measured at ship (was 16.03). Found by first user message ("SPEC-155-design.md"), deduped by message.id (129 messages; max output_tokens per id), 0 subagent transcripts. Most of it is cache_read across ~15 full-suite mutation runs on a prototype.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.)
     - cycle: build
       date: 2026-11-22
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 18797882
+      tokens_total: 20441961
       tokens_breakdown:
-        input: 184
-        cache_creation: 238403
-        cache_read: 18481198
-        output: 78097
-      estimated_usd: 7.61
+        input: 198
+        cache_creation: 242898
+        cache_read: 20115257
+        output: 83608
+      estimated_usd: 8.2
       note: >
-        Measured from the session JSONL, found by content ("SPEC-155 — BUILD prompt"), deduped by
-        message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        last code push, before this cost commit's own turns. Most of it is cache_read across the
-        15-row mutation run, the three-leg matrix and the CI waits.
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read
-        (x0.10), $15 output.
+        Re-measured at ship (was 7.61, taken before the last turns). Found by first user message ("SPEC-155-build.md"), deduped by message.id (98 messages; max output_tokens per id), 0 subagent transcripts.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.)
     - cycle: verify
       date: 2026-11-22
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 5715694
+      tokens_total: 5901295
       tokens_breakdown:
-        input: 82
-        cache_creation: 148361
-        cache_read: 5536277
-        output: 30974
-      estimated_usd: 4.47
+        input: 84
+        cache_creation: 150127
+        cache_read: 5714008
+        output: 37076
+      estimated_usd: 4.72
       note: >
-        Numbers handed over by the orchestrator in the punch-list prompt, not re-measured here.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Measured at ship from the session JSONL (was 4.47, handed over by the orchestrator, never re-measured). Found by first user message ("SPEC-155-verify.md"), deduped by message.id (42 messages; max output_tokens per id), 0 subagent transcripts.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.)
     - cycle: punchlist
       date: 2026-11-23
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 5853853
+      tokens_total: 7658610
       tokens_breakdown:
-        input: 106
-        cache_creation: 112982
-        cache_read: 5712523
-        output: 28242
-      estimated_usd: 2.56
+        input: 134
+        cache_creation: 124930
+        cache_read: 7496668
+        output: 36878
+      estimated_usd: 3.27
       note: >
-        Measured from the session JSONL, found by content ("SPEC-155 — PUNCH LIST prompt"), deduped by
-        message.id (53 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        last code push, before this cost commit's own turns and the CI wait.
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read
-        (x0.10), $15 output.
+        Re-measured at ship (was 2.56, taken before its last commits and the CI wait). Found by first user message ("SPEC-155-punchlist.md"), deduped by message.id (65 messages; max output_tokens per id), 0 subagent transcripts.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.)
+    - cycle: reverify
+      date: 2026-11-23
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6255523
+      tokens_breakdown:
+        input: 138
+        cache_creation: 176161
+        cache_read: 6036783
+        output: 42441
+      estimated_usd: 5.18
+      note: >
+        Sum of TWO transcripts, both found by first user message ("SPEC-155-reverify.md"): 353633f7 (31 messages, $2.43, 13:55-15:36 UTC) was a full first re-verify that ended in a wording-only punch list on 4bec99b, and 0ee4d00f (36 messages, $2.75, 16:07-16:24 UTC) is the retroactive re-verify of the merged PR. The re-verify report gave $2.52 for 0ee4d00f alone, measured before its last turns. Deduped by message.id, 0 subagent transcripts.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.)
+    - cycle: ship
+      date: 2026-11-23
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1601459
+      tokens_breakdown:
+        input: 38
+        cache_creation: 68058
+        cache_read: 1525175
+        output: 8188
+      estimated_usd: 0.84
+      note: >
+        Measured from the session JSONL (first user message "SPEC-155-ship.md"), deduped by message.id, 0 subagent transcripts, after the ship push. A final cost-only commit updates this entry if it moved.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read (x0.10), $15 output.)
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 72818175
+    estimated_usd: 43.77
+    session_count: 7
 ---
 
 # SPEC-155: A write that fails must not report success or destroy the old file
@@ -1048,9 +1061,9 @@ claimed ids since). `affected_scope` in **block-list form** (HANDOFF trap 7):
 >   if there was none. No staged file survives an error the process returns. A killed process can
 >   leave one, named `.<name>.crustyimg-<pid>-<n>.tmp`; its `.tmp` extension keeps it out of
 >   crustyimg's folder and glob inputs.
-> - The symlink and overwrite guards (DEC-035) run before anything is created, on every output
->   except the build lockfile, which has no symlink guard: a symlinked lockfile is replaced by a
->   regular file, and nothing is read from or written through the link. An existing destination this
+> - (corrected at ship) The symlink and overwrite guards (DEC-035) run before anything is created, on every output
+>   except the build lockfile, which has neither guard: it is always rewritten, a symlinked lockfile
+>   is replaced by a regular file, and nothing is written through the link. An existing destination this
 >   user cannot open for writing is refused, as it was before writes were staged, so `-y` never
 >   replaces a read-only file.
 > - `-y` replaces the file at that name with a new file. Its permission bits carry over. Its owner
@@ -1413,7 +1426,8 @@ M12 to M15 added.
 - `just wasm-check`: exit 0. It prints one `dead_code` warning for `MANIFEST_DROPPED_WARNING` in
   `src/metadata/mod.rs`, a file this diff does not touch.
 
-**CI snapshot:** CI_SNAPSHOT_PLACEHOLDER
+**CI snapshot:** at `41971af` (the PR's last head), 18 passed, 8 skipped (release-only), none failed, Windows and lean included.
+**CI on `main` at the merge `7819db6`:** 17 check runs, all completed, all `success` (ubuntu, macOS, Windows, lean, msrv, avif, webp-lossy, heic ×2, wasm, cost-capture audit, front-matter validation, cargo-deny, Pages deploy).
 
 ### Build-phase reflection (3 questions, short answers)
 
@@ -1435,10 +1449,31 @@ M12 to M15 added.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Design cost $16.94 as re-measured (it was recorded at $16.03) and drove 15 mutation rows on a prototype, yet both claims verify found
+   were in design's own `publish` steps: the mode was read through `symlink_metadata` with no symlink case, and
+   applied after the bytes were written. A mutation table tests the code only against rows someone wrote, and
+   neither "a symlinked destination with no guard" nor "a process killed between write and chmod" was a row. What
+   would have found them at design is two tables built before the rows: destination shapes (regular, symlink,
+   dangling symlink, read-only, hard-linked) crossed with every step that reads or changes metadata, and the state
+   an observer sees after each step of an ordered sequence, so a kill point is a row. The build followed the spec
+   exactly, so it could not have caught either. The PR also merged before its final re-verify ran. That re-verify came back
+   clean, but the first one (`353633f7`, $2.43) had already ended in a wording-only punch list at 15:36 UTC, 30
+   minutes before the 16:06 merge, and nothing stopped the merge. The reverify entry is $5.18, not the $2.52 reported,
+   because two sessions did that work. Re-measuring moved every earlier entry up, by $0.25 for verify and $0.71
+   for the punch list; the figures taken before a session's last turns were all low.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Three proposals, none applied. (a) "A step that reads metadata of a destination says what it does when the
+   destination is a symlink": not in AGENTS §15-16, HANDOFF or `guidance/` (DEC-035 is the output guard, not a
+   design rule); not covered. (b) "An ordering of security-relevant steps (mode, write, rename) gets a row that
+   observes the state between steps, not just the end state" (FT-U14's spy shape): not stated anywhere; not
+   covered. (c) "A PR with a re-verify pending carries a do-not-merge marker": HANDOFF rule 1 keeps builds as
+   draft PRs until verify's ✅, which is what stopped #268 merging before verify; it covers that gate but not the
+   gap after a punch list, when the PR is ready and the re-verify has not run. I could not tell from the evidence
+   who marked it ready, so partly covered. A concrete form: the orchestrator runs `gh pr ready` only after the
+   re-verify's ✅, never after the punch list.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. `optimize`'s misleading "kept the source unchanged" note is already in `guidance/ideas.yaml`.
+   `build --check` reading a symlinked lockfile through the link is read-only, pre-existing, and now outside the
+   DEC's claim, and refusing it would break a lockfile someone symlinked on purpose, so I did not file it.

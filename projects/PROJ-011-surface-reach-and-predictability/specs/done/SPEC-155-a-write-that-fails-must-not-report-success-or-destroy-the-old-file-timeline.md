@@ -39,4 +39,5 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   file. Fix 2 driven both sides (`0644` → `0600`). M12, M13 and a new M16 match. One **wording** item:
   DEC-116 says the lockfile lacks only the symlink guard; it has neither. Out of spec: `build --check`
   reads a symlinked lockfile through the link.
-- [ ] **ship**: `prompts/SPEC-155-ship.md` (Sonnet); carries the DEC wording fix and the CI line
+- [x] **merge** (2026-11-23, maintainer) — PR #268 as 7819db6, before the re-verify ran.
+- [x] **ship** (2026-11-23, Sonnet): merge 7819db6, PR #268. DEC-116's lockfile sentence corrected, CI line filled, reflection written, cost re-measured for every session. Spec total $43.77 across 7 sessions (reverify = two transcripts, $5.18).
