@@ -7,7 +7,7 @@
 task:
   id: SPEC-154
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -73,6 +73,20 @@ cost:
       estimated_usd: 5.70
       duration_minutes: null
       note: "Measured from the session JSONL (dedup by message.id, MAX output) after the design push, before this cost commit; 53 API messages, no subagents."
+    - cycle: build
+      date: 2026-11-22
+      interface: claude-code
+      agent: claude-sonnet-5-5
+      rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 2616300
+      tokens_breakdown:
+        input: 48
+        cache_creation: 105819
+        cache_read: 2495740
+        output: 14693
+      estimated_usd: 1.37
+      duration_minutes: null
+      note: "Measured from the session JSONL (dedup by message.id, MAX output) after the last push; 23 API messages, no subagents."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1170,37 +1184,83 @@ No polling and no wait loops (AGENTS §16 habit 6): the maintainer checks in.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-154-ci-allow-list`
+- **PR (if applicable):** #266 (draft)
+- **All acceptance criteria met?** yes, except AC-18 (ship's step, after merge). AC-15's id grep has two
+  fixture-path hits, see Deviations.
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 4 files, plus this spec
+  file's Build Completion and cost entry, which land in the final commit):
+  - `scripts/ci-code-paths.sh` — deny-list replaced by `DOCS` + `EXCEPT`; `include_targets`,
+    `unresolvable_includes`, `pages_paths`, 88-row self-test
+  - `.github/workflows/pages.yml` — `recipes/**` and `assets/**` in both lists, two-line comment
+  - `.github/workflows/ci.yml` — `changes` job comment and step comment rewritten; no control-flow change
+  - `docs/development.md` — new `## Which PRs skip the Rust gates` section
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - AC-15 / verification step 7 says the id grep (`(SPEC|STAGE|DEC|PROJ)-[0-9]`) finds no hit. It finds
+    two: `scripts/ci-code-paths.sh:161` (`projects/PROJ-017-…/SPEC-142-x.md`) and `:162`
+    (`decisions/DEC-001-x.md`). Both are the spec's own verbatim self-test fixture paths, not comments or
+    messages; the script is byte-identical to the spec's text, so I kept them.
+  - No GNU-tools local run: no GNU grep or gawk installed (brew has only `bash`), no Docker. The
+    Linux run of record is the PR's `changes` job (below).
+- **Follow-up work identified:** none.
+
+### Evidence
+
+- **Step 0:** rebased onto `origin/main` (already current); spec at `cycle: build`; `cbdf66b` in history;
+  `CODE_PATHS` one-liner present; `include_targets | grep -c .` = 35 = the floor.
+- **Baseline 1** (new rows, old `classify`, `pages.yml` with the two new entries): rc=1,
+  `ci-code-paths self-test: 88 rows, 12 mismatched, 0 crashed, 0 junk, 9 failed`, 21 FAIL lines;
+  `diff` against the spec's 21-line list: identical.
+- **Baseline 2** (final `classify`, `pages.yml` without the two entries): rc=1,
+  `86 rows, 0 mismatched, 0 crashed, 0 junk, 2 failed`, exactly `FAIL pages.yml lists recipes/**` and
+  `FAIL pages.yml lists assets/**`.
+- **Script byte diff** against the spec's extracted block (227 lines): no differences. The three
+  other files were applied with `git apply` of the spec's diff, cleanly.
+- **Green run:** rc=0, `88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`.
+- **Spot verdicts** (stdin): `recipes/web.toml` → `true`; `docs/x.md`+`CHANGELOG.md` → `false`; empty
+  line → `true`.
+- **YAML load** of `ci.yml` and `pages.yml` (ruby): ok.
+- **`git diff --name-only origin/main`:** exactly the 4 files.
+- **Mutations**, each applied alone to a scratch copy of the tree (script, `src/lib.rs`, `pages.yml`
+  copied fresh each time, the build worktree never touched; `git status` clean after), diff against
+  green checked non-empty, every run rc=1. M20 edited the `DOCS=` line. **All 32 red sets equal the
+  design table; no cell was wrong.**
+  - M1 `docs/x.md`, `docs/.cargo/config.toml`, `docs/recipes/web.toml`, `docs-only list with a blank line`
+  - M2 `projects/PROJ-017-…/SPEC-142-x.md`; M3 `decisions/DEC-001-x.md`; M4 `guidance/constraints.yaml`;
+    M5 `feedback/x.md`; M6 `reports/x.md`; M7 `gitignore_files_maybe/x.txt`; M8 `skills/crustyimg/SKILL.md`;
+    M9 `.claude-plugin/plugin.json`
+  - M10 `CHANGELOG.md`, `docs-only list with a blank line`; M11 `LICENSE-MIT`; M12 `.repo-context.yaml`;
+    M13 `.variant`; M14 `.gitignore`; M15 `.github/TEMPLATE_README.md`
+  - M16 `README.md`; M17 `docs/github-actions.md` and `include target docs/github-actions.md classifies as docs-only; add it to EXCEPT`; M18 `docs/data-model.md`
+  - M19 `bench/corpus/README.md`, `src/docs/mod.rs`, `tests/fixtures/x.md`; M20 `bench/corpus/README.md`, `tests/fixtures/x.md`
+  - M21 `src/lib.rs`, `src/docs/mod.rs`, `docs plus one code path`, `pages.yml path src/** classifies as code`
+  - M22 `include scan found 0 files, expected at least 35 (…)`, 53 rows
+  - M23 23 `is not a repository path` lines; M24 25 `does not exist` lines; M25 1 line
+    `include target tests/… does not exist` (the `///` comment at `tests/help_has_no_internal_ids.rs:601`), 89 rows
+  - M26 `include target docs/x.md does not exist`; M27 `include target docs/development.md classifies as docs-only; add it to EXCEPT`
+  - M28 `no include_str!/include_bytes! builds its path with concat!/env!: src/lib.rs:101:…`
+  - M29 `pages.yml push.paths and pull_request.paths are identical and not empty`; M30 `pages.yml path docs/** classifies as code`; M31 `pages.yml lists recipes/**`, `pages.yml lists assets/**`
+  - M32 `src/lib.rs -> true, expected false`; `88 rows, 1 mismatched, 0 crashed, 0 junk, 0 failed`
+- **Overlap after the last rebase:** `gh pr list` shows #240 and #237 (`ci.yml`, other hunks), #229, #226;
+  unchanged from the spec. Neither merged.
+- **Linux self-test (PR #266 `changes` job, ubuntu-latest, GNU grep/awk):**
+  `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed`, then
+  `-> code paths touched: running the full gates`. No GNU/BSD difference.
+- **CI legs at head `e20126b`:** all pass (3 `check` legs, avif, webp-lossy, heic x2, lean, msrv,
+  ddphotos parity, wasm round-trip, pages smoke, supply-chain, DCO, front-matter, detect changed paths).
+  `cost-capture audit` shows `pending` with every step already `success` (a stale status; this commit's
+  push re-runs it).
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
-
+   — Nothing blocking. The AC-15 id grep claim ("no hit") contradicts the verbatim script's fixture paths.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
+   — No. No design call turned out wrong; all 32 mutation cells and both baselines reproduced exactly.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive the mutations from a script from the start (done here), and not leave a `--watch` on a check
+   whose status can stay stale.
 
 ---
 
