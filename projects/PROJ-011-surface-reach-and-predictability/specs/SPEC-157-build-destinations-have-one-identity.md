@@ -74,6 +74,24 @@ cost:
         push, before this cost commit's own turns.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: design
+      date: 2026-11-22
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 19146877
+      tokens_breakdown:
+        input: 188
+        cache_creation: 259277
+        cache_read: 18773662
+        output: 113750
+      estimated_usd: 13.85
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-157 — DESIGN prompt"), deduped by
+        message.id (94 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        second push, before this cost commit's own turns. Most of the wall time was 16 full
+        `cargo test --no-fail-fast` runs for the mutation table (local CPU, not tokens).
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
