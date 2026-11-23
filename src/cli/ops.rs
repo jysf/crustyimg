@@ -19,7 +19,7 @@ use crate::operation::{
 };
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
-use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
+use crate::sink::{Overwrite, Sink, SinkInput};
 use crate::source::{self, OnEmpty, SourceError};
 
 use super::common::{
@@ -1675,9 +1675,11 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
 /// 5. Only after a successful run, `--save-recipe` writes the recipe: an
 ///    `auto-orient` step, then each step that ran, in run order, with a pixel
 ///    crop's fractions as it resolved them. It is built after the run because the
-///    fractions need each step's image. A failed run writes no recipe. A
-///    serialization failure is `CliError::Recipe` (exit 1), a write failure
-///    `CliError::Sink(SinkError::Io)` (exit 5).
+///    fractions need each step's image. A failed run writes no recipe. An
+///    existing recipe without `--yes` is refused before the run, so a refused
+///    recipe leaves the image output unwritten too. A serialization failure is
+///    `CliError::Recipe` (exit 1), a write failure `SinkError::WriteFailed` or
+///    `SinkError::DirNotWritable` (exit 5), with the old recipe kept.
 pub(super) fn run_edit(
     input: &str,
     flags: &EditFlags,
@@ -1686,6 +1688,19 @@ pub(super) fn run_edit(
 ) -> Result<(), CliError> {
     // 1. Build every step (fails on zero flags or a bad value).
     let steps = build_edit_ops(flags)?;
+
+    // The recipe's destination is guarded before anything is written, so a
+    // refused recipe leaves the image output unwritten too.
+    if let Some(path) = save_recipe {
+        let path = Path::new(path);
+        crate::sink::reject_symlink_destination(path)?;
+        let overwrite = if global.yes {
+            Overwrite::Allow
+        } else {
+            Overwrite::Forbid
+        };
+        crate::sink::guard_overwrite(path, overwrite)?;
+    }
 
     // 2. A pixel crop or a border pad saved as fractions needs exactly one image
     // to be about. The first such step, in typed order, picks the message.
@@ -1755,10 +1770,8 @@ pub(super) fn run_edit(
                 params,
             });
         }
-        // Refuse to write through a symlink.
-        crate::sink::reject_symlink_destination(std::path::Path::new(path))?;
         let toml = recipe.to_toml()?;
-        std::fs::write(path, toml).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
+        crate::sink::publish_file(Path::new(path), toml.as_bytes())?;
     }
 
     Ok(())

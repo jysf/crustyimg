@@ -509,6 +509,7 @@ pub enum Commands {
         #[arg(long, value_name = "N", requires = "trim")]
         trim_tolerance: Option<u8>,
         /// Write the op chain as a TOML recipe to FILE after a successful edit.
+        /// An existing FILE needs --yes.
         #[arg(long)]
         save_recipe: Option<String>,
         /// The op flags in the order they were typed. Filled by [`run`] from the
