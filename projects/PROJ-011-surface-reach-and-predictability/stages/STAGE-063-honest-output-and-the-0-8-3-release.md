@@ -161,6 +161,10 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   classifier says the same. The likely fix is `--no-renames` on both `git diff` calls in `ci.yml`'s `changes`
   job, a control-flow change SPEC-154 scoped out. Drive a rename, a rename with an edit, and a copy, and add a
   self-test or workflow-level row that can fail.
+  Also, in the same file: the script header's sentence "A file a build or a test includes with
+  include_str!/include_bytes! is checked by the self-test below" claims more than the scan reads (only a plain
+  string literal; SPEC-154's punch list narrowed `docs/development.md` and AC-9 but left the script verbatim).
+  Narrow it here.
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
