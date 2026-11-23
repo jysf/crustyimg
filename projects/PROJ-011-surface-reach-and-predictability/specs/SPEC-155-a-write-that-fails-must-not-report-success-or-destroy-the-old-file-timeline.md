@@ -22,5 +22,11 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   at `47003ae` (the last code push). Baseline: exactly the 15 E rows red on `main`, 8 pins green.
   22 ACs met; W1–W4 passed on the Windows leg. Mutations matched except M1/M2/M3 also redden E23 and
   M11 is 48, not 46. `DEC-116`. The orchestrator's "exits 5 (6 for a batch …)" correction applied.
-- [ ] **verify**: `prompts/SPEC-155-verify.md` (Opus, read-only)
+- [x] **verify** (2026-11-23, Opus, $4.47): ⚠ PUNCH LIST at `471a0a7`. Every failure path driven on
+  release builds; writer sweep clean; M1/M2/M3 → E23 and M11 = 48 confirmed. Two **claims** in the
+  spec's own steps: the mode is copied from a symlink (`write_lock` has no symlink guard; a dangling
+  lockfile link now exits 5), and it is applied after the bytes are written (a killed `-y` over
+  `0600` leaves a `0644` staged file). Two **asserts**: the char-boundary cut and the `.tmp` suffix
+  have no row. Out of spec: `optimize`'s note → `guidance/ideas.yaml`.
+- [ ] **punch list**: `prompts/SPEC-155-punchlist.md` (Sonnet), then a narrow re-verify of the two claims
 - [ ] **ship**

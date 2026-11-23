@@ -18,5 +18,10 @@ Cycle prompts live in `prompts/SPEC-156-<cycle>.md`.
 - [x] **build** (2026-11-22, Sonnet, $2.53) — draft PR #269, head `b0b870d`; CI 18 green, 8 skipped
   (release-only). Fixture hashes equal the spec's; baseline red on FT-1–4 and FT-7–9 with the spec's
   messages; 6 ACs met; every mutation row matched, none wrong; no DEC edited (ship applies the text).
-- [ ] **verify** — `prompts/SPEC-156-verify.md` (Opus, read-only)
+- [x] **verify** (2026-11-23, Opus, $2.76) — ⚠ PUNCH LIST at `b0b870d`, one **assert**: nothing pins
+  the `marker == 0xEE` clause (an `Adobe_CM` APP13 would be kept without it; mutant MK leaves 1,357
+  green). Fixture rebuilt byte for byte; nine extra JPEG shapes render the same under djpeg/ImageMagick;
+  M1/M3/M3b/M5a/M5b/T14 match. Merges clean with #268. Out of spec: zune-jpeg refuses transform 5 →
+  `guidance/ideas.yaml`.
+- [ ] **punch list** — `prompts/SPEC-156-punchlist.md` (Sonnet; no re-verify)
 - [ ] **ship**
