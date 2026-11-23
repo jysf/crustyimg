@@ -7,7 +7,7 @@
 task:
   id: SPEC-156
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -299,33 +299,260 @@ Both recommendations accepted:
 The orchestrator recommends framing that orientation entry right after the four P1 specs, inside
 STAGE-063.
 
+## Design
+
+Designed 2026-11-22 (Opus) on `main` at `9560c2c`. Everything below was driven on a release build of `main`
+(`crustyimg 0.8.2`) and on a prototype of this design in a throwaway worktree with its own `CARGO_TARGET_DIR`
+(never pushed, deleted at the end). Tools: libjpeg-turbo 3.2.0 (`cjpeg`/`djpeg`), ImageMagick 7.1.2-34,
+`image` 0.25.10 with `zune-jpeg` 0.5.15 (both from `Cargo.lock`).
+
+### Design corrections to the frame
+
+1. **The signature is `Adobe` plus a length floor, not `Adobe\0`.** The byte after `Adobe` is the high byte of the
+   DCTEncodeVersion field (`00 64` = 100), not a NUL terminator. libjpeg and `zune-jpeg`
+   (`zune-jpeg-0.5.15/src/headers.rs:485-490`) both check only the five bytes `Adobe` and a minimum length, then
+   read the transform at payload offset 11. Driven: the CMYK fixture with that byte set to `0x01`
+   (`Adobe\x01\x64…\x02`) still decodes to `srgb(191,64,32)` in djpeg and in crustyimg. A literal `Adobe\0` check
+   would strip a segment decoders read, which is the bug this spec fixes. **The rule: keep an APP14 whose payload
+   starts with `Adobe` and is at least 12 bytes long** (`Adobe` 5, version 2, flags0 2, flags1 2, transform 1).
+   This keeps the ruling's intent (only Adobe's segment is kept, any other APP14 goes) and matches what a
+   decoder reads. FT-4 pins it, and mutation M3b (`starts_with(b"Adobe\0")`) turns FT-4 red.
+2. **A too-short `Adobe` APP14 is stripped.** Driven, the CMYK fixture's APP14 cut to 11 or 5 payload bytes:
+   djpeg ignores it and renders `srgb(93,134,30)`, the same as no APP14 at all; crustyimg refuses the file
+   (`Format error decoding Jpeg: "Too short of a length for App14 segment"`). Stripping it can't change what
+   libjpeg shows, and it carries no transform to keep. FT-6 pins it, and mutation M5a turns FT-6 red.
+3. **The three-component fixture's numbers.** The frame's −21.30 came from its own gradient. The design's
+   recipe below gives djpeg (8,8) `srgb(128,128,191)` → `srgb(216,83,128)` after a `main` strip, AE 107.885,
+   SSIMULACRA2 **−35.7927**. Same conclusion: it breaks.
+4. **`docs/api-contract.md:500-507` is a surface the frame missed.** Its `meta strip` entry already promises
+   "decoded pixels byte-identical", which is false on `main` for these files. It gets the same sentence as
+   `docs/cli-reference.md` (DEC-015 governs that file).
+5. **`src/metadata/mod.rs:11-12` (the module doc) is a second comment to change.** It says `strip_all` removes
+   "JPEG APP1..APP15 + COM".
+
+### Driven on `main` and on the prototype
+
+- **Every caller of `strip_all`.** `/usr/bin/grep -rn "strip_all" src/ tests/` outside `src/metadata/`: one
+  production caller, `run_strip` (`src/cli/ops.rs:970`, `meta strip`), plus the golden in
+  `tests/metadata.rs:780` (`meta_subcommands_match_old_verbs`, which calls `strip_all` itself on an input with
+  no APP14, so it moves with the code). `src/sink/mod.rs:617` names it in a comment only. No recipe step,
+  `optimize`, `web`, `build`, `responsive` or wasm path calls it: their "strip metadata" is the pixel lane's
+  re-encode (DEC-003's SPEC-150 amendment), which writes no APP14 (frame, `resize --max 16` of the CMYK
+  fixture writes `APP0 … SOS`). `src/wasm.rs` has no `metadata::` call (its two "strip" hits are about recipe
+  markers, `:184`, `:188`). So no caller strips **after** a re-encode, and the opposite bug (an RGB scan
+  labelled YCCK) has no path.
+- **Who reads "metadata is gone".** Outputs of `meta strip` from `main` (`_s`) and the prototype (`_p`):
+  - `info cmyk_s.jpg` / `info cmyk_p.jpg`: `icc: no`, `exif: no` in both; only `file size` changes,
+    `280 bytes` → `296 bytes` (+16, the APP14 segment). `info --exif --json`: the only differing field is
+    `"file_size_bytes":280` → `296`. `signed_gps.jpg`: `81672 bytes` → `81707 bytes` (+35).
+  - `lint` on a folder of the three stripped files: the same single finding both times,
+    `warn color/wrong-colorspace: CMYK JPEG (not an sRGB web colorspace)`, `3 scanned · 0 error · 1 warn ·
+    0 info`, exit 0. No rule reads APP14 or "not stripped" (`/usr/bin/grep -n "0xEE\|APP14\|Adobe"
+    src/lint/*.rs` hits only an ICC comment at `src/lint/rules.rs:13`).
+  - `diff --json cmyk.jpg <stripped>`: `"score":41.9374` → `"score":100.0000`.
+  - There is no `meta show` verb (`crustyimg meta --help` lists strip, clean, copy, set).
+  - Goldens: none pins a stripped output that carries APP14. The prototype's full run kept every existing
+    test green (1356 passed, 0 failed).
+  - Visible changes, so in AC-6 and the CHANGELOG: the stripped file keeps its colours, and it is larger by
+    the APP14 segment (16 bytes in the common 14-byte form).
+- **The segment bytes.** CMYK fixture at offset 2:
+  `ff ee 00 0e 41 64 6f 62 65 00 64 00 00 00 00 02` (`Adobe`, version `00 64`, flags0 `00 00`, flags1
+  `00 00`, transform 2). `signed_gps.jpg` at offset 122906, length 33:
+  `ff ee 00 21 41 64 6f 62 65 00 64 00 00 00 00 01 03 00 10 03 02 03 06 00 00 00 00 00 00 00 00 00 00 00 00`
+  (transform 1, then 19 bytes of small integers and zeros).
+- **Truncated and foreign APP14, driven** (each built from the CMYK fixture's body; djpeg pixel (8,8), then
+  crustyimg's decode, then what `main` and the prototype's strip leave):
+  - full Adobe, 12 bytes: `srgb(191,64,32)`, `srgb(191,64,32)`; `main` drops it, prototype keeps it.
+  - `Adobe\x01…` (version byte 1): `srgb(191,64,32)`, `srgb(191,64,32)`; `main` drops, prototype keeps.
+  - `Adobe` + 6 bytes (11, no transform): `srgb(93,134,30)`, decode error; both drop.
+  - `Adobe` only (5 bytes): `srgb(93,134,30)`, decode error; both drop.
+  - `Ducky\x00\x64…\x02` (12 bytes, not Adobe): `srgb(93,134,30)`, `srgb(93,134,30)`; both drop.
+  - no APP14: `srgb(93,134,30)`, `srgb(93,134,30)`.
+- **`image` honours APP14** on the locked version: the prototype's unit tests decode the CMYK fixture to
+  `[191, 64, 32, 255]` at (8,8) and the three-component fixture to `[128, 128, 191, 255]`, the same values as
+  djpeg. djpeg (and ImageMagick's AE) stays the independent check in this spec's evidence.
+- **The two existing sweeps.** `strip_all_jpeg_removes_all_metadata` (`src/metadata/mod.rs:619`, loop at
+  `:630`) and `meta_verbs_are_byte_identical_on_unsigned_input` (`:1704`, reconstruction loop at `:1712`) both
+  run on `jpeg_with_exif()` (`:536`), an `image`-encoded JPEG with no APP14, so neither can fail on this bug.
+  Each gets an Adobe APP14 in its input (FT-7, FT-8).
+- **wasm and the lean build.** `pub mod metadata` is compiled on every target (`src/lib.rs:59`), so
+  `strip_all` and the new helpers compile into wasm32, but nothing in `src/wasm.rs` calls them (no bundle
+  change expected). `meta strip` is in the native CLI on every feature set: the change runs in `check`
+  (3 OS), `lean` (`--no-default-features`), `avif`, `webp-lossy`, `heic`, and `msrv` (build only).
+  `wasm-roundtrip` and the bundle-size gate compile it without running it.
+- **Baseline before the fix.** On the prototype's tests with `main`'s `strip_all` body (row M1 below), the
+  pixel tests go red with the messages quoted there. That is the positive control: the three-component
+  fixture and the CMYK fixture fail on `main`'s code.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/metadata/mod.rs` (`strip_all` `:157-195`, the test module from `:365`, the sweeps
+  at `:619` and `:1704`); `src/cli/ops.rs:960-971` (`run_strip`); `tests/metadata.rs:612-620`
+  (`decode_rgba`); `tests/c2pa_manifest.rs:327-357` (the C2PA control);
+  `zune-jpeg-0.5.15/src/headers.rs:474-520` (what the decoder reads).
+- **External APIs:** none.
+- **Related code paths:** `src/metadata/`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg` (452 bytes, recipe below) and
+  `tests/fixtures/metadata/README.md` (the recipe).
+- **Files modified:** `src/metadata/mod.rs` (two constants, two helpers, `strip_all`'s loop and doc comment,
+  the module doc, two updated tests, six new tests); `tests/metadata.rs` (one new test);
+  `docs/cli-reference.md`; `docs/api-contract.md`; `CHANGELOG.md`.
+- **New exports:** none (the helpers are private).
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its checks (FT ids below). Every check names what turns it red.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 `meta strip` keeps Adobe's colour-transform APP14 byte for byte, and the stripped JPEG decodes to
+  the same pixels.** For each of: a 4-component YCCK JPEG (transform 2), a 3-component RGB JPEG (transform 0)
+  with component ids 1,2,3, a real camera JPEG (transform 1, 33-byte APP14), and an Adobe APP14 whose
+  version byte is not 0. Decoded RGBA of the output equals decoded RGBA of the input; the output's APP14
+  equals a literal of the input's. — FT-1, FT-2, FT-3, FT-4 (library); FT-9 (the `meta strip` binary, YCCK).
+- [ ] **AC-2 Everything else in APP1..APP15, and COM, is still removed.** On `signed_gps.jpg` the output's
+  header is exactly `APP14 DQT SOF2 DHT SOS` (APP1 ×2, APP2, APP11 ×2, APP13 gone) and carries no C2PA
+  manifest; on a seeded JPEG, APP1 and COM are gone and every marker `0xE1..=0xEF` except `0xEE` is absent.
+  — FT-3, FT-7.
+- [ ] **AC-3 An APP14 that is not Adobe's, or too short to hold the transform, is removed.** A 12-byte
+  `Ducky…` APP14 and an 11-byte `Adobe…` APP14 are both gone after strip. — FT-5, FT-6.
+- [ ] **AC-4 A file with nothing to strip comes back unchanged.** `strip_all` and `meta strip` of the CMYK
+  fixture, and `strip_all` of the three-component fixture, return the input bytes exactly. — FT-1, FT-2,
+  FT-9.
+- [ ] **AC-5 Nothing else changes.** `meta strip` on a C2PA-signed file still exits 0 with empty stderr and
+  removes APP11 (`tests/c2pa_manifest.rs:327`, unchanged). `meta clean --gps`, `meta set` and `meta copy`
+  bytes are unchanged (FT-8 and the existing pins listed under "What does not change"). The PNG lane and
+  every pixel-lane output are unchanged (no code touched; existing pins). — FT-8, existing tests.
+- [ ] **AC-6 The user-visible change is documented.** `docs/cli-reference.md`, `docs/api-contract.md`, the
+  module doc and `strip_all`'s doc comment say strip keeps JFIF and Adobe's colour-transform segment so the
+  image decodes the same; the CHANGELOG "Fixed" line says what changed and that the output keeps that
+  segment. The size change (+16 bytes on the common form) is a consequence, shown in `info` only as
+  `file size`. — docs review at verify (the exact sentences are under Implementation Context).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**, BEFORE build. All but FT-7 and FT-8 are new; FT-7 and FT-8 replace existing bodies.
+Every one was written and run on the prototype: green with the fix, red set per row in the mutation table.
+Expected values are literals (from djpeg or the fixture's bytes) or the input decoded by the same decoder,
+never output of the code under test.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+Shared test helpers to add in `src/metadata/mod.rs`'s test module (next to `jpeg_has_marker`, `:558`):
+`CMYK_YCCK_JPEG`, `RGB_T0_IDS123_JPEG`, `SIGNED_GPS_JPEG` (`include_bytes!` of the three fixtures,
+`"../../tests/fixtures/…"`); `ADOBE_APP14_YCBCR_CONTENTS = b"Adobe\x00\x64\x00\x00\x00\x00\x01"`;
+`segment_bytes(marker, contents)` (`FF marker len contents`); `with_segments(jpeg, &[(marker, contents)])`
+(inserts after SOI, or after APP0 when the first segment is APP0, via `img_parts::jpeg::JpegSegment::new_with_contents`);
+`walk_segments(bytes)` (an independent header walk, **not** `img-parts`: from offset 2, read `FF marker len`,
+push `(marker, the segment's bytes)`, stop after SOS); `header_markers`, `app14_segments`; `rgba(bytes)`;
+`assert_same_render(original, stripped)` (compares RGBA and, on a mismatch, reports
+`stripped file decodes differently: N of M pixels differ, first at (x, y): [..] -> [..]` instead of dumping
+the buffer, since `signed_gps.jpg` is 2100×1500).
+
+- **`src/metadata/mod.rs` (unit tests)**
+  - **FT-1** `strip_all_keeps_the_adobe_app14_of_a_ycck_jpeg` — asserts: fixture APP14 equals the 16-byte literal
+    `ff ee 00 0e 41 64 6f 62 65 00 64 00 00 00 00 02` and the fixture decodes to `[191, 64, 32, 255]` at (8,8)
+    (preconditions); the output decodes the same as the input (`assert_same_render`) and to
+    `[191, 64, 32, 255]` at (8,8); the output's APP14 list equals `[that literal]`; the output equals the
+    input bytes ("nothing to strip").
+  - **FT-2** `strip_all_keeps_the_adobe_app14_of_an_rgb_jpeg_with_numeric_component_ids` — asserts the
+    fixture's bytes first: `[2..18]` is `ff ee 00 0e 41 64 6f 62 65 00 64 00 00 00 00 00` (transform 0);
+    `[87..89]` is `ff c0` and `[97]`, `[100]`, `[103]` are `1, 2, 3`; `[322..324]` is `ff da` and `[327]`,
+    `[329]`, `[331]` are `1, 2, 3`; it decodes to `[128, 128, 191, 255]` at (8,8). Then: same render, the
+    same (8,8) value after strip, APP14 kept as the literal, output equals input bytes.
+  - **FT-3** `strip_all_keeps_only_the_adobe_app14_of_a_signed_camera_jpeg` — asserts: fixture header markers
+    are `[EB, EB, E1, ED, E1, E2, EE, DB, C2, C4, DA]` (precondition); output header markers are exactly
+    `[EE, DB, C2, C4, DA]`; output APP14 equals `segment_bytes(0xEE, <the 31-byte literal payload>)`;
+    `!has_manifest(&out)`; same render.
+  - **FT-4** `strip_all_keeps_an_adobe_app14_whatever_its_version_byte` — input: the CMYK fixture with file
+    offset `[11]` (the version's high byte; SOI 0–1, marker 2–3, length 4–5, `Adobe` 6–10) set from `0x00` to
+    `0x01`, built in the test; asserts the input's `[6..12]` is `b"Adobe\x01"` (precondition); output APP14 equals the input's `[2..18]`; same render and
+    `[191, 64, 32, 255]` at (8,8).
+  - **FT-5** `strip_all_removes_an_app14_that_is_not_adobes` — input: `base_image(ImageFormat::Jpeg)` with
+    APP14 `b"Ducky\x00\x64\x00\x00\x00\x00\x01"` (12 bytes) inserted; asserts one APP14 in the input and none
+    in the output.
+  - **FT-6** `strip_all_removes_an_adobe_app14_too_short_to_hold_the_transform` — input: `base_image(Jpeg)`
+    with APP14 `b"Adobe\x00\x64\x00\x00\x00\x00"` (11 bytes); asserts one APP14 in the input and none in the
+    output.
+  - **FT-7** `strip_all_jpeg_removes_all_metadata` (existing, `:619`, body replaced) — input:
+    `with_segments(jpeg_with_exif(), [(0xEE, ADOBE_APP14_YCBCR_CONTENTS), (0xFE, b"a comment")])`;
+    preconditions APP1, APP14 and COM present; after strip, for each marker in `0xE1..=0xEF`: `0xEE`'s
+    segments equal `[segment_bytes(0xEE, ADOBE_APP14_YCBCR_CONTENTS)]`, every other marker absent; COM
+    absent (`COM should be gone`); APP0 present (`assert!(jpeg_has_marker(&out, 0xE0), "APP0/JFIF should be
+    kept")`, new); no EXIF readable (the existing tail, unchanged).
+  - **FT-8** `meta_verbs_are_byte_identical_on_unsigned_input` (existing, `:1704`, strip part changed) —
+    `strip_input` = `with_segments(jpeg_with_exif(), [(0xEE, ADOBE_APP14_YCBCR_CONTENTS)])`, plus a
+    precondition that it has APP14; the expected bytes rebuild strip with
+    `jpeg.segments_mut().retain(|s| strip_keeps_jpeg_segment(s.marker(), s.contents()))` in place of the
+    `:1712` loop. The rest of the test (set/clean/copy parts) is unchanged. Its comment at `:1705-1706`
+    stays true. This test checks the lane is byte-identical; it is not the APP14 oracle (FT-1 to FT-7 are).
+- **`tests/metadata.rs` (binary)**
+  - **FT-9** `meta_strip_keeps_the_colours_of_an_adobe_cmyk_jpeg` — runs `crustyimg meta strip
+    tests/fixtures/lint/cmyk_16x16.jpg -o -`; asserts exit 0, stdout decodes (`decode_rgba`) to
+    `[191, 64, 32, 255]` at pixel (8,8) (index `(8*16+8)*4`), stdout decodes the same as the file, and stdout
+    equals the file's bytes. This is the Trap-14 control (it lives outside `src/metadata/mod.rs`).
+- **C2PA control (existing, unchanged):** `tests/c2pa_manifest.rs::meta_strip_removes_the_jumbf_segment_by_name`
+  (`:327`): exit 0, APP11 gone, stderr empty. Green on `main` and on the prototype; FT-3 adds
+  `!has_manifest` on the library side.
+
+### Mutation table (traps 12–14): apply each alone, record every test red
+
+Driven at design on the prototype. "Full" = one `cargo test --no-fail-fast` of every target (62 test binaries
++ doc-tests), red set read off that run; prototype baseline 1356 passed / 0 failed (sum of the `test result`
+lines). "Lib" = `cargo test --lib --no-fail-fast` after FT-4 and FT-7's APP0 assertion were added (baseline 603
+passed / 0 failed); FT-4 and that assertion live only in the lib target, so the lib run completes the red set.
+Test ids: FT-1…FT-9 above; **C** = `tests/c2pa_manifest.rs::meta_strip_removes_the_jumbf_segment_by_name`;
+**L** = `tests/lint.rs::every_printed_fix_run_verbatim_fixes_its_finding`. A test not listed as red stayed green.
+
+- **M1 — the old sweep restored (the negative control, `0xEE` back in the sweep).** `strip_all`'s JPEG arm,
+  the `retain(…)` line replaced by `main`'s verbatim
+  `for marker in 0xE1u8..=0xEF { jpeg.remove_segments_by_marker(marker); } jpeg.remove_segments_by_marker(0xFE);`.
+  **Red:** FT-1, FT-2, FT-3, FT-4, FT-7, FT-8, FT-9 (full: 1350 passed / 6 failed; lib adds FT-4). **Green:**
+  FT-5, FT-6, C, L. *Driven.* Messages:
+  - FT-1: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [191, 64, 32, 255] -> [93, 134, 30, 255]`
+  - FT-2: `stripped file decodes differently: 256 of 256 pixels differ, first at (0, 0): [0, 0, 255, 255] -> [178, 0, 0, 255]`
+  - FT-3: `assertion left == right failed  left: [219, 194, 196, 218]  right: [238, 219, 194, 196, 218]`
+  - FT-4: `left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 1, 100, 0, 0, 0, 0, 2]]` (APP14 list)
+  - FT-7: `the Adobe APP14 should be kept unchanged  left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 0, 100, 0, 0, 0, 0, 1]]`
+  - FT-8: `strip_all must be byte-identical on unsigned input` (the right side carries `255, 238, 0, 14, …`)
+  - FT-9: `pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`
+- **M2a — exception widened to a neighbour, APP13.** `strip_keeps_jpeg_segment`:
+  `!metadata || is_adobe_colour_transform(marker, contents) || marker == 0xED`. **Red:** FT-3
+  (`left: [237, 238, 219, 194, 196, 218]  right: [238, 219, 194, 196, 218]`). Full 1355/1; lib 602/1. *Driven.*
+- **M2b — exception widened to APP11 (C2PA).** Same line, `|| marker == 0xEB`. **Red:** FT-3, C
+  (`strip must remove the JUMBF/APP11 manifest segment, driven against a REAL signed fixture …`). Full 1354/2;
+  lib 602/1. *Driven.*
+- **M3 — the signature check dropped** (`is_adobe_colour_transform` without `&& contents.starts_with(b"Adobe")`).
+  **Red:** FT-5 (`a non-Adobe APP14 is metadata`). Full 1355/1; lib 602/1. *Driven.*
+- **M3b — the ruling's literal bytes** (`contents.starts_with(b"Adobe\0")`). **Red:** FT-4
+  (`left: []  right: [[255, 238, 0, 14, 65, 100, 111, 98, 101, 1, …]]`). Lib 602/1. *Driven on the lib
+  target*; other targets *reasoned* green (no other fixture's version byte is non-zero).
+- **M4 — FT-8's reconstruction left as the old loop** (FT-8's `retain(…)` replaced by the `0xE1..=0xEF` loop plus
+  `remove_segments_by_marker(0xFE)`; `strip_all` fixed). **Red:** FT-8
+  (`strip_all must be byte-identical on unsigned input`). Full 1355/1; lib 602/1. *Driven.*
+- **M5a — length floor one too low** (`const ADOBE_APP14_MIN_LEN: usize = 11;`). **Red:** FT-6
+  (`a truncated APP14 is not read by decoders`). Full 1355/1; lib 602/1. *Driven.*
+- **M5b — length floor one too high** (`= 13`). **Red:** FT-1, FT-2, FT-4, FT-7, FT-9 (the 12-byte form is the
+  common one; FT-3's 31-byte payload stays green). Full 1352/4; lib 599/4. *Driven.*
+- **M6 — the exception widened to every APP14 and to APP2 (ICC)** (`!metadata || marker == 0xEE || marker == 0xE2`).
+  **Red:** FT-3, FT-5, FT-6, **L** (`printed fixes do not fix their findings: still_reported=1 unchanged=1 / row
+  unexpected-icc … fix: "crustyimg meta strip icc.jpg -o icc.jpg -y"`: lint's printed fix for an unexpected ICC is
+  `meta strip`, so keeping APP2 breaks it). Full 1352/4 over all 62 test binaries; the run was then killed
+  (exit 143) before the doc-test stage, which has no strip test. Lib 600/3. *Driven.*
+- **M7 — COM no longer removed** (`let metadata = (0xE1..=0xEF).contains(&marker);`). **Red:** FT-7
+  (`COM should be gone`). Full 1355/1; lib 602/1. *Driven.*
+- **M8 — APP0 swept too** (`let metadata = (0xE0..=0xEF).contains(&marker) || marker == 0xFE;`). **Red:** FT-7
+  (`APP0/JFIF should be kept`). Lib 602/1. *Driven on the lib target*; other targets *reasoned* (FT-9's fixture
+  has no APP0).
+- **T14 — `main`'s `src/metadata/mod.rs` restored verbatim** (`git show origin/main:src/metadata/mod.rs`). FT-1 to
+  FT-8 leave with the file (they live in its test module). **Red:** FT-9
+  (`pixel (8,8)  left: [93, 134, 30, 255]  right: [191, 64, 32, 255]`). Full 1350 passed / 1 failed. *Driven.*
+  FT-9 is the control that survives Trap 14.
+
+Also driven: `cargo clippy --all-targets -- -D warnings` clean on the prototype; `cargo build --target
+wasm32-unknown-unknown --lib` with the rustup toolchain on `PATH` (`justfile:119`: a bare `cargo` finds
+Homebrew's `rustc`, which has no wasm32 `core`) builds with one warning, the existing `MANIFEST_DROPPED_WARNING`
+unused on wasm32 (SPEC-150's item, PR #240), and none from the new helpers.
 
 ## Implementation Context
 
@@ -333,35 +560,256 @@ Written during **design**, BEFORE build. The implementer's job in
 the build cycle. It is the equivalent of a handoff document, folded
 into the spec since there is no separate receiving agent.*
 
+### The code (each piece with where it goes)
+
+In `src/metadata/mod.rs`, right after `MANIFEST_DROPPED_WARNING` (`:150-155`) and before `strip_all`'s doc
+comment (`:157`). If PR #240 has merged first, that constant has moved out of this file; put these after
+`has_manifest` (`:126-148`) instead.
+
+```rust
+/// JPEG APP14 (`0xEE`) — the marker Adobe's colour-transform segment is
+/// written under.
+const JPEG_ADOBE_MARKER: u8 = 0xEE;
+
+/// The shortest Adobe APP14 payload a decoder reads the colour transform
+/// from: `Adobe` (5 bytes), version (2), flags0 (2), flags1 (2), transform
+/// (1). libjpeg ignores a shorter one; zune-jpeg refuses it.
+const ADOBE_APP14_MIN_LEN: usize = 12;
+
+/// Whether a JPEG segment is the Adobe colour-transform segment. Its last
+/// field tells a decoder how the scan's components are coded (RGB or YCbCr
+/// for three, CMYK or YCCK for four). Without it a decoder guesses from the
+/// component ids, and for some files guesses wrong, so the image decodes to
+/// different colours. An APP14 that is not Adobe's, or too short to hold the
+/// transform, is not read by decoders and is treated as metadata.
+fn is_adobe_colour_transform(marker: u8, contents: &[u8]) -> bool {
+    marker == JPEG_ADOBE_MARKER
+        && contents.len() >= ADOBE_APP14_MIN_LEN
+        && contents.starts_with(b"Adobe")
+}
+
+/// Whether [`strip_all`] keeps a JPEG segment: everything outside APP1..APP15
+/// and COM, plus the Adobe colour-transform segment.
+fn strip_keeps_jpeg_segment(marker: u8, contents: &[u8]) -> bool {
+    let metadata = (0xE1..=0xEF).contains(&marker) || marker == 0xFE;
+    !metadata || is_adobe_colour_transform(marker, contents)
+}
+```
+
+`strip_all`'s JPEG arm (`:171-175`): replace the `for marker in 0xE1u8..=0xEF { … }` loop and the
+`remove_segments_by_marker(0xFE)` line with
+
+```rust
+            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF and the
+            // Adobe colour-transform APP14 are kept.
+            jpeg.segments_mut()
+                .retain(|segment| strip_keeps_jpeg_segment(segment.marker(), segment.contents()));
+```
+
+(`img_parts::jpeg::Jpeg::segments_mut` returns `&mut Vec<JpegSegment>`; `JpegSegment::marker()` and
+`contents()` are public in img-parts 0.4.0.) `strip_keeps_jpeg_segment` is the one helper; FT-8's
+reconstruction (`:1712`) calls it too, so M4 (the old loop left in FT-8) is a real mutant. Run `cargo fmt`
+after: the `retain` line is formatted by rustfmt, don't hand-wrap it.
+
+`has_manifest`, `JPEG_MANIFEST_MARKER` (its doc at `:100-104` stays true), `MANIFEST_DROPPED_WARNING`,
+`PNG_METADATA_CHUNKS`, `write_exif_block`, `copy_metadata`, `clean_gps`, `set_tags` and `run_strip` are not
+touched.
+
+### The new fixture (the build makes it; commit the result)
+
+`tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg`, a 16×16 3-component Adobe JPEG with transform 0 and
+component ids 1,2,3. Recipe (libjpeg-turbo 3.2.0 `cjpeg`; another version may give other bytes, so check the
+hash, and if it differs, check the offsets below by the asserts in FT-2 and record the new hash):
+
+1. A 16×16 binary PPM, pixel `(x, y)` = `(16x, 16y, 255 − 8x)`, rows top to bottom:
+   ```
+   python3 -I -c "import sys; px=b''.join(bytes([x*16, y*16, 255-x*8]) for y in range(16) for x in range(16)); sys.stdout.buffer.write(b'P6\n16 16\n255\n'+px)" > grad16.ppm
+   ```
+   sha256 `9ab37bf50d6b2a140914253443f05e3551c9bfebe7cb48a296b2ec60eba45caa`.
+2. `cjpeg -rgb -quality 90 grad16.ppm > rgbRGB.jpg` → 452 bytes, sha256
+   `7d106aa3cb5aeb08534dd8193d550bb9174bd034d4be99d1878ccf40136173c9`. Segments: `APP14(t=0) DQT SOF0 DHT DHT SOS`,
+   APP14 at offset 2, SOF0 at 87, SOS at 322. Component ids are `R G B` (`0x52 0x47 0x42`).
+3. Byte edit: set offsets **97, 100, 103** (SOF0 component ids) and **327, 329, 331** (SOS component
+   selectors) from `0x52, 0x47, 0x42` to `0x01, 0x02, 0x03`. Result: 452 bytes, sha256
+   `dd3ec8ba9942afbeaab6e5e024afd0e32ae7418c3173cd72c91fb2490fdbf414`.
+4. Check: `djpeg -pnm` of the result, pixel (8,8) is `srgb(128,128,191)`; after `main`'s strip it is
+   `srgb(216,83,128)`.
+
+`tests/fixtures/metadata/README.md` states that recipe (steps 1–4, the three hashes) and says the file is made
+by tools independent of crustyimg, like `tests/fixtures/lint/README.md`. FT-2's byte asserts prove the ids and
+transform; the render alone doesn't. Binary fixtures need no `.gitattributes` entry (there is none today and
+the other `.jpg` fixtures pass on Windows).
+
+### Docs (exact text)
+
+1. `docs/cli-reference.md:231`, now `Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG.`
+   Becomes:
+   `Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG. On a JPEG it keeps the two segments a
+   decoder needs to read the image, JFIF and Adobe's colour-transform marker, so the stripped file decodes to the
+   same pixels.`
+2. `docs/api-contract.md:501-502`, now `Remove **all** container metadata (EXIF/IPTC/XMP/ICC) via \`img-parts\`
+   segment/chunk removal — no pixel re-decode (decoded pixels byte-identical).` Insert after that sentence:
+   `On JPEG, APP0 (JFIF) and Adobe's colour-transform APP14 are kept: a decoder reads them, and without the
+   APP14 some CMYK and RGB JPEGs decode to different colours.` The rest of the entry is unchanged.
+3. `src/metadata/mod.rs:157-160` (`strip_all`'s doc), the JPEG bullet becomes:
+   ```
+   /// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/**JUMBF/C2PA
+   ///   at `0xEB`**/…) and COM (`0xFE`). Two segments a decoder needs are kept:
+   ///   APP0/JFIF, and the Adobe APP14 colour-transform segment, without which
+   ///   some CMYK and RGB JPEGs decode to different colours.
+   ```
+4. `src/metadata/mod.rs:11-12` (module doc), now `(JPEG APP1..APP15 + COM; PNG …)`. Becomes
+   `(JPEG APP1..APP15 except Adobe's colour-transform APP14, + COM; PNG \`eXIf\`/\`iCCP\`/\`tEXt\`/…)`.
+5. **No change, checked:** `README.md:193` (`remove ALL metadata (EXIF/IPTC/XMP/ICC)`),
+   `skills/crustyimg/SKILL.md:148` (`remove all EXIF/IPTC/XMP/ICC`), `--help` (`src/cli/mod.rs:589`,
+   `Remove all metadata at the container level.`), `SECURITY.md:88`, `run_strip`'s doc (`src/cli/ops.rs:960`).
+   APP14 is not metadata in any of their lists, so they stay true. By the maintainer's ruling, the
+   orientation/ICC warning is the STAGE-063 orientation entry's.
+
+**Behaviour sentences the build drives, and verify drives again** (each with the check):
+- B1 "keeps … JFIF": FT-7's APP0 assertion (its input is an `image`-encoded JPEG, which starts with APP0;
+  `with_segments` inserts after it). Mutation M8 turns it red.
+- B2 "keeps … Adobe's colour-transform marker": FT-1 to FT-4, FT-9.
+- B3 "decodes to the same pixels": FT-1 to FT-4 (`assert_same_render`), FT-9.
+- B4 "Remove all container metadata (EXIF/IPTC/XMP/ICC)": FT-3 (APP1, APP2, APP13 gone), FT-7.
+- B5 (api-contract) "without the APP14 some CMYK and RGB JPEGs decode to different colours": the M1 row
+  (FT-1, FT-2 red with a pixel mismatch).
+- Exit paths `docs/api-contract.md:503-507` names (exit 4 unsupported format, multiple inputs need
+  `--out-dir`, exit 6 batch failure, overwrite refused without `-y`, no-metadata input a no-op exit 0) are
+  unchanged and pinned by `tests/metadata.rs` `strip_unsupported_format_exits_4` (`:317`),
+  `strip_multi_input_requires_out_dir` (`:334`), `strip_batch_partial_failure_exits_6` (`:381`),
+  `strip_refuses_overwrite_without_yes` (`:412`); the no-op is FT-1/FT-2/FT-9's "output equals input".
+
+### CHANGELOG (verbatim, under `## [Unreleased]` → `### Fixed`, after the existing colour entry)
+
+```
+- **`meta strip` keeps a JPEG's colours.** It removed Adobe's APP14 segment along with the
+  metadata, and that segment tells a decoder how the scan's colours are coded: an Adobe CMYK
+  JPEG came back with orange turned green, and some RGB JPEGs changed colour too. Strip now keeps
+  that segment (and JFIF, as before), so the stripped file decodes to the same pixels; it is
+  16 bytes larger than before for a typical file. Any other APP14 is still removed.
+```
+
+### What does not change, and what pins it
+
+- `meta clean --gps`, `meta set`, `meta copy` output bytes: FT-8's set/clean/copy halves (unchanged), plus
+  `tests/metadata.rs` `meta_subcommands_match_old_verbs` (`:774`) and `meta_set_matches_old_set` (`:850`).
+  No new pin: their code is not touched.
+- The PNG lane: `strip_all_png_removes_metadata_chunks` (`src/metadata/mod.rs:650`) and
+  `tests/c2pa_manifest.rs` `meta_strip_and_set_remove_the_png_cabx_manifest_chunk` (`:362`). The PNG arm is not
+  touched.
+- Pixel-lane outputs: no pixel-lane file is touched; their goldens and the full suite (1356 green on the
+  prototype) pin them.
+- C2PA: `has_manifest` reads only `0xEB`; strip passes `warn_on_manifest_drop = false` (`src/cli/ops.rs:970`).
+  Pinned by `meta_strip_removes_the_jumbf_segment_by_name` (`tests/c2pa_manifest.rs:327`) and FT-3's
+  `!has_manifest`.
+
+### DEC text for ship (do **not** edit either DEC in build; ship applies these after the merge)
+
+**DEC-003, append before `## References`:**
+
+```
+## Amendment (<ship date>, SPEC-156)
+
+**`strip` keeps the two segments a JPEG decoder needs to read the scan.** The Validation line above
+says *"`strip` removes everything"*, and DEC-029's probe recorded *"decoded pixels byte-identical"*. Both
+held only because the probe JPEG had no Adobe APP14. Strip's JPEG sweep removed APP14 (`0xEE`), whose
+transform byte tells a decoder how the scan's components are coded; without it a decoder guesses from the
+component ids. Driven at SPEC-156's frame and design: an Adobe YCCK JPEG
+(`tests/fixtures/lint/cmyk_16x16.jpg`) went from `srgb(191,64,32)` to `srgb(93,134,30)` at (8,8) in
+libjpeg-turbo, ImageMagick and crustyimg's own decoder (SSIMULACRA2 41.94), and a 3-component Adobe RGB JPEG
+with component ids 1,2,3 broke the same way (SSIMULACRA2 −35.79).
+
+**Corrected claim:** `strip` removes all metadata segments and keeps APP0 (JFIF) and Adobe's
+colour-transform APP14: an APP14 whose payload starts with `Adobe` and is at least 12 bytes long, the test
+libjpeg and zune-jpeg apply before reading the transform. Any other APP14 is removed. Its promise is that the
+image decodes to the same pixels, not only that the scan bytes are unchanged. It still drops ICC and EXIF
+orientation, which can change how a viewer shows the image (STAGE-063's orientation entry; the ICC question
+under the SPEC-150 amendment above).
+```
+
+Also add `tests/fixtures/metadata/**` to DEC-003's `affected_scope` (block-list form).
+
+**DEC-029, after the first probe bullet (the `remove_segments_by_marker(0xE1..=0xEF, 0xFE)` one, `:66-69`):**
+
+```
+  > Note (<ship date>, SPEC-156): "decoded pixels byte-identical" held because the probe JPEG had no
+  > Adobe APP14. `strip` now keeps that segment; see DEC-003's SPEC-156 amendment.
+```
+
+### Overlap with other open work (from their file lists, `gh pr list --state open --json number,title,files`
+and `git branch -r`, 2026-11-22)
+
+- **PR #240** (`chore/wasm-clippy`, open, last updated 2026-11-02): touches `.github/workflows/ci.yml`,
+  `justfile`, `src/cli/ops.rs`, `src/metadata/mod.rs`. In `src/metadata/mod.rs` it deletes
+  `MANIFEST_DROPPED_WARNING` and its doc (`:150-155`), the lines right above `strip_all`'s doc comment where
+  this spec inserts its constants. Not a logical conflict, but a textual one is likely: on a rebase, keep both
+  (#240's deletion and this spec's insertion). It does not touch `strip_all` or the tests.
+- **PR #237** (heifer): `src/image/*`, `src/source/mod.rs`, `CHANGELOG.md`, others. Shares only
+  `CHANGELOG.md` (a different section is likely; on a conflict keep both entries).
+- **PR #229** (`docs/roadmap.md`), **PR #226** (`AGENTS.md`, `src/cli/mod.rs`): no shared file.
+- **Branches `feat/spec-15[4-8]*`:** none pushed (`git branch -r` lists none).
+- SPEC-155 (designed alongside) plans `src/sink/mod.rs`, `src/cli/ops.rs`, `src/cli/build.rs`; this spec
+  touches none of them. SPEC-157's file list is its own.
+- STAGE-063's file: on a rebase conflict, keep both sides and recount the `**Count:**` line with
+  `/usr/bin/grep -c`. On a conflict in any other file, stop and report. Never edit
+  `projects/PROJ-017-geometry-as-recipe-steps/`.
+
+### Verification the build runs
+
+- Baseline first (trap 13): on `main`'s code, with the new tests added, run the full suite and quote each
+  red row's failure message; FT-1, FT-2, FT-4, FT-9 must fail on a pixel or APP14 mismatch (messages under
+  M1), never on a fixture precondition.
+- Every mutation row below, each alone, with a full `cargo test --no-fail-fast` of every target, stdout
+  redirected to a file (`display_sink_refuses_non_tty` fails on a TTY); read the red set off that run.
+- `cargo clippy --all-targets -- -D warnings`, `cargo test --no-default-features`,
+  `cargo build --target wasm32-unknown-unknown --lib` (each in a fresh `CARGO_TARGET_DIR` per feature set).
+- Re-drive djpeg on the committed fixture and on `meta strip` of it (steps 4 above), and `crustyimg diff` of
+  the CMYK fixture vs its strip (`100.0000`).
+
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-003` — the container lane; this spec corrects its "strip removes everything" (ship-time amendment).
+- `DEC-029` — `img-parts` does the segment work; its probe note gets a pointer.
+- `DEC-015` — governs `docs/api-contract.md`, edited here.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `metadata-not-via-pixel-encode` — strip stays in the container lane; the fix edits the segment list only.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-026` (shipped) — `strip` and `clean --gps`, the `0xE1..=0xEF` sweep.
+- `SPEC-114` (shipped) — the C2PA manifest drop, `meta_verbs_are_byte_identical_on_unsigned_input`.
+- PR #240 — see the overlap map.
 
 ### Out of scope (for this spec specifically)
 
 - ICC (JPEG APP2, PNG `iCCP`) dropped by strip or the pixel lane: the DEC-003 entry folded into
   SPEC-150, pending a ruling.
-- EXIF orientation dropped by strip: the new STAGE-063 entry this frame filed.
+- EXIF orientation dropped by strip, and the docs warning about it: the STAGE-063 orientation entry.
 - MPF, gain maps and JPEG XT secondary data.
 - `has_manifest`, `MANIFEST_DROPPED_WARNING`, `PNG_METADATA_CHUNKS`.
+- SPEC-148 O-5 (the lint fixture README omits the CMYK fixture's size) and SPEC-150's wasm item stay in their
+  entries. The new fixture goes in a new `tests/fixtures/metadata/` folder, so this spec doesn't edit the lint
+  README.
+
+### Size
+
+**[S] holds.** Production code: two constants, two helpers (~12 lines), a 3-line loop swap, three doc edits.
+Tests: 6 new unit tests + 2 rewritten + 1 binary test. Prototype `/usr/bin/git diff --stat` against
+`origin/main`: `src/metadata/mod.rs | 285 +++…---`, `tests/metadata.rs | 25 +++`, 296 insertions, 14
+deletions (before FT-4's 14 lines and the APP0 assert were added); production code is ~40 of those lines, doc
+comments included. 9 tests (6 + 2 + 1). One new 452-byte fixture. The cost is in the evidence (the mutation table), not the code.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- Write the tests first and run them on `main`'s code (M1 is that baseline). Each red row must fail for its
+  reason, with the messages quoted under M1: FT-1/FT-2 `stripped file decodes differently: …`, FT-4 and FT-7
+  the APP14 list (`left: []`), FT-9 `pixel (8,8)`. A red on a `"fixture"` precondition is the wrong reason.
+- Push a checkpoint commit after the fixture and the tests, and another after the fix.
+- `git commit -s` on every commit (DCO).
+- No DEC edits, no version bump.
 
 ---
 

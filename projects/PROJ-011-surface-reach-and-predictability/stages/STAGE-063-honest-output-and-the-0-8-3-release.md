@@ -113,7 +113,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   Frame (2026-11-22): GO at [M]. Driven: outputs under 8 KiB exit 0 with a truncated file (both sink
   arms, both lanes), and larger ones exit 5 with the old file destroyed. Folds in `--save-recipe`, which
   overwrites without `-y`, and `write_lock`'s temp. Four maintainer rulings are open; see the spec's Frame.
-- [ ] **SPEC-156** (framed 2026-11-22) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
+- [ ] **SPEC-156** (designed 2026-11-22) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
   The JPEG strip loop removes `0xE1..=0xEF`, which includes APP14 (`0xEE`, Adobe), the marker that carries the
   colour transform. On `tests/fixtures/lint/cmyk_16x16.jpg`, `crustyimg diff` scored the stripped file 41.94
   SSIMULACRA2 against the original. Keep APP14; the regression compares decoded pixels as well as checking that
@@ -122,6 +122,8 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   Frame (2026-11-22): GO at [S]. Driven: SSIMULACRA2 41.9374 on the CMYK fixture, and a 3-component Adobe
   transform-0 file with component IDs 1,2,3 breaks too (−21.30). Keep APP14 (with the `Adobe` signature) only; two
   maintainer questions open; see the spec's Frame. Build after SPEC-154 merges.
+  Design (2026-11-22): [S] holds. Keep an APP14 whose payload starts with `Adobe` and is ≥ 12 bytes (the byte
+  after `Adobe` is the version, not a NUL); 9 tests, 12 mutation rows driven (10 full runs, 2 lib-only); `docs/api-contract.md:501` added.
 - [ ] (not yet written) — [S] **`meta strip` drops EXIF orientation, and no doc says so.** Filed by the SPEC-156
   frame (2026-11-22). Strip removes APP1 (JPEG) and `eXIf` (PNG), so a phone photo tagged `Orientation=6` can display
   rotated after a strip that promises not to touch pixels. `docs/cli-reference.md:231`, `README.md:193` and
