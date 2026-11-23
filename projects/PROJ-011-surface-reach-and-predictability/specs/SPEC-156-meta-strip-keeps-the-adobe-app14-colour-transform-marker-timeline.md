@@ -15,6 +15,15 @@ Cycle prompts live in `prompts/SPEC-156-<cycle>.md`.
   with `Adobe` and is ≥ 12 bytes (correction: the byte after `Adobe` is the version's high byte; `Adobe\x01…` still
   decodes orange). New fixture recipe (`cjpeg -rgb` + ids 1,2,3, sha256 recorded); 9 tests (6 new, 2 rewritten,
   1 binary); 12 mutation rows driven (10 on a full run of every target, M3b and M8 on the lib target); DEC-003 amendment + DEC-029 note written for ship.
-- [ ] **build** — `prompts/SPEC-156-build.md` (after SPEC-154 has merged)
-- [ ] **verify**
-- [ ] **ship**
+- [x] **build** (2026-11-22, Sonnet, $2.53) — draft PR #269, head `b0b870d`; CI 18 green, 8 skipped
+  (release-only). Fixture hashes equal the spec's; baseline red on FT-1–4 and FT-7–9 with the spec's
+  messages; 6 ACs met; every mutation row matched, none wrong; no DEC edited (ship applies the text).
+- [x] **verify** (2026-11-23, Opus, $2.76) — ⚠ PUNCH LIST at `b0b870d`, one **assert**: nothing pins
+  the `marker == 0xEE` clause (an `Adobe_CM` APP13 would be kept without it; mutant MK leaves 1,357
+  green). Fixture rebuilt byte for byte; nine extra JPEG shapes render the same under djpeg/ImageMagick;
+  M1/M3/M3b/M5a/M5b/T14 match. Merges clean with #268. Out of spec: zune-jpeg refuses transform 5 →
+  `guidance/ideas.yaml`.
+- [x] **punch list** (2026-11-23, Sonnet, $0.76 measured before its doc commit) — FT-10
+  `strip_all_removes_an_adobe_cm_app13`, test code only (`a691427`); MK reddens FT-10 alone (1,357/1),
+  unmutated 1,358/0; AC-3 widened. Head `3aaa700`; every CI leg green there (orchestrator-read).
+- [ ] **ship** — `prompts/SPEC-156-ship.md` (Sonnet), after the maintainer merges PR #269
