@@ -18,6 +18,9 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   `write_lock`; 22 ACs, 39 tests, 15 mutation rows driven on a prototype. Corrections: a rename
   replaces a `0444` file (kept refused by a write-probe), std's Windows rename tries `MoveFileExW`
   first, the `.tmp` suffix (not the dot) keeps staged files out of inputs.
-- [ ] **build**: `prompts/SPEC-155-build.md` (starts after SPEC-154 merges)
-- [ ] **verify**
+- [x] **build** (2026-11-22, Sonnet, $7.61): draft PR #268, head `471a0a7`; CI green on every leg
+  at `47003ae` (the last code push). Baseline: exactly the 15 E rows red on `main`, 8 pins green.
+  22 ACs met; W1–W4 passed on the Windows leg. Mutations matched except M1/M2/M3 also redden E23 and
+  M11 is 48, not 46. `DEC-116`. The orchestrator's "exits 5 (6 for a batch …)" correction applied.
+- [ ] **verify**: `prompts/SPEC-155-verify.md` (Opus, read-only)
 - [ ] **ship**
