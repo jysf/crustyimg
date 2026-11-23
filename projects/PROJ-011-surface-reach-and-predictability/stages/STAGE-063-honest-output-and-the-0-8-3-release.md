@@ -128,7 +128,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   `skills/crustyimg/SKILL.md:148` list what is removed but not that it can change how a viewer shows the image (ICC
   is the same class, owned by the DEC-003 entry folded into SPEC-150). Decide: a docs warning that points at
   `auto-orient` first, or have strip refuse/warn on a non-identity orientation.
-- [ ] **SPEC-157** (framed 2026-11-22) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
+- [ ] **SPEC-157** (designed 2026-11-22) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
   A target with `source = "src/photo.png"` and `out = "src"` replaced the source and exited 0; targets writing
   `dist/result.png` and `alias/../dist/result.png` produced one file and a lockfile with two records. The
   collision key compares path spellings (`output_collision_key`, `check_output_injective`), and the late check
@@ -149,6 +149,11 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   file, `--check` passed while the file on disk did not match its lock record. `--check` compares the bytes the
   run produced, not the tree. SPEC-157 documents this; decide whether a verify-mode build should be read-only
   and/or hash the files on disk (a behaviour change, so a maintainer call).
+- [ ] (not yet written) — [S] **`build`'s destination identity ignores Unicode normalization.**
+  Filed by the SPEC-157 design (2026-11-22), driven on its prototype on macOS APFS: `s1/café.png` (NFC) and
+  `s2/café.png` (NFD) built into one `out` exit 0 with one file on disk and two lock records, because APFS
+  treats the two spellings as one name and the identity compares them as two. Closing it needs NFC/NFD tables
+  (`unicode-normalization` or hand-rolled), which `std` lacks: a dependency decision first.
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
@@ -218,7 +223,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **18 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 21 in total, 3 ticked, 18 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry).
+**Count:** 3 shipped / 0 active / **19 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 22 in total, 3 ticked, 19 open; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry, the SPEC-157 design changed one marker and added the Unicode-normalization entry).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

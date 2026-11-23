@@ -7,7 +7,7 @@
 task:
   id: SPEC-157
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -19,7 +19,7 @@ repo:
   id: crustyimg
 
 agents:
-  architect: claude-opus-4-7
+  architect: claude-opus-5-5
   implementer: claude-opus-4-7     # usually same Claude, different session
   created_at: 2026-11-22
 
@@ -322,33 +322,359 @@ Build order (orchestrator): SPEC-155 and SPEC-157 both change `src/cli/build.rs`
 `src/sink/mod.rs`, so their builds run one after the other, SPEC-155 first. SPEC-157's sink change
 sits on SPEC-155's staged-write helper.
 
+## Design
+
+Designed 2026-11-22 (Opus), on `main` at `54fcc79`. Every claim below was driven on a release build of
+`main` (`crustyimg 0.8.2`, fresh `CARGO_TARGET_DIR` in the session scratchpad, macOS arm64, APFS
+case-insensitive) and on a never-pushed prototype of this design, unless marked *reasoned*.
+
+### Design corrections to the frame
+
+1. **The resolver resolves the directory, not the file.** The frame's `resolve_destination(out, file_name)`
+   would canonicalize an existing output file too, which follows a link planted at the file name. The
+   design resolves only `out`, then joins the expanded file name as one lexical component (the sink's
+   `safe_join` already refuses a name with a separator or `..`). A link at the file name stays DEC-035's
+   job: refused by the sink, exit 5, even with `--yes`.
+2. **Overlap cannot compare `{ext}` names as spelled.** `out = "src"` with the default `{stem}.{ext}` plans
+   `src/a.{ext}`, which equals no file. The design compares an `{ext}` name against every extension the sink
+   can write (`OUTPUT_EXTENSIONS`, the range of `sink::extension_for_format`), unless the target's format
+   is pinned (literal extension or recipe `format`), in which case it compares only that extension.
+   Over-detection, the same direction as `EXT_SENTINEL` (`src/cli/build.rs:350-367`).
+3. **The collision message does not change.** The frame drafted a new wording. The existing
+   `OutputCollision` text is pinned by `tests/build_injective.rs`; it already names both sources. Only its
+   `output` changes, to the resolved root-relative path. Less churn, one fewer message to verify.
+4. **No change to `src/sink/mod.rs` and none to `apply`.** `build` stops calling `write_encoded`
+   (`src/cli/common.rs:139`, shared with `apply`) and calls a new `write_planned` in `src/cli/build.rs`,
+   which creates the resolved directory, re-resolves it, and writes through `Sink::File`'s arm of
+   `write_bytes` (`src/sink/mod.rs:642`). The frame's split trigger (the sink cannot take a resolved path
+   without changing `apply`) does not fire.
+5. **The `--watch` question is settled: a source edit inside an excluded `out` is missed, on `main` too.**
+   Driven (below). It is caused by the `out` exclusion, so it is folded in.
+6. **A residual the frame did not list: Unicode normalization.** Two sources `s1/café.png` (NFC) and
+   `s2/café.png` (NFD) into one `out` on APFS: **exit 0, one file, two lock records** (driven on the
+   prototype). Closing it needs Unicode normalization tables, which `std` lacks and nothing in
+   `Cargo.lock` provides. Not folded: filed as a follow-up (below), named in the DEC.
+7. **`src/build/watch.rs` does not change.** The resolved `out` is added to the exclusion set where the
+   watch set is built in `src/cli/build.rs` (`watch_set_for`, `:1087`), which already touches the
+   filesystem. `watch_roots` stays lexical and filesystem-free. `src/build/mod.rs` changes only a comment.
+
+### What was driven
+
+- **Case-folding rule.** APFS is case- and normalization-insensitive: writing `cafe\u0301.png` after
+  `caf\u00e9.png` replaced the first file's bytes, and `ls` showed one name. **Rule: `str::to_lowercase()`**
+  (std, the Unicode default lowercase mapping), applied to the whole path string, no normalization, no new
+  dependency. It refuses on Linux what macOS and Windows would merge by case: `dist`/`DIST`,
+  `a.png`/`A.png`, `é.png`/`É.png` (all three driven as refusals on the prototype). It over-refuses on Linux
+  any pair of names that differ only in letter case. It does **not** catch NFC vs NFD (finding 6), and full
+  case folding (`ß` vs `ss`) is not attempted (not driven; APFS and NTFS case rules were not measured for it).
+- **The build root** is `std::env::current_dir()` canonicalized (DEC-057: manifest paths resolve against the
+  working directory). Driven: a build run from `/tmp/...` (a link to `/private/tmp/...`) locks
+  `path = "dist/a.png"` on `main` and on the prototype. On Unix `getcwd` already returns the physical path,
+  so skipping the canonicalize is an equivalent mutant there (M11 below, green on every Unix row). On Windows
+  `current_dir()` can carry an 8.3 short name (`RUNNER~1`) while `canonicalize` returns `\\?\C:\Users\runneradmin\…`,
+  so the canonicalize is load-bearing there (*reasoned*; CI's Windows leg is the evidence).
+- **The longest existing prefix** (`main`, then prototype):
+  - `out` is a regular file (`out = "f"`): exit 6, `could not create output directory f: File exists`,
+    nothing written. Unchanged by this spec.
+  - `out` is a link to a file: the same, exit 6. Unchanged.
+  - A dangling link mid-`out` (`dl → ../e3-outside/new`, `out = "dl/x"`): exit 6, nothing written anywhere.
+    `canonicalize("dl")` fails, so the resolver treats `dl/x` as not existing and stays in-tree; the sink's
+    `create_dir_all` then fails on the dangling link. If the link's target appeared before the write, the
+    sink's re-resolution (below) refuses it.
+  - `..` in the non-existent tail after a link (`lnk → deep/a`, `out = "lnk/new/../d"`): the kernel writes
+    `deep/a/d/a.png` (driven on `main`), and the resolver gives `deep/a/d` (canonical `lnk` = `deep/a`,
+    then `new/..` lexically; *reasoned* from the algorithm, not driven on the prototype). Lexical `..` is exact in the tail because a directory that does not exist
+    cannot be a link.
+- **Between planning and the write.** Planning resolves once. `write_planned` runs `create_dir_all` on the
+  resolved directory, canonicalizes it again, and refuses the write (exit 5, `SinkError::Traversal`) when the
+  folded result differs from the plan. Pinned by a unit row that turns the planned `dist` into a link to
+  another temp dir after planning (prototype: refused, the other dir stays empty). DEC-035's per-file link
+  refusal stays (`reject_symlink_destination` in the `Sink::File` arm). What a race can still do: swap a
+  directory for a link after the re-check and before the open (or SPEC-155's rename). That needs a local
+  process with write access to the tree racing the build; accepted, as today.
+- **Every input is known before any work.** `prepare_target` (`src/cli/build.rs:279`) resolves each
+  target's sources (globs and folders included, `source::resolve_all`, `:332`) and reads each recipe asset
+  (`resolve_recipe_assets`, `src/cli/common.rs:254`) before `check_output_injective` runs (`:751`), and that
+  is before the lockfile load (`:756`) and `Cache::open` (`:773`). The built-in watermark font is embedded
+  bytes (`src/text/mod.rs:26`, `include_bytes!`), not a file, so it has nothing to overlap; a bundled recipe
+  name is not a file either (`load_recipe`, `src/cli/common.rs:203`). Driven: target 0 writes `dist/a.png`,
+  target 1 reads `dist/*.png`: refused on a warm tree; on a clean tree the glob is empty and the build stops
+  at exit 3 (`no images matched 'dist/*.png'`), as on `main`.
+- **Cache key and lockfile key.** `cache_key_for` (`:424`) hashes the version, features, recipe hash,
+  quality, input extension and source bytes: **no output path**, so the cache is untouched and
+  `CACHE_SCHEMA_VERSION` (`src/build/cache.rs:81`) stays 1. The lockfile's primary key is `path`
+  (`src/build/lock.rs:144-153`); its schema does not change, only the value, so `SUPPORTED_LOCK_VERSION`
+  (`:71`) stays 1. Which spellings move: `./dist` and `dist/` already lock as `dist/…` on `main`
+  (`to_slash` drops `.`), so they do not drift. `a/../dist`, a link spelling and a case that differs from
+  the directory on disk (`DIST` over `dist/`, prototype locks `dist/a.png`) drift once. Driven on an
+  in-tree link: `main` wrote `path = "dist/a.png"`; the prototype's `--check` exits 7 with
+  `drift: "build/dist/a.png": not in the lockfile` and `drift: "dist/a.png": in the lockfile, not built`;
+  one plain `build` rewrites it, and `--check` then exits 0.
+- **`--check` plans too.** A refused manifest under `--check`: exit 2, every file and the lockfile
+  byte-identical (sha256 before and after), no `.crustyimg/` created. The refusal runs before `load_lock`.
+- **`--watch`** (background watchers, 4–5 s lifetimes, PIDs killed; none left running):
+  - linked `out` under a watched source root (`outlink → src/gen`, `source = "src/*.png"`): `main` **19 builds
+    in 4 s**; prototype **1**.
+  - source edit inside `out` (`source = "src/a.png"`, `out = "src"`, `name = "{stem}_w.{ext}"`, edit
+    `src/a.png` after 2 s): `main` 2 builds, the second `(1 cached, 0 rebuilt)`, so it ran before the edit
+    and the edit was **missed**; prototype with the exclusion only: 1 build, missed. With the fix: rebuilt.
+  - control, source outside `out`: 2 builds, both `(0 cached, 1 rebuilt)`, on both binaries.
+  The fix: an event inside an excluded directory still triggers when it names a file the build reads. That
+  is safe because the build now refuses an output that is a file it reads, so its own writes never match.
+- **Windows** (*reasoned*, CI only). `std::fs::canonicalize` on Windows returns the verbatim form
+  (`\\?\C:\…`); the root is canonicalized the same way, so `starts_with`/`strip_prefix` compare like forms.
+  NTFS is case-insensitive, so the case rows assert what the filesystem does. The Windows-only unit rows
+  assert `resolve_out_dir(root, "dist\\")` equals `root.join("dist")` and that `root_relative` of it is
+  `"dist"` under a `\\?\` root. The build reads the Windows leg's red set off its PR.
+- **Order of errors.** First failure wins, in this order: manifest validation (`..`/absolute `out`,
+  `Target::validate`, exit 2) → per target in manifest order, `prepare_target` (recipe, assets, sources:
+  exit 1/2/3) → per target, out-of-tree link → collision over every output → overlap per output in target
+  then input order (`.crustyimg/` first, then read files). Pinned by two rows: a collision and an overlap in
+  one manifest reports the collision; a `..` escape and an overlap reports the escape.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/cli/build.rs` (`prepare_target` :279, `output_collision_key` :376,
+  `check_output_injective` :393, `cache_key_for` :424, `to_slash` :458, `lock_output_path` :473,
+  `lock_record` :489, `build_one` :548 with `write_encoded` calls at :572 and :625, `run_build` :738 with
+  the check at :751, the post-write collision check :893-912, `recipe_asset_paths` :1064, `watch_set_for`
+  :1087, `watch_impl` :1099 with the exclusion filter at :1132 and the refresh at :1146);
+  `src/cli/common.rs` (`write_encoded` :139, `load_recipe` :203, `resolve_recipe_assets` :254);
+  `src/sink/mod.rs` (`safe_join` :426, `write_bytes` :632, `Sink::File` arm :642); `src/cli/mod.rs`
+  (`OutputCollision` :816, `code()` :885, `exit_code_mapping_is_total` :1416); `src/build/mod.rs`
+  (`Target::validate` :249, `find_output_collision` :342); `src/build/watch.rs` (`watch_roots` :105,
+  `is_excluded` :148); `tests/build_watch.rs` (the `spawn_watch` harness :95 and `poll_until` :130).
+- **External APIs:** none.
+- **Related code paths:** `src/cli/build.rs`, `src/cli/mod.rs`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `tests/build_destinations.rs`: every integration row below.
+- **Files modified:**
+  - `src/cli/build.rs`: the resolver, `check_destinations`, `write_planned`, the lock path, the watch
+    exclusion and read carve-out, unit rows.
+  - `src/cli/mod.rs`: three error variants, their `code()` arms, `exit_code_mapping_is_total`, the `build`
+    and `--check` help text.
+  - `src/build/mod.rs`: the `Target::validate` comment's "RESIDUAL" sentence (now closed).
+  - `tests/build_watch.rs`: two watch rows.
+  - `docs/cli-reference.md`, `SECURITY.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md`.
+  - `decisions/DEC-<next>-a-build-destination-has-one-identity-resolved-before-anything-is-written.md` (new)
+    and `decisions/DEC-061-*.md` (amendment), both at **ship** (see Implementation Context).
+- **New exports:** none (`pub(super)`/private only).
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its tests (FT ids under Failing Tests). Messages are printed by `run()` as `error: <message>`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 `out` is the source's own folder: refused.** `source = "src/a.png"`, `out = "src"`: exit 2,
+  `target #0 would overwrite "src/a.png", which target #0 reads as a source`, every file byte-identical, no
+  lockfile, no `.crustyimg/`. (FT-1)
+- [ ] **AC-2 `out = "."` beside its source: refused** with the same message for `a.png`. (FT-2)
+- [ ] **AC-3 `..` aliases collide, with and without the intermediate folder.** Targets `dist` and
+  `alias/../dist`: exit 2, `output collision: "dist/a.{ext}" written by both "src/a.png" and "src2/a.png" — two
+  inputs map to one output (disambiguate the name template, e.g. {parent}_{stem})`, nothing written, and with
+  no `alias/` beforehand none is created. (FT-3, FT-4)
+- [ ] **AC-4 The four `.` spellings still collide** (`./dist`, `dist/`, `dist/.`, `dist//` against `dist`),
+  same message. (FT-5)
+- [ ] **AC-5 Letter case is ignored on every OS,** for a folder (`dist`/`DIST`), an ASCII file name
+  (`a.png`/`A.png`) and a non-ASCII one (`é.png`/`É.png`): each is the collision message, exit 2. (FT-6,
+  FT-7, FT-8)
+- [ ] **AC-6 One target's output may not be another target's source,** named directly or found through a
+  glob: exit 2, `target #0 would overwrite "dist/a.png", which target #1 reads as a source; one target's output
+  cannot be another target's source`. (FT-9, FT-10)
+- [ ] **AC-7 The recipe file is refused:** `target #0 would overwrite "r.toml", which is the recipe of target #0`.
+  (FT-11)
+- [ ] **AC-8 A watermark image is refused:** `… "logo.png", which target #0's recipe reads as its watermark image`.
+  (FT-12)
+- [ ] **AC-9 A watermark font is refused:** `… "go.ttf", which target #0's recipe reads as its watermark font`.
+  (FT-13)
+- [ ] **AC-10 The manifest is refused:** `… "crustyimg.build.toml", which is the build manifest`. (FT-14)
+- [ ] **AC-11 The lockfile is refused:** `… "crustyimg.build.lock", which is the build lockfile`. (FT-15)
+- [ ] **AC-12 `.crustyimg/` is refused:** `target #0 would write ".crustyimg/x/a.{ext}" inside .crustyimg/,
+  the build's cache directory`. (FT-16)
+- [ ] **AC-13 A refused build changes nothing,** including an existing lockfile, cache and outputs from an
+  earlier build (FT-17), and under `--check` it refuses with the same exit 2 and message and writes nothing
+  (FT-18). Every refusal row (FT-1 to FT-16, FT-19, FT-20, FT-23 to FT-25) also snapshots the whole tree
+  before and after.
+- [ ] **AC-14 Order of errors:** a collision is reported before an overlap (FT-19); a `..` escape before an
+  overlap (FT-20).
+- [ ] **AC-15 The lockfile records the root-relative path:** `out = "./dist/"` and `out = "a/../dist"` lock as
+  `dist/a.png` and `dist/b.png`, and no path holds `..` (FT-21); an in-tree link locks the real folder
+  (FT-26); a build started through a linked working directory locks `dist/a.png` (FT-27).
+- [ ] **AC-16 An older lockfile drifts once, on paths only:** a lock naming `a/../dist/a.png` gives `--check`
+  exit 7 with `drift: "dist/a.png": not in the lockfile` and `drift: "a/../dist/a.png": in the lockfile, not
+  built`; one plain `build` rewrites it to the same bytes as a fresh build; `--check` then exits 0. (FT-22)
+- [ ] **AC-17 Links (Unix):** an in-tree link alias collides (FT-23); `..` past a link collides on the
+  kernel's path, `deep/dist/a.{ext}` (FT-24); an `out` that resolves outside the tree through a link is refused
+  with exit 2, `target #0's out "link/x" resolves outside the build tree through the link "link"; build inside
+  the tree and copy the outputs where you need them`, and nothing is created inside or outside (FT-25); an
+  in-tree link builds (FT-26).
+- [ ] **AC-18 The sink re-resolves the folder before writing:** a planned folder that became a link
+  elsewhere is refused and the other folder stays empty (FT-28, unit, Unix).
+- [ ] **AC-19 `--watch` (Unix):** a linked `out` under a watched source root builds once in a 3 s quiet
+  window, not in a loop (FT-29); an edit to a source inside an `out` folder rebuilds it (FT-30).
+- [ ] **AC-20 Exit 2 for every new refusal;** `exit_code_mapping_is_total` lists each new variant. (FT-31)
+- [ ] **AC-21 The case fold covers non-ASCII letters** and `OUTPUT_EXTENSIONS` covers every extension
+  `extension_for_format` returns. (FT-32, FT-33)
+- [ ] **AC-22 Windows:** `dist\` resolves to `root\dist` and renders `dist` under a `\\?\` root. (FT-34,
+  Windows only, CI)
+- [ ] **AC-23 Every manifest without an alias, overlap or out-of-tree link builds as before,** byte-identical
+  outputs and the same lockfile: every existing target in `tests/build.rs`, `tests/build_lock.rs`,
+  `tests/build_cache.rs`, `tests/build_injective.rs`, `tests/build_watermark_cache.rs`,
+  `tests/build_watch.rs` and `tests/build_refuses_output_flags.rs` stays green unchanged, and the existing
+  unit rows `collision_key_*` and `lock_output_path_expands_the_real_ext_and_slashes` keep their literal
+  expected values (their call shape may change). No new pin is needed: `lock_output_path_*` and
+  `tests/build_lock.rs` already pin paths by literal.
+- [ ] **AC-24 Docs:** each sentence under "Docs" below is present verbatim, and verify drives each.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+All in `tests/build_destinations.rs` unless named. Expected values are literals in the test, never computed by
+the code under test. Fixtures: a 2×2 PNG `src/a.png`; recipe `r.toml` = `resize mode = "exact"` to 1×1; the
+font row copies `assets/fonts/Go-Regular.ttf` (the repo's own) into the temp tree. A helper `refused(dir,
+args, message)` snapshots every file (bytes; links recorded as links, not followed) before and after, asserts
+exit 2 and that stderr contains `error: <message>\n`, and asserts the snapshots are equal.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+Every OS:
+- **FT-1** `out_is_the_source_folder_is_refused` (AC-1).
+- **FT-2** `out_dot_beside_its_source_is_refused` (AC-2).
+- **FT-3** `dotdot_alias_without_the_alias_dir_is_a_collision`: also asserts `alias/` does not exist after (AC-3).
+- **FT-4** `dotdot_alias_with_the_alias_dir_is_a_collision` (AC-3).
+- **FT-5** `cur_dir_spellings_still_collide`: four spellings, a fresh tree each (AC-4).
+- **FT-6** `out_dirs_differing_only_in_case_collide` (AC-5).
+- **FT-7** `file_names_differing_only_in_case_collide`: `src/a.png` and `src2/A.png` into `dist` (AC-5).
+- **FT-8** `non_ascii_names_differing_only_in_case_collide`: `s1/é.png`, `s2/É.png` (U+00E9, U+00C9) (AC-5).
+- **FT-9** `another_targets_source_is_refused`: warm `dist/a.png` exists; target 1 `source = "dist/a.png"` (AC-6).
+- **FT-10** `another_targets_glob_source_is_refused`: target 1 `source = "dist/*.png"` (AC-6).
+- **FT-11** `the_recipe_file_is_refused`: `out = "."`, `name = "r.toml"` (AC-7).
+- **FT-12** `a_watermark_image_is_refused`: recipe `watermark image = "logo.png"`, `name = "logo.{ext}"` (AC-8).
+- **FT-13** `a_watermark_font_is_refused`: recipe `watermark text = "x" font = "go.ttf"`, `name = "go.ttf"` (AC-9).
+- **FT-14** `the_manifest_is_refused` (AC-10). **FT-15** `the_lockfile_is_refused` (AC-11).
+- **FT-16** `the_cache_dir_is_refused`: `out = ".crustyimg/x"` (AC-12).
+- **FT-17** `a_refused_build_keeps_the_lockfile_and_cache_as_they_were`: build `out = "dist"` (exit 0), then
+  switch the manifest to `out = "src"` and refuse (AC-13).
+- **FT-18** `check_refuses_the_same_way_and_writes_nothing`: as FT-17, delete `dist/` and `.crustyimg/`,
+  then `build --check` (AC-13).
+- **FT-19** `a_collision_is_reported_before_an_overlap`: targets `src2/a.png → src` and `src/a.png → src`
+  (both collide on `src/a.{ext}` and overlap `src/a.png`); expects the collision message with first
+  `"src2/a.png"` (AC-14).
+- **FT-20** `a_dotdot_escape_is_reported_before_an_overlap`: targets `src/a.png → src` and `→ ../x`; expects
+  `` `out` escapes the build tree via `..`: ../x `` (AC-14).
+- **FT-21** `the_lockfile_names_the_root_relative_path` (AC-15).
+- **FT-22** `a_lockfile_with_an_old_spelling_drifts_once_on_paths`: build `out = "a/../dist"`, then
+  rewrite the lock's `path = "dist/a.png"` to `path = "a/../dist/a.png"` (what `main` writes for that `out`;
+  driven), then `--check`, `build`, compare the lock with the fresh one, `--check` (AC-16).
+
+`#[cfg(unix)] mod links` in the same file:
+- **FT-23** `an_in_tree_link_alias_is_a_collision`: `link → dist` (AC-17).
+- **FT-24** `dotdot_past_a_link_is_a_collision`: `link → deep/a`, `out = "link/../dist"` vs `deep/dist` (AC-17).
+- **FT-25** `a_link_out_of_the_tree_is_refused_and_nothing_is_written`: `link →` a second `TempDir`; asserts that
+  dir is still empty (AC-17).
+- **FT-26** `an_in_tree_link_builds_and_locks_the_real_path`: `dist → build/dist`; exit 0,
+  `build/dist/a.png` exists, lock holds `path = "build/dist/a.png"` (AC-15, AC-17).
+- **FT-27** `a_build_started_through_a_linked_path_locks_root_relative_paths`: run with `current_dir` = a link
+  to the tree (AC-15).
+
+`src/cli/build.rs` unit rows:
+- **FT-28** `write_planned_refuses_a_dir_that_became_a_link_after_planning` (`#[cfg(unix)]`): plan `dist`
+  (absent), then `symlink(other_tempdir, root/dist)`, call `write_planned`; asserts `Err` and the other dir
+  is empty (AC-18).
+- **FT-32** `fold_case_lowers_every_letter_not_only_ascii`: `"DIST/A.png"` → `"dist/a.png"`;
+  `"\u{c9}t\u{c9}.PNG"` → `"\u{e9}t\u{e9}.png"` (AC-21).
+- **FT-33** `output_extensions_cover_every_format_the_sink_names`: every `ImageFormat::all()` maps to a member
+  (AC-21).
+- **FT-34** `#[cfg(windows)] resolve_out_dir_on_windows`: with `root = canonicalize(tempdir)` (starts `\\?\`),
+  `resolve_out_dir(&root, "dist\\") == root.join("dist")` and `root_relative(&root, &that) == "dist"` (AC-22).
+
+`src/cli/mod.rs` unit row:
+- **FT-31** `exit_code_mapping_is_total` gains one row per new variant, each `== 2` (AC-20).
+
+`tests/build_watch.rs` (`#![cfg(feature = "watch")]`, Unix rows behind `#[cfg(unix)]`), on its
+`spawn_watch`/`poll_until` harness:
+- **FT-29** `a_linked_out_under_a_source_root_does_not_rebuild_itself`: `outlink → src/gen`,
+  `source = "src/*.png"`, `out = "outlink"`; wait for the first `built ` line, then a 3 s window; asserts
+  exactly one `built ` line (AC-19). Negative control on `main`: 19 builds in 4 s (driven).
+- **FT-30** `a_source_edit_inside_out_rebuilds`: `source = "src/a.png"`, `out = "src"`,
+  `name = "{stem}_w.{ext}"`; after the first build, write a 3×3 `src/a.png`; `poll_until` `src/a_w.png`'s
+  summary reads `(0 cached, 1 rebuilt)` a second time (AC-19). On `main` the second summary is
+  `(1 cached, 0 rebuilt)` or absent (driven).
+
+### Baseline the build records before changing code (trap 13)
+
+Run FT-1 to FT-30 against `main`'s code (tests added, `src/` untouched) and quote each RED row's failure.
+Expected (driven: the Trap-14 row below): FT-1 to FT-4, FT-6 to FT-18, FT-21 to FT-26, FT-29 and FT-30 red
+**for their reason** (exit 0 or a different message, or the snapshot differs; FT-22 fails at its `assert_ne`,
+because `main` already writes the old spelling). FT-5, FT-19 and FT-20 are **green on `main`** (regressions
+and an order that already hold; FT-19 and FT-20 pin that the new passes do not change it). FT-27 is green on
+`main` (`getcwd` is physical) and pins that the identity keeps it so. FT-28 and FT-31 to FT-34 do not compile on `main` (new functions); that is
+their red. A row red for another reason (a fixture that fails to decode, a watermark that does not fit) is a
+broken row: fix the row, not the code.
+
+### Mutation table (trap 12): apply each alone, record every test red
+
+Driven on the prototype (macOS arm64): each mutant applied alone to `src/cli/build.rs`, then one full
+`cargo test --no-fail-fast` of every target with stdout redirected to a file; the red set below is every
+failing test name read off that run (`grep -E '^    [A-Za-z_:]+$'` of the failure summary), not reasoned.
+The prototype held FT-29/FT-30 in `tests/build_destinations.rs` (`mod watch`); the build puts them in
+`tests/build_watch.rs`. FT-31 and FT-34 were not prototyped. Unless listed, every other test stayed green
+(the baseline full run was rc=0).
+
+- **M1, the resolver skips canonicalizing (lexical only).** In `resolve_out_dir`:
+  `for n in (1..=parts.len()).rev() {` → `for n in (1..=root.components().count()).rev() {`.
+  Red: FT-23, FT-24, FT-25, FT-26. Green: FT-3, FT-4 (no link involved). *Driven.*
+- **M2, the tail keeps `..`.** In `resolve_out_dir`, the tail's `Component::ParentDir => { resolved.pop(); }`
+  → `Component::ParentDir => { resolved.push(".."); }`. Red: FT-3, FT-21, FT-22. Green: FT-4 (with `alias/`
+  present, `alias/..` is part of the canonicalized prefix). *Driven.*
+- **M3, no case fold.** `fold_case`: `path.to_lowercase()` → `path.to_owned()`. Red: FT-6, FT-7, FT-8,
+  FT-32. *Driven* (APFS; on Linux the same rows red, since they compare strings: *reasoned*).
+- **M3b, ASCII-only fold** (the rule not picked). `path.to_lowercase()` → `path.to_ascii_lowercase()`.
+  Red: FT-8, FT-32. Green: FT-6, FT-7. *Driven.*
+- **M4, overlap ignores recipe assets.** In `reads_of`: `for step in &p.recipe.steps {` →
+  `for step in p.recipe.steps.iter().take(0) {`. Red: FT-12, FT-13. *Driven.*
+- **M5, overlap ignores recipe files.** In `reads_of`: `if Path::new(&p.target.recipe).is_file() {` →
+  `if false {`. Red: FT-11. *Driven.*
+- **M6, chaining allowed** (overlap skips other targets' sources; also the frame's "only within one
+  target"). In `check_destinations`: `if let Some(what) = reads.get(&fold_case(&abs.to_string_lossy())) {`
+  → `… reads.get(…).filter(|w| !w.ends_with("reads as a source") || w.contains(&format!("#{i} "))) {`.
+  Red: FT-9, FT-10. *Driven.*
+- **M7, the refusals run after phase 2.** In `run_build`:
+  `check_destinations(&mut prepared, &registry, Path::new(path))?;` →
+  `let late = check_destinations(&mut prepared, &registry, Path::new(path));` and `late?;` inserted after
+  `bar.finish_and_clear();`. Red (24): FT-1 to FT-19, FT-23, FT-24, FT-25, and the existing
+  `tests/build_injective.rs` rows `colliding_stems_in_one_target_are_rejected` and
+  `collision_across_two_targets_is_rejected`. Each FT row fails at the snapshot assertion ("a refused build
+  must leave every file as it was"), its reason. Green: FT-20 (manifest validation runs first), FT-21,
+  FT-22, FT-26, FT-27. *Driven.*
+- **M8, the lock `path` uses the `out` spelling.** In `lock_record`: `lock_output_path(&prepared.rel_dir,` →
+  `lock_output_path(&to_slash(Path::new(&prepared.target.out)),`. Red: FT-21, FT-22, FT-26. *Driven.*
+- **M9, the watch exclusion stays lexical.** In `watch_set_for`: `set.excluded.push(dir);` → `let _ = dir;`.
+  Red: FT-29. *Driven.*
+- **M10, no root containment.** In `check_destinations`: `if !dir.starts_with(&root) {` → `if false {`.
+  Red: FT-25. *Driven.*
+- **M11, the root is not canonicalized.** In `build_root`: `std::fs::canonicalize(cwd).map_err(…)` →
+  `Ok(cwd)`. Red: **none** on macOS. `getcwd` returns the physical path on Unix (FT-27 runs through a linked
+  cwd and stays green), so this is an equivalent mutant on Unix. *Driven* (green); on Windows *reasoned*:
+  `current_dir()` can be `C:\Users\RUNNER~1\…` while `canonicalize` gives `\\?\C:\Users\runneradmin\…`, so
+  `starts_with` fails and every `tests/build*.rs` build row on that leg would be refused as out-of-tree. The
+  build reads that leg once with the mutant applied, if CI time allows; FT-34 is the standing row.
+- **M12, the out-of-tree check runs after the sink creates directories.** `if !dir.starts_with(&root) {` →
+  `if false {`, and in `write_planned` after the canonicalize:
+  `if !now.starts_with(build_root()?) { return Err(CliError::Usage("outside".into())); }`.
+  Red: FT-25 (the outside dir is no longer empty, and the exit is 6). *Driven.*
+- **M13, no read carve-out in `--watch`.** In `watch_impl`: `&& !is_read(p, &reads))` → `)`.
+  Red: FT-30. *Driven.*
+- **M14, no re-resolution before the write.** In `write_planned`:
+  `if fold_case(&now.to_string_lossy()) != fold_case(&out_dir.to_string_lossy()) {` → `if false {`.
+  Red: FT-28. *Driven.*
+- **Trap 14, `main`'s `src/cli/build.rs` restored verbatim** (`git show origin/main:src/cli/build.rs`; the
+  prototype's `src/cli/mod.rs` kept, so it compiles). Red (25): FT-1, FT-2, FT-3, FT-4, FT-6 to FT-18,
+  FT-21 to FT-26, FT-29, FT-30. Green: FT-5, FT-19, FT-20, FT-27 (behaviour `main` already has). FT-28,
+  FT-32, FT-33 do not exist (they live in the replaced file's test module). *Driven.*
+
+Windows (*reasoned*, CI only): FT-34 is the only Windows-only row. On the Windows leg, FT-6 to FT-8 assert
+what NTFS does anyway; FT-23 to FT-27 and FT-28 are `#[cfg(unix)]` and do not run. Expect the Windows leg's
+red set at baseline to be the Trap-14 set minus the Unix rows.
 
 ## Implementation Context
 
@@ -356,39 +682,366 @@ Written during **design**, BEFORE build. The implementer's job in
 the build cycle. It is the equivalent of a handoff document, folded
 into the spec since there is no separate receiving agent.*
 
+### Design calls (settled)
+
+**The code shape.** All in `src/cli/build.rs` unless named; line numbers are `main` at `54fcc79`. A prototype
+of exactly this shape passed the full `cargo test --no-fail-fast` on macOS (rc=0) with FT-1 to FT-33 green;
+the build writes its own code from this text.
+
+1. **`build_root() -> Result<PathBuf, CliError>`** (new, beside `check_output_injective` :393):
+   `fs::canonicalize(env::current_dir()?)`. An error is `CliError::Image(ImageError::Io(_))` (exit 3), the
+   existing mapping for an unreadable path.
+2. **`fold_case(&str) -> String`** (new): `s.to_lowercase()`. The one comparison rule for collisions,
+   overlaps and the sink's re-check. Comment says why: macOS and Windows merge names by case.
+3. **`resolve_out_dir(root: &Path, out: &str) -> PathBuf`** (new): drop `CurDir` components of `out`;
+   `full = root.join(rest)`; walk `n` from `full.components().count()` down to 1, and at the first prefix
+   whose `fs::canonicalize` succeeds, take that canonical path and push each remaining component, popping
+   on `ParentDir`. Returns an absolute path. Comment the lexical-tail argument (a directory that does not
+   exist cannot be a link).
+4. **`root_relative(root, path) -> String`** (new): `to_slash(path.strip_prefix(root))`, `""` for the root.
+   **`join_rel(dir, name)`** (new): `name` when `dir` is empty, else `dir/name`.
+5. **`first_link(root, out) -> String`** (new): the first prefix of `out`, as spelled, whose
+   `symlink_metadata` is a link; used only in the message.
+6. **`PreparedTarget`** (:222) gains `out_dir: PathBuf` (resolved, absolute) and `rel_dir: String`
+   (`root_relative`). `prepare_target` (:279) leaves them empty; `check_destinations` fills them.
+7. **`output_collision_key`** (:376) becomes `(rel_dir: &str, template: &str, input) -> String` =
+   `join_rel(rel_dir, expand_template(template, stem, EXT_SENTINEL, path))`. Its doc comment drops "NOT
+   canonicalized".
+8. **`check_output_injective`** (:393) takes `root` too, keys `find_output_collision` on
+   `fold_case(output)`, and reports the first claimant's unfolded output (a `HashMap<folded, shown>`).
+   `find_output_collision` (`src/build/mod.rs:342`) is unchanged.
+9. **`check_destinations(prepared: &mut [PreparedTarget], registry, manifest_path: &Path)`** (new),
+   replacing the call at :751, before the lockfile load (:756) and `Cache::open` (:773). In order:
+   (a) per target, `resolve_out_dir`; if `!dir.starts_with(&root)` → `OutputOutsideTree`; else set
+   `out_dir`/`rel_dir`; (b) `check_output_injective`; (c) build the read set (10) and, per target, per
+   input, the planned name `join_rel(rel_dir, expand(…, EXT_SENTINEL, …))`: if its folded first component
+   is `.crustyimg` → `OutputInCacheDir`; else for each extension (the pinned one for
+   `OutputFormatPlan::Pinned(fmt)`, `extension_for_format(fmt)`; otherwise every entry of
+   `OUTPUT_EXTENSIONS`) look up `fold_case(root.join(name with {ext} replaced))` in the read set →
+   `OutputOverlap`.
+10. **The read set** (new fn `reads_of`): `HashMap<folded absolute path, clause>`, first insert wins, in this
+    order: the manifest (`which is the build manifest`), `crustyimg.build.lock` (`which is the build
+    lockfile`), then per target in manifest order: each resolved `Input::Path` (`which target #j reads as
+    a source`), the recipe when `Path::new(&target.recipe).is_file()` (`which is the recipe of target
+    #j`), and each `registry.asset_keys(op)` value on the prepared recipe's steps (`which target #j's recipe
+    reads as its {op} {key}`, so `watermark image` / `watermark font`). Each path is
+    `fs::canonicalize(p)` or, when it does not exist (the lockfile), `root.join(p)`. When the clause is a
+    source clause and `j` is not the writing target, append `; one target's output cannot be another
+    target's source`.
+11. **`OUTPUT_EXTENSIONS: &[&str]`** (new const): `png jpg gif bmp tiff ico webp pnm tga dds hdr exr ff avif
+    qoi bin`, the range of `sink::extension_for_format` (`src/sink/mod.rs:332`). FT-33 pins it.
+12. **`write_planned(bytes, ext, input, out_dir, template, overwrite)`** (new, replaces both `write_encoded`
+    calls in `build_one`, :572 and :625; `build_one` reads `prepared.out_dir`): `create_dir_all(out_dir)`
+    (error → `SinkError::OutDirCreate`, exit 5 as today); `now = canonicalize(out_dir)`; if
+    `fold_case(now) != fold_case(out_dir)` → `SinkError::Traversal(out_dir)` (exit 5); `path =
+    safe_join(out_dir, expand_template(template, stem, ext, path))`; `Sink::File { path, format: None }
+    .write_bytes(bytes, …, ext, overwrite, &mut io::sink())`. That arm runs `reject_symlink_destination` and
+    `guard_overwrite` (DEC-035) and, after SPEC-155, its staged-write helper: **the helper receives the
+    resolved file path, and its temp goes in `path.parent()`, the resolved directory.** `write_encoded`
+    stays for `apply` (`src/cli/common.rs:129`), unchanged.
+    ⚠ SPEC-155's design was not on `main` when this was written. After rebasing onto SPEC-155's merge,
+    re-check that the `Sink::File` arm of `write_bytes` calls the helper (SPEC-155 frame Q2 lists it,
+    `src/sink/mod.rs:645` on `main`); if SPEC-155 changed `write_bytes`'s signature, adapt the one call.
+13. **`lock_output_path`** (:473) becomes `(rel_dir, template, input, ext)`; `lock_record` (:489) passes
+    `&prepared.rel_dir`. The post-write collision check (:893-912) keys on `fold_case(r.path)` too.
+14. **`--watch`.** `watch_set_for` (:1087) appends each target's `resolve_out_dir(build_root, out)` to
+    `set.excluded` (keep `watch_roots`' lexical entries). New `watch_reads(manifest, manifest_path,
+    registry) -> Vec<String>`: folded canonical paths of the manifest, each target's resolved sources
+    (`source::resolve_all(…, OnEmpty::Skip)`, errors ignored), recipe files and `recipe_asset_paths`. New
+    `is_read(event, &reads)`: canonicalize the event path (or keep it) and fold. The filter at :1132
+    becomes `batch.iter().all(|p| is_excluded(p, &set.excluded) && !is_read(p, &reads))`; `reads` is
+    computed at start (beside :1109) and refreshed with the set (:1146). Comment: the build refuses an
+    output that is one of these files, so its own writes never match.
+15. **Errors** (`src/cli/mod.rs`, after `OutputCollision` :816), each with a `code()` arm `=> 2` beside :885
+    and a row in `exit_code_mapping_is_total` (:1416):
+    - `OutputOverlap { target: usize, output: String, what: String }`,
+      `#[error("target #{target} would overwrite \"{output}\", {what}")]`;
+    - `OutputInCacheDir { target: usize, output: String }`,
+      `#[error("target #{target} would write \"{output}\" inside .crustyimg/, the build's cache directory")]`;
+    - `OutputOutsideTree { target: usize, out: String, link: String }`,
+      `#[error("target #{target}'s out \"{out}\" resolves outside the build tree through the link \"{link}\"; build inside the tree and copy the outputs where you need them")]`.
+    Paths are printed with `Display`, never `{:?}` (the Windows `\\` lesson in `OutputCollision`'s doc).
+16. `src/build/mod.rs`, `Target::validate` comment (:286-289): replace the "RESIDUAL: a pre-existing symlink
+    … (DEC-061)" sentences with "A link inside `out` is resolved at planning, and an `out` that resolves
+    outside the tree is refused there." (No id in the comment.) `Target.out`'s doc (:178) is already true.
+
+**Every message, verbatim** (stderr line `error: <message>`, exit 2 unless noted):
+- collision (two inputs, any targets; unchanged text, resolved output):
+  `output collision: "dist/a.{ext}" written by both "src/a.png" and "src2/a.png" — two inputs map to one output (disambiguate the name template, e.g. {parent}_{stem})`
+- a source of the same target: `target #0 would overwrite "src/a.png", which target #0 reads as a source`
+- chaining: `target #0 would overwrite "dist/a.png", which target #1 reads as a source; one target's output cannot be another target's source`
+- recipe file: `target #0 would overwrite "r.toml", which is the recipe of target #0`
+- watermark image: `target #0 would overwrite "logo.png", which target #0's recipe reads as its watermark image`
+- watermark font: `target #0 would overwrite "go.ttf", which target #0's recipe reads as its watermark font`
+- manifest: `target #0 would overwrite "crustyimg.build.toml", which is the build manifest`
+- lockfile: `target #0 would overwrite "crustyimg.build.lock", which is the build lockfile`
+- under `.crustyimg/`: `target #0 would write ".crustyimg/x/a.{ext}" inside .crustyimg/, the build's cache directory`
+- out-of-tree link: `target #0's out "link/x" resolves outside the build tree through the link "link"; build inside the tree and copy the outputs where you need them`
+- the sink's re-check (exit 5, existing text): `output path escapes the target directory: <resolved dir>` (`SinkError::Traversal`, `src/sink/mod.rs:229`).
+No message names a spec, stage or DEC.
+
+**What pins "every other manifest builds the same"** (AC-23): the existing build suites, unchanged and green
+on the prototype's full run (`tests/build.rs`, `build_lock.rs`, `build_cache.rs`, `build_injective.rs`,
+`build_watermark_cache.rs`, `build_watch.rs`, `build_refuses_output_flags.rs`), plus the literal-valued unit
+rows `collision_key_ignores_output_ext_but_not_the_rest`, `collision_key_normalizes_the_out_dir`,
+`lock_output_path_expands_the_real_ext_and_slashes`. `cache_key_for` does not read the output path, so cache
+keys and `key = …` lock values cannot move. The lock `path` moves only for `..`, link and on-disk-case
+spellings (AC-16). No new golden.
+
+### The new DEC (ship writes the file; take the next free id at ship time)
+
+File: `decisions/DEC-<next>-a-build-destination-has-one-identity-resolved-before-anything-is-written.md`.
+SPEC-155's design also adds a DEC and others run alongside, so **do not reserve a number now**: at ship,
+`ls decisions/` and take the next free id. Front matter `affected_scope` in **block-list form** (HANDOFF
+trap 7):
+
+```yaml
+affected_scope:
+  - src/cli/build.rs
+  - src/cli/mod.rs
+  - src/build/mod.rs
+  - tests/build_destinations.rs
+  - tests/build_watch.rs
+  - docs/cli-reference.md
+  - SECURITY.md
+  - skills/crustyimg/SKILL.md
+```
+
+Body (`## Decision`):
+
+> A `build` destination has one identity, computed once at planning, before the lockfile is read, the cache
+> is opened or anything is written. Each target's `out` is resolved against the build root (the working
+> directory, canonicalized): `.` components are dropped, the longest leading part that exists is
+> canonicalized (links followed, `..` after a link applied as the kernel applies it, on-disk case taken), and
+> the part that does not exist yet is appended with `..` applied lexically. The output's file name is joined
+> as one component and is never followed. Planning, the collision check, the overlap check, the sink, the
+> lockfile and the `--watch` exclusion all use this identity.
+>
+> 1. Collisions and overlaps compare the identity after `str::to_lowercase`, on every OS. Two outputs that
+>    differ only in letter case are one output, even on a case-sensitive filesystem.
+> 2. A destination may not be a file the build reads: any target's resolved source, any target's recipe
+>    file, any file a recipe step names through an asset key (a watermark's `image` or `font`), the manifest,
+>    or the lockfile. So one target's output may not be another target's source. A destination may not lie
+>    under `.crustyimg/`. An output name ending in `{ext}` is compared under every extension the build can
+>    write, unless the target's format is pinned.
+> 3. An `out` that resolves outside the build root is refused. A link to a directory inside the tree is
+>    allowed and is de-aliased by the identity. There is no opt-in for an out-of-tree link; build inside the
+>    tree and copy.
+> 4. Every refusal above exits 2 and writes nothing, the same class as a malformed manifest.
+> 5. The lockfile records each output by its root-relative identity with `/` separators. A lockfile
+>    written before this decision with a `..`, link or off-case spelling drifts once, on paths only.
+> 6. The sink creates the resolved directory, resolves it again, and refuses the write (exit 5) if it moved.
+>    DEC-035's per-file link refusal stays the last layer. A swap after that re-check is not covered.
+> 7. `--watch` excludes the resolved `out` of every target, and an event on a file the build reads always
+>    triggers a rebuild, even inside an excluded directory (rule 2 guarantees the build's own writes are never
+>    such a file).
+>
+> Not covered: two names that differ only in Unicode normalization (NFC and NFD) are one file on macOS and
+> two identities here; that needs normalization tables `std` does not have. Destinations of `apply` and the
+> single-file verbs (`-o`, `--out-dir`) are not resolved this way.
+
+`## Context`: the two P1 findings (`docs/reviews/2026-11-10-external-code-review.md`), the frame's driven
+premise (`out = "src"` replaced the source at exit 0; `alias/../dist` gave one file, two lock records and a
+passing `--check`). `## Consequences`: the four CHANGELOG "Changed" items; DEC-061's symlink residual and
+the exception in its accepted risk 3 are closed. `## Alternatives considered`: lexical-only identity (wrong:
+`link/..` is `deep`, not `.`, driven); refusing any link in `out` (breaks in-tree conveniences); keeping
+out-of-tree links (keeps the reviewer's write); full Unicode case folding or normalization (needs a new
+dependency). Links: `related: DEC-035, DEC-057, DEC-059, DEC-060, DEC-061`.
+
+### DEC-061's amendment (ship applies it; `main` stays true until the code lands)
+
+In `decisions/DEC-061-*.md`:
+- After the "**Residual (symlink) — un-caught, accepted, filed.**" bullet's last sentence ("… filed as
+  backlog item #10, not done here."), append:
+  > **Closed by DEC-<next> (<ship date>):** `build` now resolves each `out` with links followed before
+  > anything is written and refuses one that resolves outside the canonical build root (exit 2). In-tree
+  > links still work. `dist → ramdisk` is refused; build inside the tree and copy.
+- In accepted risk 3, replace the sentence beginning "**One accepted exception:** a symlinked *out dir* still
+  escapes both layers" through "filed as backlog item #10." with:
+  > **The symlinked-*out*-dir exception is closed by DEC-<next>:** an `out` that resolves outside the tree
+  > through a link is refused at planning.
+- Add `superseded_by` nothing (DEC-061 still stands); add `DEC-<next>` to its related list if it has one.
+
+### Docs (exact changes; the build drives every behaviour sentence, verify drives them again)
+
+1. `docs/cli-reference.md:368-370` (§build, "Unlike `apply` …"). Replace the paragraph with:
+   > Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build owns its output
+   > tree and must be re-runnable. It never overwrites a file the build reads.
+   >
+   > Before anything is written, each target's `out` is resolved inside the build tree (the working
+   > directory), with `..` applied and links followed. The build is refused with exit `2`, and writes
+   > nothing, when:
+   >
+   > - two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
+   >   link to `dist`). Letter case is ignored on every OS, so `a.png` and `A.png` in one folder collide on
+   >   Linux too;
+   > - an output would replace a file the build reads: a source of any target, a recipe file, a file a
+   >   recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
+   >   cannot be another target's source;
+   > - an output would land in `.crustyimg/`;
+   > - an `out` resolves outside the build tree through a link. A link to a folder inside the tree is fine;
+   >   to publish outside the tree, build inside it and copy.
+   >
+   > When a name ends in `{ext}` and the format is not pinned, every extension the build can write is checked.
+   Exit paths named: exit 2 for each bullet (FT-1 to FT-16, FT-23 to FT-25); "a link inside the tree is
+   fine": exit 0 (FT-26).
+2. `docs/cli-reference.md:400-402` (§`--watch`): replace "and the build's own outputs, `.crustyimg/`, and the
+   lockfile are ignored — so a rebuild never triggers itself." with:
+   > and the build's own outputs (wherever `out` resolves, links included), `.crustyimg/`, and the lockfile
+   > are ignored — so a rebuild never triggers itself. A change to a file the build reads still triggers a
+   > rebuild, even inside an `out` folder.
+   Exit paths: none (behaviour; FT-29, FT-30).
+3. `docs/cli-reference.md:435-436` (§lockfile, "It records one entry per output: the file it wrote, …"):
+   change "the file it wrote," to "the file it wrote (its path from the build root, so `./dist`,
+   `a/../dist` and a link to `dist` record where the file really is),". Exit paths: exit 0 (FT-21, FT-26).
+4. `docs/cli-reference.md:442-445` (§lockfile, "`build --check` re-runs …"): replace with:
+   > `build --check` re-runs the build and compares what it produced against the committed lockfile instead
+   > of refreshing it. It exits **0** when they agree and **7** on drift, naming each output that moved. It
+   > **never modifies the lockfile**, but it does write: every output is written again and the cache is
+   > refilled, as in a plain build, and it compares the bytes this run produced, not the files already on
+   > disk. A build refused before it starts (exit `2`) writes nothing under `--check` either. `--frozen` and
+   > `--locked` are aliases (there is no network to lock out). A missing lockfile under these flags is drift,
+   > not an error.
+   Exit paths: 0, 7 (existing `tests/build_lock.rs`), 2 with nothing written (FT-18). "every output is
+   written again and the cache is refilled": driven at frame (an output and `.crustyimg/` deleted before
+   `--check` were back after, exit 0); the build drives it once more and records the result in Build
+   Completion (no test: a later STAGE-063 entry may change it).
+5. `docs/cli-reference.md:52` (exit-code table, row `2`): "Usage error (bad args) — clap's standard code." →
+   "Usage error (bad args) — clap's standard code; also a `build` refused before it writes (a malformed
+   manifest, or outputs that collide, replace a file the build reads, or resolve outside the tree)."
+6. `SECURITY.md:38-47` (threat 3). Before "On input, directory/glob sources …", insert:
+   > `build` resolves each target's `out` once, before writing, with links followed: an `out` that resolves
+   > outside the build tree is refused (exit 2), as is an output that would replace a file the build reads
+   > or two outputs that are one file; the folder is resolved again just before each write, and the write is
+   > refused (exit 5) if it moved.
+   Exit paths: 2 (FT-25, FT-1, FT-3), 5 (FT-28).
+7. `SECURITY.md:87` (row 3). Append to the mitigations cell: "; `build` outputs resolved and contained in
+   the tree (links followed), never over a file the build reads"; add `src/cli/build.rs` to the location
+   cell.
+8. `skills/crustyimg/SKILL.md:301` ("`build` overwrites its own outputs without `-y`.") → "`build`
+   overwrites its own outputs without `-y`, but never a file it reads (a source, recipe, watermark file,
+   manifest or lockfile). That, two outputs that are one file (letter case ignored), or an `out` that links
+   outside the project is refused with exit 2 and nothing written." Exit paths: 2 (FT-1, FT-6, FT-25).
+9. `src/cli/mod.rs:536-541` (`Build` doc, the `--help` long text): append "It never overwrites a file the
+   build reads, and refuses (exit 2, nothing written) outputs that collide or resolve outside the tree."
+   And `:119-120` (`--check`): "… instead of refreshing it: exit 7 on drift, and never modify the lockfile
+   (outputs and the cache are still written)." Both pass `tests/help_has_no_internal_ids.rs`.
+10. Not changed (checked): `README.md:292-294`, `docs/USAGE.md:165` ("symlinked output paths are refused",
+    still true), `SKILL.md:334` (exit 5 row), `docs/api-contract.md` (exit 2 already means usage).
+
+### CHANGELOG (`## [Unreleased]`, verbatim)
+
+```
+### Fixed
+- `build` no longer overwrites a file it reads or writes two outputs to one file. An `out` that pointed at a
+  source folder (`out = "src"`), at the recipe or a watermark file by name, or that reached another
+  target's `out` through `..` or a link replaced that file or recorded one file twice in
+  `crustyimg.build.lock`, and exited 0. Each target's `out` is now resolved before anything is written, and
+  such a build is refused with exit 2.
+- `build --watch` no longer rebuilds in a loop when `out` is a link into a watched source folder, and no
+  longer misses an edit to a source that sits inside an `out` folder.
+
+### Changed
+- `build` refuses an `out` that resolves outside the project through a link (exit 2). Build inside the
+  project and copy the outputs.
+- `build` refuses one target's output being another target's source (exit 2). Before, this failed on a clean
+  tree and silently overwrote the source on a warm one.
+- `build` ignores letter case when it checks that outputs are distinct, on every OS: `a.png` and `A.png`
+  written to one folder are refused on Linux too.
+- `crustyimg.build.lock` records each output's path from the build root. A lockfile written with an `out`
+  spelled through `..`, a link, or a case that differs from the folder on disk reports path drift once
+  under `build --check`; run `crustyimg build` once to refresh it.
+```
+
+### Overlap with other open work (from file lists, 2026-11-22)
+
+`gh pr list --state open --json number,title,files` and `git branch -r`:
+- **PR #226** (agents docs) touches `src/cli/mod.rs`: its hunks are the module doc (`:2-12`) and
+  `dispatch`'s doc comment (`:888`). This spec changes the `CliError` enum (after `:816`), `code()` (`:885`),
+  `exit_code_mapping_is_total` and the `Build`/`--check` doc comments. No shared hunk; a rebase is textual.
+- **PR #237** (heifer) touches `CHANGELOG.md`. Keep both sides of `## [Unreleased]`.
+- PRs #240 and #229: no shared file.
+- **No pushed `feat/spec-15[4-8]*` branch exists.** The remote `feat/spec-150/151/152/153/159` branches are
+  shipped specs (SPEC-150 and SPEC-159 are in `specs/done/`; their diffs against `main` are `main` moving
+  ahead), not open work.
+- **SPEC-155** (no branch yet; from its frame's rough build file list): `src/sink/mod.rs` (helper, four arms),
+  `src/cli/ops.rs`, `src/cli/build.rs` (`write_lock` :677 only), `SECURITY.md`, `docs/cli-reference.md`
+  (`:55`, `:39`), `src/cli/mod.rs` (maybe the `-y` doc), `CHANGELOG.md`, `tests/atomic_write.rs`. Shared
+  with this spec: `src/cli/build.rs` (SPEC-155: `write_lock`; this spec: everything in "code shape", not
+  `write_lock`), `SECURITY.md` (different sentences of threat 3 and row 3), `docs/cli-reference.md`
+  (SPEC-155: exit table row 5 and `-y`; this spec: row 2 and §build), `src/cli/mod.rs`, `CHANGELOG.md`.
+  SPEC-155 builds first; this build rebases onto it.
+- On a conflict in STAGE-063's file: keep both sides and recount `**Count:**` with a fresh `/usr/bin/grep`.
+  On a conflict in any other file: stop and report. Never edit `projects/PROJ-017-geometry-as-recipe-steps/`.
+
+### Size: [M] holds
+
+The prototype's diff (`git diff --stat origin/main` in the prototype worktree): `src/cli/build.rs` +359/−37
+(of which ~70 are unit-test lines), `src/cli/mod.rs` +39/−0, `tests/build_destinations.rs` +372 new
+(`git diff --numstat origin/main HEAD -- src tests`). Production code is one resolver (5 small fns), one planning pass, one writer,
+three variants, and the watch carve-out (2 fns): about 300 lines. The split trigger (the sink cannot take a
+resolved path without changing `apply`) does not fire (correction 4). It is not S: four axes (link, `..`,
+case, reads), three OS legs, a watch change, a DEC and DEC-061's amendment, and 34 tests.
+
+### What the build prompt must carry
+
+- **Checkpoints:** push after (1) the tests file red against `main`'s code with the baseline quoted, (2) the
+  resolver, planning pass and variants green, (3) `write_planned`, lock path, watch, (4) docs.
+- **CI legs:** the Windows leg is the only evidence for FT-34 and for the case rows on NTFS; read its red
+  set off the PR. The Linux leg is where the case rows over-refuse (that is the assertion). The lean
+  `--no-default-features` leg compiles out `--watch`: `watch_reads`/`is_read` are `#[cfg(feature = "watch")]`.
+- Run `cargo test --no-fail-fast` with stdout redirected to a file (the `display_sink_refuses_non_tty` row
+  fails in an interactive terminal); read `$?`, not a pipe's.
+- Re-check SPEC-155's helper (code shape 12) after rebasing.
+
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-057` — manifest paths resolve against the working directory; the build root here.
+- `DEC-035` — a link at the destination file is refused even with `--yes`; stays the sink's last layer.
+- `DEC-059` — the lockfile's `path` is its primary key; the value changes, the schema does not.
+- `DEC-060` — `--watch`'s exclusion set; extended, not replaced.
+- `DEC-061` — the symlink residual and accepted risk 3; amended at ship.
+- `DEC-010` — directory sources are non-recursive, so an `out` folder inside a source folder is not refused.
+- `DEC-106` — check before any file is read or written: the precedent for refusing at planning.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `untrusted-input-hardening` — a manifest is reviewed like code but its paths are untrusted; every path
+  from it is resolved and contained before a write.
+- No new dependency (std only); no version bump.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- SPEC-065 (shipped) — the injective source→output check this extends.
+- SPEC-066 (shipped) — the lockfile and `--check`.
+- SPEC-067 (shipped) — `--watch` and its exclusion.
+- SPEC-068 (shipped) — the lexical `out` containment and DEC-061.
 
 ### Out of scope (for this spec specifically)
 
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
-
-- SPEC-158's items: hashing one read and decoding another, the lockfile size contract, the
-  `encode_one` clone.
+- SPEC-158's items: hashing one read and decoding another, the lockfile size contract, the `encode_one` clone.
 - Making `build --check` read-only, or comparing the outputs on disk (filed in STAGE-063).
 - Destination resolution for `apply` and the single-file verbs (`-o`, `--out-dir`).
 - An opt-in for `out` links that resolve outside the build tree.
 - Pruning orphaned outputs (PROJ-007 STAGE-024 item).
+- **Unicode normalization (NFC vs NFD) in the identity.** Filed below; needs a dependency decision.
+- A new file matching a source glob inside an excluded `out` does not wake `--watch` until another change
+  does (only files that existed when the watch set was computed count as reads). Unchanged from `main`.
+
+### Follow-up filed by this design
+
+- STAGE-063 backlog: "[S] `build` identity ignores Unicode normalization: `café.png` in NFC and NFD from two
+  folders into one `out` is one file on macOS and two lock records (driven 2026-11-22, SPEC-157 design).
+  Closing it needs NFC/NFD tables (`unicode-normalization` or hand-rolled); a dependency decision."
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- The resolver is filesystem-touching; keep `watch_roots` (`src/build/watch.rs`) lexical and do the
+  resolving in `src/cli/build.rs`.
+- `prepared.out_dir` is set only by `check_destinations`; `build_one` must never fall back to `target.out`.
+- `refused()`'s snapshot records a link as a link (it must not follow `link` in FT-25, or it walks outside).
+- The font row needs a parseable font: copy `assets/fonts/Go-Regular.ttf` with `include_bytes!`.
+- Comments read behaviour-first, with no spec or DEC ids.
 
 ---
 
