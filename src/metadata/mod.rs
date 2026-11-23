@@ -614,19 +614,18 @@ mod tests {
     /// segment is APP0), in the order given.
     fn with_segments(jpeg: Vec<u8>, extra: &[(u8, &[u8])]) -> Vec<u8> {
         let mut parsed = Jpeg::from_bytes(Bytes::from(jpeg)).expect("parse jpeg");
-        let mut at = usize::from(
+        let first = usize::from(
             parsed
                 .segments()
                 .first()
                 .is_some_and(|s| s.marker() == 0xE0),
         );
-        for (marker, contents) in extra {
+        for (offset, (marker, contents)) in extra.iter().enumerate() {
             let seg = img_parts::jpeg::JpegSegment::new_with_contents(
                 *marker,
                 Bytes::from(contents.to_vec()),
             );
-            parsed.segments_mut().insert(at, seg);
-            at += 1;
+            parsed.segments_mut().insert(first + offset, seg);
         }
         let mut out = Vec::new();
         parsed.encoder().write_to(&mut out).expect("encode");
