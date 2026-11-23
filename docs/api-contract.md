@@ -500,6 +500,8 @@ after it.
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*
 Remove **all** container metadata (EXIF/IPTC/XMP/ICC) via `img-parts`
 segment/chunk removal — no pixel re-decode (decoded pixels byte-identical).
+On JPEG, APP0 (JFIF) and Adobe's colour-transform APP14 are kept: a decoder reads them, and without the
+APP14 some CMYK and RGB JPEGs decode to different colours.
 **v1 covers JPEG + PNG**; any other format → exit **4**. Fan-out mirrors the
 pixel ops (DEC-015): single input → stdout / `-o` / `--out-dir`; multiple inputs
 require `--out-dir`; a per-input failure in a batch → exit **6**; overwrite refused

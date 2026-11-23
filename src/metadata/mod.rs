@@ -9,7 +9,8 @@
 //!
 //! Division of labor (DEC-003 / DEC-046):
 //! - **`strip_all`** removes *all* user metadata at the segment/chunk level via
-//!   [`img_parts`] (JPEG APP1..APP15 + COM; PNG `eXIf`/`iCCP`/`tEXt`/…).
+//!   [`img_parts`] (JPEG APP1..APP15 except Adobe's colour-transform APP14, + COM;
+//!   PNG `eXIf`/`iCCP`/`tEXt`/…).
 //! - **`clean_gps`** removes *only* the GPS IFD at the tag level via the
 //!   in-house [`tiff`] writer, preserving every other tag (orientation,
 //!   copyright, …).
@@ -154,10 +155,40 @@ pub fn has_manifest(bytes: &[u8]) -> bool {
 pub(crate) const MANIFEST_DROPPED_WARNING: &str =
     "dropped the file's Content Credentials (C2PA) manifest — this edit would have invalidated its signature";
 
+/// JPEG APP14 (`0xEE`) — the marker Adobe's colour-transform segment is
+/// written under.
+const JPEG_ADOBE_MARKER: u8 = 0xEE;
+
+/// The shortest Adobe APP14 payload a decoder reads the colour transform
+/// from: `Adobe` (5 bytes), version (2), flags0 (2), flags1 (2), transform
+/// (1). libjpeg ignores a shorter one; zune-jpeg refuses it.
+const ADOBE_APP14_MIN_LEN: usize = 12;
+
+/// Whether a JPEG segment is the Adobe colour-transform segment. Its last
+/// field tells a decoder how the scan's components are coded (RGB or YCbCr
+/// for three, CMYK or YCCK for four). Without it a decoder guesses from the
+/// component ids, and for some files guesses wrong, so the image decodes to
+/// different colours. An APP14 that is not Adobe's, or too short to hold the
+/// transform, is not read by decoders and is treated as metadata.
+fn is_adobe_colour_transform(marker: u8, contents: &[u8]) -> bool {
+    marker == JPEG_ADOBE_MARKER
+        && contents.len() >= ADOBE_APP14_MIN_LEN
+        && contents.starts_with(b"Adobe")
+}
+
+/// Whether [`strip_all`] keeps a JPEG segment: everything outside APP1..APP15
+/// and COM, plus the Adobe colour-transform segment.
+fn strip_keeps_jpeg_segment(marker: u8, contents: &[u8]) -> bool {
+    let metadata = (0xE1..=0xEF).contains(&marker) || marker == 0xFE;
+    !metadata || is_adobe_colour_transform(marker, contents)
+}
+
 /// Remove **all** container metadata, preserving pixels exactly.
 ///
 /// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/**JUMBF/C2PA
-///   at `0xEB`**/…) and COM (`0xFE`). APP0/JFIF is structural and kept.
+///   at `0xEB`**/…) and COM (`0xFE`). Two segments a decoder needs are kept:
+///   APP0/JFIF, and the Adobe APP14 colour-transform segment, without which
+///   some CMYK and RGB JPEGs decode to different colours.
 /// - **PNG:** drop the [`PNG_METADATA_CHUNKS`] (EXIF/ICC/text/time/**C2PA**);
 ///   keep critical/render chunks.
 ///
@@ -168,11 +199,10 @@ pub fn strip_all(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
         Lane::Jpeg => {
             let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
-            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF kept.
-            for marker in 0xE1u8..=0xEF {
-                jpeg.remove_segments_by_marker(marker);
-            }
-            jpeg.remove_segments_by_marker(0xFE);
+            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF and the
+            // Adobe colour-transform APP14 are kept.
+            jpeg.segments_mut()
+                .retain(|segment| strip_keeps_jpeg_segment(segment.marker(), segment.contents()));
             let mut out = Vec::new();
             jpeg.encoder()
                 .write_to(&mut out)
@@ -561,6 +591,111 @@ mod tests {
         present
     }
 
+    /// The three fixtures the Adobe APP14 tests decode. All are made by tools
+    /// independent of crustyimg (ImageMagick, `cjpeg`, a real camera file).
+    const CMYK_YCCK_JPEG: &[u8] = include_bytes!("../../tests/fixtures/lint/cmyk_16x16.jpg");
+    const RGB_T0_IDS123_JPEG: &[u8] =
+        include_bytes!("../../tests/fixtures/metadata/rgb_adobe_t0_ids123.jpg");
+    const SIGNED_GPS_JPEG: &[u8] = include_bytes!("../../tests/fixtures/c2pa/signed_gps.jpg");
+
+    /// A 12-byte Adobe APP14 payload with transform 1 (YCbCr).
+    const ADOBE_APP14_YCBCR_CONTENTS: &[u8] = b"Adobe\x00\x64\x00\x00\x00\x00\x01";
+
+    /// One JPEG segment as written in the file: `FF marker len contents`.
+    fn segment_bytes(marker: u8, contents: &[u8]) -> Vec<u8> {
+        let len = u16::try_from(contents.len() + 2).expect("segment fits");
+        let mut out = vec![0xFF, marker];
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(contents);
+        out
+    }
+
+    /// Insert segments into a JPEG after SOI (or after APP0 when the first
+    /// segment is APP0), in the order given.
+    fn with_segments(jpeg: Vec<u8>, extra: &[(u8, &[u8])]) -> Vec<u8> {
+        let mut parsed = Jpeg::from_bytes(Bytes::from(jpeg)).expect("parse jpeg");
+        let first = usize::from(
+            parsed
+                .segments()
+                .first()
+                .is_some_and(|s| s.marker() == 0xE0),
+        );
+        for (offset, (marker, contents)) in extra.iter().enumerate() {
+            let seg = img_parts::jpeg::JpegSegment::new_with_contents(
+                *marker,
+                Bytes::from(contents.to_vec()),
+            );
+            parsed.segments_mut().insert(first + offset, seg);
+        }
+        let mut out = Vec::new();
+        parsed.encoder().write_to(&mut out).expect("encode");
+        out
+    }
+
+    /// An independent header walk (not `img-parts`): from offset 2, read
+    /// `FF marker len`, collect `(marker, the segment's bytes)`, stop after SOS.
+    fn walk_segments(bytes: &[u8]) -> Vec<(u8, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut at = 2;
+        while at + 4 <= bytes.len() {
+            assert_eq!(bytes[at], 0xFF, "marker expected at offset {at}");
+            let marker = bytes[at + 1];
+            let len = usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]));
+            out.push((marker, bytes[at..at + 2 + len].to_vec()));
+            if marker == 0xDA {
+                break;
+            }
+            at += 2 + len;
+        }
+        out
+    }
+
+    fn header_markers(bytes: &[u8]) -> Vec<u8> {
+        walk_segments(bytes).into_iter().map(|(m, _)| m).collect()
+    }
+
+    fn app14_segments(bytes: &[u8]) -> Vec<Vec<u8>> {
+        walk_segments(bytes)
+            .into_iter()
+            .filter(|(m, _)| *m == 0xEE)
+            .map(|(_, b)| b)
+            .collect()
+    }
+
+    fn rgba(bytes: &[u8]) -> ::image::RgbaImage {
+        ::image::load_from_memory(bytes).expect("decode").to_rgba8()
+    }
+
+    /// Assert two JPEGs decode to the same pixels. On a mismatch, say how many
+    /// differ and where the first is, instead of dumping a 2100x1500 buffer.
+    fn assert_same_render(original: &[u8], stripped: &[u8]) {
+        let a = rgba(original);
+        let b = rgba(stripped);
+        assert_eq!(a.dimensions(), b.dimensions(), "dimensions differ");
+        let (w, _) = a.dimensions();
+        let mut differ = 0usize;
+        let mut first = String::new();
+        for (i, (pa, pb)) in a.pixels().zip(b.pixels()).enumerate() {
+            if pa != pb {
+                if differ == 0 {
+                    first = format!(
+                        "({}, {}): {:?} -> {:?}",
+                        i as u32 % w,
+                        i as u32 / w,
+                        pa.0,
+                        pb.0
+                    );
+                }
+                differ += 1;
+            }
+        }
+        assert!(
+            differ == 0,
+            "stripped file decodes differently: {differ} of {} pixels differ, first at {first}",
+            a.pixels().len()
+        );
+    }
+
     /// Whether a PNG byte stream contains a chunk of the given type.
     fn png_has_chunk(bytes: &[u8], kind: [u8; 4]) -> bool {
         let png = Png::from_bytes(Bytes::from(bytes.to_vec())).expect("parse png");
@@ -617,26 +752,178 @@ mod tests {
 
     #[test]
     fn strip_all_jpeg_removes_all_metadata() {
-        let input = jpeg_with_exif();
-        // Precondition: the seeded JPEG actually carries an APP1 (EXIF) segment.
+        let input = with_segments(
+            jpeg_with_exif(),
+            &[(0xEE, ADOBE_APP14_YCBCR_CONTENTS), (0xFE, b"a comment")],
+        );
+        // Preconditions: the seeded JPEG carries APP1 (EXIF), Adobe APP14 and COM.
         assert!(
             jpeg_has_marker(&input, 0xE1),
             "fixture should have APP1 EXIF"
         );
+        assert!(jpeg_has_marker(&input, 0xEE), "fixture should have APP14");
+        assert!(jpeg_has_marker(&input, 0xFE), "fixture should have COM");
 
         let out = strip_all(&input).expect("strip");
 
-        // No APP1..APP15 and no COM segments survive.
+        // No APP1..APP15 survives except Adobe's APP14, kept unchanged.
         for marker in 0xE1u8..=0xEF {
-            assert!(
-                !jpeg_has_marker(&out, marker),
-                "marker {marker:#x} should be gone"
-            );
+            let kept: Vec<Vec<u8>> = walk_segments(&out)
+                .into_iter()
+                .filter(|(m, _)| *m == marker)
+                .map(|(_, b)| b)
+                .collect();
+            if marker == 0xEE {
+                assert_eq!(
+                    kept,
+                    vec![segment_bytes(0xEE, ADOBE_APP14_YCBCR_CONTENTS)],
+                    "the Adobe APP14 should be kept unchanged"
+                );
+            } else {
+                assert!(kept.is_empty(), "marker {marker:#x} should be gone");
+            }
         }
         assert!(!jpeg_has_marker(&out, 0xFE), "COM should be gone");
+        assert!(jpeg_has_marker(&out, 0xE0), "APP0/JFIF should be kept");
 
         // No EXIF at all should be readable back.
         assert!(read_exif(&out).is_none(), "no EXIF should remain");
+    }
+
+    #[test]
+    fn strip_all_keeps_the_adobe_app14_of_a_ycck_jpeg() {
+        let app14 = vec![
+            0xff, 0xee, 0x00, 0x0e, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00,
+            0x00, 0x02,
+        ];
+        // Preconditions: the fixture carries that APP14 and renders orange.
+        assert_eq!(app14_segments(CMYK_YCCK_JPEG), vec![app14.clone()]);
+        assert_eq!(rgba(CMYK_YCCK_JPEG).get_pixel(8, 8).0, [191, 64, 32, 255]);
+
+        let out = strip_all(CMYK_YCCK_JPEG).expect("strip");
+
+        assert_same_render(CMYK_YCCK_JPEG, &out);
+        assert_eq!(rgba(&out).get_pixel(8, 8).0, [191, 64, 32, 255]);
+        assert_eq!(app14_segments(&out), vec![app14]);
+        assert_eq!(out, CMYK_YCCK_JPEG, "nothing to strip: bytes unchanged");
+    }
+
+    #[test]
+    fn strip_all_keeps_the_adobe_app14_of_an_rgb_jpeg_with_numeric_component_ids() {
+        let f = RGB_T0_IDS123_JPEG;
+        let app14 = vec![
+            0xff, 0xee, 0x00, 0x0e, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        // Preconditions, from the fixture's bytes: transform 0, ids 1,2,3.
+        assert_eq!(&f[2..18], app14.as_slice(), "APP14 with transform 0");
+        assert_eq!(&f[87..89], [0xff, 0xc0], "SOF0 at 87");
+        assert_eq!([f[97], f[100], f[103]], [1, 2, 3], "SOF0 component ids");
+        assert_eq!(&f[322..324], [0xff, 0xda], "SOS at 322");
+        assert_eq!([f[327], f[329], f[331]], [1, 2, 3], "SOS selectors");
+        assert_eq!(rgba(f).get_pixel(8, 8).0, [128, 128, 191, 255]);
+
+        let out = strip_all(f).expect("strip");
+
+        assert_same_render(f, &out);
+        assert_eq!(rgba(&out).get_pixel(8, 8).0, [128, 128, 191, 255]);
+        assert_eq!(app14_segments(&out), vec![app14]);
+        assert_eq!(out, f, "nothing to strip: bytes unchanged");
+    }
+
+    #[test]
+    fn strip_all_keeps_only_the_adobe_app14_of_a_signed_camera_jpeg() {
+        let payload: [u8; 31] = [
+            0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x00,
+            0x10, 0x03, 0x02, 0x03, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00,
+        ];
+        // Precondition: APP11 x2, APP1, APP13, APP1, APP2 and APP14 all present.
+        assert_eq!(
+            header_markers(SIGNED_GPS_JPEG),
+            [0xEB, 0xEB, 0xE1, 0xED, 0xE1, 0xE2, 0xEE, 0xDB, 0xC2, 0xC4, 0xDA]
+        );
+
+        let out = strip_all(SIGNED_GPS_JPEG).expect("strip");
+
+        assert_eq!(header_markers(&out), [0xEE, 0xDB, 0xC2, 0xC4, 0xDA]);
+        assert_eq!(app14_segments(&out), vec![segment_bytes(0xEE, &payload)]);
+        assert!(!has_manifest(&out), "the C2PA manifest is gone");
+        assert_same_render(SIGNED_GPS_JPEG, &out);
+    }
+
+    #[test]
+    fn strip_all_keeps_an_adobe_app14_whatever_its_version_byte() {
+        // Offset 11 is the version's high byte (SOI 0-1, marker 2-3, length
+        // 4-5, `Adobe` 6-10). libjpeg and zune-jpeg check only `Adobe`.
+        let mut input = CMYK_YCCK_JPEG.to_vec();
+        input[11] = 0x01;
+        assert_eq!(&input[6..12], b"Adobe\x01", "precondition: version byte 1");
+
+        let out = strip_all(&input).expect("strip");
+
+        assert_eq!(app14_segments(&out), vec![input[2..18].to_vec()]);
+        assert_same_render(&input, &out);
+        assert_eq!(rgba(&out).get_pixel(8, 8).0, [191, 64, 32, 255]);
+    }
+
+    #[test]
+    fn strip_all_removes_an_app14_that_is_not_adobes() {
+        let input = with_segments(
+            base_image(ImageFormat::Jpeg),
+            &[(0xEE, b"Ducky\x00\x64\x00\x00\x00\x00\x01")],
+        );
+        assert_eq!(app14_segments(&input).len(), 1, "precondition: one APP14");
+
+        let out = strip_all(&input).expect("strip");
+
+        assert!(
+            app14_segments(&out).is_empty(),
+            "a non-Adobe APP14 is metadata"
+        );
+    }
+
+    #[test]
+    fn strip_all_removes_an_adobe_app14_too_short_to_hold_the_transform() {
+        let input = with_segments(
+            base_image(ImageFormat::Jpeg),
+            &[(0xEE, b"Adobe\x00\x64\x00\x00\x00\x00")],
+        );
+        assert_eq!(app14_segments(&input).len(), 1, "precondition: one APP14");
+
+        let out = strip_all(&input).expect("strip");
+
+        assert!(
+            app14_segments(&out).is_empty(),
+            "a truncated APP14 is not read by decoders"
+        );
+    }
+
+    /// Photoshop writes an APP13 that starts with `Adobe_CM`. It passes the
+    /// length and signature checks, so only the marker check removes it.
+    #[test]
+    fn strip_all_removes_an_adobe_cm_app13() {
+        let payload: &[u8] = b"Adobe_CM\x00\x01\x00\x00\x0c\x00\x00\x00";
+        // Guard the test's own premise: it must clear the length and signature
+        // checks, so a pass can only come from the marker check.
+        assert!(payload.len() >= ADOBE_APP14_MIN_LEN, "long enough");
+        assert!(payload.starts_with(b"Adobe"), "Adobe-prefixed");
+        let app13 = |bytes: &[u8]| {
+            walk_segments(bytes)
+                .into_iter()
+                .filter(|(m, _)| *m == 0xED)
+                .count()
+        };
+        let input = with_segments(jpeg_with_exif(), &[(0xED, payload)]);
+        assert_eq!(app13(&input), 1, "precondition: one APP13");
+
+        let out = strip_all(&input).expect("strip");
+
+        assert_eq!(
+            app13(&out),
+            0,
+            "an Adobe-prefixed segment under another marker is metadata"
+        );
     }
 
     #[test]
@@ -1704,15 +1991,17 @@ mod tests {
     fn meta_verbs_are_byte_identical_on_unsigned_input() {
         // strip_all (JPEG): unaffected — PNG_METADATA_CHUNKS grew a member,
         // but the JPEG path's 0xE1..=0xEF sweep already covered 0xEB.
-        let strip_input = jpeg_with_exif();
+        let strip_input = with_segments(jpeg_with_exif(), &[(0xEE, ADOBE_APP14_YCBCR_CONTENTS)]);
         assert!(!has_manifest(&strip_input), "fixture: no manifest");
+        assert!(
+            jpeg_has_marker(&strip_input, 0xEE),
+            "fixture: carries an Adobe APP14"
+        );
         let strip_actual = strip_all(&strip_input).expect("strip");
         let strip_expected = {
             let mut jpeg = Jpeg::from_bytes(Bytes::from(strip_input.clone())).expect("parse");
-            for marker in 0xE1u8..=0xEF {
-                jpeg.remove_segments_by_marker(marker);
-            }
-            jpeg.remove_segments_by_marker(0xFE);
+            jpeg.segments_mut()
+                .retain(|s| strip_keeps_jpeg_segment(s.marker(), s.contents()));
             let mut out = Vec::new();
             jpeg.encoder().write_to(&mut out).expect("encode");
             out
