@@ -85,6 +85,24 @@ cost:
         mutation runs on a prototype.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-22
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 18797882
+      tokens_breakdown:
+        input: 184
+        cache_creation: 238403
+        cache_read: 18481198
+        output: 78097
+      estimated_usd: 7.61
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-155 — BUILD prompt"), deduped by
+        message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        last code push, before this cost commit's own turns. Most of it is cache_read across the
+        15-row mutation run, the three-leg matrix and the CI waits.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.30 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
