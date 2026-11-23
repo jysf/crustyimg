@@ -33,5 +33,10 @@ Cycle prompts live in `prompts/SPEC-155-<cycle>.md`.
   (FT-E24, FT-E25). Fix 2: the mode is set before the first write (FT-U14). Pins FT-U9b and FT-U13.
   M12–M15 each red on its row; M4 and M8 re-run. DEC-116 narrowed to exclude the lockfile. The
   spec's CI line was still `CI_SNAPSHOT_PLACEHOLDER` at report time.
-- [ ] **re-verify** (narrow, the two claims): `prompts/SPEC-155-reverify.md` (Opus)
-- [ ] **ship**
+- [x] **re-verify** (2026-11-23, Opus, $2.52): ✅ APPROVED, retroactively. The maintainer merged
+  #268 (`7819db6`, head `41971af`) before it ran. Four lockfile shapes driven on `main`, the pre-punch
+  head and the merge: the merge matches `main` on every symlink case and keeps `0600` on a regular
+  file. Fix 2 driven both sides (`0644` → `0600`). M12, M13 and a new M16 match. One **wording** item:
+  DEC-116 says the lockfile lacks only the symlink guard; it has neither. Out of spec: `build --check`
+  reads a symlinked lockfile through the link.
+- [ ] **ship**: `prompts/SPEC-155-ship.md` (Sonnet); carries the DEC wording fix and the CI line

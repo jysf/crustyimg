@@ -110,6 +110,16 @@ These constraints apply to the paths touched by this task (see
 - `constraint-id-1` — <one-line summary>
 - `constraint-id-2` — <one-line summary>
 
+### Overlap with other open work
+
+Design writes this map from the other work's actual file lists, never from their specs or from
+memory: `gh pr list --state open --json number,title,files` and `git branch -r` (diff each pushed
+feature branch against `main`). Record the date and time it was taken. Open PRs keep changing, so
+the build re-runs both commands at its Step 0 and records any file the map missed.
+
+- `PR #NNN` (`<branch>`) — touches `<file>` that this spec also touches; <how they meet>
+- (or: none, as of <date time>)
+
 ### Prior related work
 
 - `SPEC-YYY` (shipped) — <one-line summary, if relevant>
