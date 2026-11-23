@@ -7,7 +7,7 @@
 task:
   id: SPEC-154
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -78,47 +78,61 @@ cost:
       interface: claude-code
       agent: claude-sonnet-5-5
       rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
-      tokens_total: 2616300
+      tokens_total: 3172394
       tokens_breakdown:
-        input: 48
-        cache_creation: 105819
-        cache_read: 2495740
-        output: 14693
-      estimated_usd: 1.37
+        input: 56
+        cache_creation: 110416
+        cache_read: 3043597
+        output: 18325
+      estimated_usd: 1.60
       duration_minutes: null
-      note: "Measured from the session JSONL (dedup by message.id, MAX output) after the last push; 23 API messages, no subagents."
+      note: "Re-measured at ship from the session JSONL (dedup by message.id, MAX output), including the CI-wait and final turns; 27 API messages. Was 1.37 over 23 messages at the build push."
     - cycle: verify
       date: 2026-11-22
       interface: claude-code
       agent: claude-opus-5-5
       rate_anchors: "Opus $5 in / $25 out per MTok; cache_creation x1.25, cache_read x0.10"
-      tokens_total: 5190442
+      tokens_total: 5698923
       tokens_breakdown:
-        input: 82
-        cache_creation: 132899
-        cache_read: 5026203
-        output: 31258
-      estimated_usd: 4.13
+        input: 88
+        cache_creation: 137623
+        cache_read: 5522468
+        output: 38744
+      estimated_usd: 4.59
       duration_minutes: null
-      note: "Figures handed over by the orchestrator in the punch-list prompt."
+      note: "Re-measured at ship from the session JSONL (dedup by message.id, MAX output); 44 API messages. Was 4.13, the figure handed to the punch list."
     - cycle: punchlist
       date: 2026-11-22
       interface: claude-code
       agent: claude-sonnet-5-5
       rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
-      tokens_total: 1397917
+      tokens_total: 2670057
       tokens_breakdown:
-        input: 34
-        cache_creation: 63478
-        cache_read: 1326741
-        output: 7664
-      estimated_usd: 0.75
+        input: 64
+        cache_creation: 111593
+        cache_read: 2542163
+        output: 16237
+      estimated_usd: 1.43
       duration_minutes: null
-      note: "Measured from the session JSONL (dedup by message.id, MAX output) before the commit; 17 API messages, so the push and CI-watch turns after it are not counted."
+      note: "Sum of two sessions started from the same prompt, measured at ship from their JSONLs: 0.24 (4 messages, 572079f6) and 1.19 (27 messages, 532948e1; it found the head had moved and stopped without changes). Was 0.75 over 17 messages."
+    - cycle: ship
+      date: 2026-11-23
+      interface: claude-code
+      agent: claude-sonnet-5-5
+      rate_anchors: "Sonnet $3 in / $15 out per MTok; cache_creation x1.25, cache_read x0.10"
+      tokens_total: 2302759
+      tokens_breakdown:
+        input: 56
+        cache_creation: 74084
+        cache_read: 2219045
+        output: 9574
+      estimated_usd: 1.09
+      duration_minutes: null
+      note: "Measured from this session's JSONL (dedup by message.id, MAX output) before the final commit, push and docs-only CI read; those turns are not counted."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 24055438
+    estimated_usd: 17.49
+    session_count: 6
 ---
 
 # SPEC-154: CI path classifier runs the gates for every build and test input
@@ -578,9 +592,14 @@ Each AC names its checks (FT ids below). Every check names what turns it red (th
   the place named. — diff against the text below.
 - [ ] **AC-17 No other change.** No Rust source, no file under `tests/`, no CHANGELOG line, no version
   bump; `git diff --name-only main` lists exactly the 4 files under Outputs.
-- [ ] **AC-18 (ship) The classification is proved on Actions.** A draft PR touching only
-  `recipes/web.toml` shows the code line, three `check` legs running `cargo test`, and `pages`
+- [x] **AC-18 (ship) The classification is proved on Actions.** (corrected at ship) A draft PR touching only
+  `recipes/gallery.toml` shows the code line, three `check` legs running `cargo test`, and `pages`
   running; it is closed unmerged. The next docs-only push to `main` prints the docs-only line.
+  Met 2026-11-23: draft PR #267 (one comment line at the end of `recipes/gallery.toml`). Its `detect changed
+  paths` log printed `ci-code-paths self-test: 88 rows, 0 mismatched, 0 crashed, 0 junk, 0 failed` then
+  `-> code paths touched: running the full gates`; the `Test` step was `success` on ubuntu, macos and windows;
+  `build + browser smoke` (pages) was `success`. Closed unmerged, branch deleted. The docs-only line is quoted in the ship
+  report, from the `changes` job of the ship commit's push to `main`.
 
 ## Failing Tests
 
@@ -1339,10 +1358,25 @@ No polling and no wait loops (AGENTS §16 habit 6): the maintainer checks in.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The classifier was right whatever the frame's numbers said: the frame priced an extra run at 2 and
+   named a wrong reason for `pages`, and design corrected both (0 extra runs; `recipes/**` for the
+   smoke's byte comparison). Design could run only BSD tools, so the build PR's own `changes` job, which
+   prints the self-test, became the Linux run of record (88 rows, 0 failed); that worked because the
+   job prints it. The proof edit chosen at design, `recipes/web.toml`, would have turned the pages smoke
+   red because `tests/demo_smoke.mjs` byte-compares it; no one grepped the readers of the file being
+   edited. Verify caught it and the proof used `recipes/gallery.toml`, which stayed green on all legs.
+   Two punch-list sessions ran from one prompt; the second stopped correctly at the moved head, but
+   cost $1.19 to find that out.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Three proposals, none applied. (a) "A proof edit touches a file nothing byte-compares; grep its
+   readers first": not in AGENTS §15-16, HANDOFF or `guidance/`. (b) Verify and punch-list prompts use
+   `git checkout --detach origin/<branch>`, since auto mode blocks `git reset --hard`: only the SPEC-154
+   punch-list prompt does; SPEC-150, SPEC-151 and SPEC-154's verify prompts still say `reset --hard`.
+   (c) "A self-test that can only check written rows needs an independent whole-tree pass at verify":
+   not stated anywhere; verify's 1,303-path comparison is the precedent.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The rename hole (with the script header's over-claiming sentence) is in STAGE-063, and
+   quoted non-ASCII paths and the include floor's drift are in `guidance/ideas.yaml`; the evidence
+   names no gap those miss.

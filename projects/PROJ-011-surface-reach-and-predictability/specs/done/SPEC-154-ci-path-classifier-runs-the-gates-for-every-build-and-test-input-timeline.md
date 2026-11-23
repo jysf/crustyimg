@@ -31,4 +31,4 @@ Cycle prompts live in `prompts/SPEC-154-<cycle>.md`.
   from the same prompt found the head moved and stopped with no changes. No re-verify (no claim item).
   Prompt: `prompts/SPEC-154-punchlist.md`.
 - [x] **merge** (2026-11-22, maintainer) — PR #266 as `f6e2daa` (2026-11-23T02:34:37Z).
-- [ ] **ship** — then the draft `recipes/gallery.toml`-only proof PR. Prompt: `prompts/SPEC-154-ship.md`.
+- [x] **ship** (2026-11-23, Sonnet) — merged as `f6e2daa`, PR #266; proof PR #267 (`recipes/gallery.toml`-only draft) ran the full gates and was closed unmerged; AC-18 met; total cost $17.49. Prompt: `prompts/SPEC-154-ship.md`.

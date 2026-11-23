@@ -98,12 +98,12 @@ release line below waits for SPEC-154 to SPEC-157. Land SPEC-154 first and alone
 gates later PRs run. Its frame prompt is `specs/prompts/SPEC-154-frame.md`; the other four get theirs
 when SPEC-154 is framed. A frame may re-size, split or merge them.
 
-- [ ] **SPEC-154** (designed 2026-11-22) — [S] **The CI path filter treats real build inputs as docs-only (review P2).**
-  `scripts/ci-code-paths.sh` returned `false` for `recipes/web.toml`, `assets/fonts/Go-Regular.ttf`, `clippy.toml` and
-  `deny.toml`; the recipes and the font are embedded at compile time (`include_str!`/`include_bytes!`), so an isolated
-  edit skips the native build and test legs. `pages.yml`'s path lists lack `recipes/` and `assets/` too. Fix the
-  classifier (consider inverting it to a docs-only allowlist, so an unknown path runs everything), add a self-test
-  row per class and a mutation row per alternative, and align the Pages triggers. Frame first.
+- [x] **SPEC-154** (merged 2026-11-22, PR #266) — [S] **CI runs the gates for every path not provably docs-only (review P2).**
+  `scripts/ci-code-paths.sh` is now a docs-only allow-list (`DOCS` plus the `EXCEPT` list: `README.md`,
+  `docs/github-actions.md`, `docs/data-model.md`), so an unknown path runs the full gates; a derived include check
+  and a `pages.yml` drift check sit in the 88-row self-test, and `pages.yml` triggers on `recipes/**` and
+  `assets/**`. Proved on Actions by a draft `recipes/gallery.toml`-only PR (#267, closed unmerged). Out of spec,
+  filed below: the rename hole, quoted non-ASCII paths, the include floor's drift.
 - [ ] **SPEC-155** (designed 2026-11-22) — [M] **A write that fails must not report success or destroy the old file (review P1).**
   `Sink::File` and `Sink::Dir` truncate the destination, then `BufWriter::write_all` and drop with no `flush()`
   (`src/sink/mod.rs`, both the pixel and the byte sink), so a short write exits 0 and leaves a truncated file. Stage
@@ -236,7 +236,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **20 pending** — 2026-11-22 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 23 in total, 3 ticked, 20 open; the SPEC-154 verify added the rename entry; the SPEC-155 frame changed one marker, the SPEC-156 frame changed one and added the `meta strip` orientation entry, the SPEC-157 frame changed one and added the `build --check` entry, the SPEC-157 design changed one marker and added the Unicode-normalization entry).
+**Count:** 4 shipped / 0 active / **19 pending** — 2026-11-23 (re-derived by `/usr/bin/grep -c` of the backlog checkboxes above `### Items carried`: 23 in total, 4 ticked, 19 open; the SPEC-154 ship ticked its entry; no other session changed the stage meanwhile).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
