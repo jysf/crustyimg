@@ -16,6 +16,10 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   collision → overlap with every file the build reads), `write_planned` re-resolving before each write, and a
   `--watch` read carve-out (a source edit inside `out` was missed on `main`, driven). 34 tests, mutation table
   driven on a prototype. New finding filed: NFC/NFD names are one file on APFS, two identities.
-- [ ] **build** — `prompts/SPEC-157-build.md`. After SPEC-154 has merged and SPEC-155 has built.
-- [ ] **verify** — full OS matrix (Windows leg for `\\?\` and the root strip), `--no-fail-fast` red set.
+- [x] **build** (2026-11-23, Sonnet, $5.84 measured before its last commit): draft PR #270, head
+  `9733cd8`; CI running at report time (13 passed, 5 in progress, none failed; orchestrator-read).
+  Baseline red as predicted (FT-5/19/20/27 green). 24 ACs met; AC-22 rests on the Windows leg.
+  Mutations match except M12, which also reddens FT-28 (table cell). Upgrade drift driven once.
+- [ ] **verify** — `prompts/SPEC-157-verify.md` (Opus). Applies AGENTS §15's coverage map after the
+  fact. ⛔ #270 is not merged until verify (and any re-verify) reports.
 - [ ] **ship**
