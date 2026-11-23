@@ -104,7 +104,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   edit skips the native build and test legs. `pages.yml`'s path lists lack `recipes/` and `assets/` too. Fix the
   classifier (consider inverting it to a docs-only allowlist, so an unknown path runs everything), add a self-test
   row per class and a mutation row per alternative, and align the Pages triggers. Frame first.
-- [ ] **SPEC-155** (framed 2026-11-22) — [M] **A write that fails must not report success or destroy the old file (review P1).**
+- [ ] **SPEC-155** (designed 2026-11-22) — [M] **A write that fails must not report success or destroy the old file (review P1).**
   `Sink::File` and `Sink::Dir` truncate the destination, then `BufWriter::write_all` and drop with no `flush()`
   (`src/sink/mod.rs`, both the pixel and the byte sink), so a short write exits 0 and leaves a truncated file. Stage
   the bytes beside the destination, flush and sync, then rename; keep the symlink and overwrite guards ahead of

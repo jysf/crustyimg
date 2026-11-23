@@ -7,7 +7,7 @@
 task:
   id: SPEC-155
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -433,33 +433,373 @@ Also accepted as the frame recorded it: F2 (`write_lock` moves onto the helper) 
 replaced file keeps its permission bits but not its owner, ACLs, xattrs (on macOS, Finder tags) or
 hard links. That is documented under `-y`.
 
+## Design
+
+Design session 2026-11-22, Opus, on `main` at `9560c2c`. `main` and an unpushed prototype of this
+design were each built `--release` in their own fresh `CARGO_TARGET_DIR` under the session
+scratchpad (deleted at the end). Every number below was driven on one of those two binaries unless
+it says *read* or *reasoned*.
+
+### Design corrections to the frame
+
+1. **The leading dot does not keep a staged file out of crustyimg's inputs; the `.tmp` suffix
+   does.** `resolve_directory` (`src/source/mod.rs:345-391`) and `resolve_glob` (`:282-334`) do not
+   skip dotfiles. Both drop any entry without an image extension (`has_image_extension`, `:135-144`;
+   `IMAGE_EXTENSIONS`, `:125-133`), and `tmp` is not one. Driven on the prototype: a folder holding
+   `a.png` and `.a.png.crustyimg-1-0.tmp` gives one output for `src` and for `src/*`. The suffix is
+   load-bearing; FT-E20 pins it.
+2. **`--watch` cannot loop on a staged file.** A staged file is made in its destination's own
+   directory, and every target's `out` is in the watch set's `excluded` prefixes
+   (`src/build/watch.rs:119-120`, checked at `src/cli/build.rs:1132`). Under `--watch` no lockfile
+   is written (`src/cli/build.rs:933`). Driven on the prototype with `out = "src/out"` inside the
+   watched `src/*.png` root, `--no-cache`: three builds for the initial run plus two `touch`es, no
+   rebuild loop, no staged file left. `main` gives the same count.
+3. **Windows' `rename` tries `MoveFileExW` first, not the POSIX rename.** Read in std's
+   `library/std/src/sys/fs/windows.rs` at tags `1.90.0` (the MSRV leg) and `1.99.1` (current
+   stable; CI uses `dtolnay/rust-toolchain@stable`, `.github/workflows/ci.yml:185`). The `rename`
+   bodies are identical apart from one moved comment. It calls
+   `MoveFileExW(old, new, MOVEFILE_REPLACE_EXISTING)`. Only when that fails with
+   `ERROR_ACCESS_DENIED` does it open the *source* with `DELETE` access and retry with
+   `SetFileInformationByHandle(FileRenameInfoEx)`, flags
+   `FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS`. It does **not** set
+   `FILE_RENAME_FLAG_IGNORE_READONLY_ATTRIBUTE`, so a read-only destination still fails; any other
+   error returns `MoveFileExW`'s error.
+4. **A rename replaces a read-only file on Unix; today's write refuses it.** The frame missed this.
+   `-y` over a `0444` file in a writable directory: `main` exits 5 (`open(truncate)` gets
+   `EACCES`); a bare temp-then-rename replaces the file and copies `0444` onto it. Design call: keep
+   today's refusal. Before staging, the helper opens an existing destination for writing without
+   truncating it (`OpenOptions::new().write(true).open(path)`), which fails exactly where today's
+   open failed and changes nothing. Driven: the prototype exits 5, keeps the file, leaves no staged
+   file. Windows' read-only attribute fails the same open (`ERROR_ACCESS_DENIED`), so Windows row (c)
+   is refused before staging, not by the rename.
+5. **The frame's M5 ("a refused write leaves no temp") cannot go red.** The RAII remover drops a
+   staged file on every early return, so a guard that ran after staging would still leave nothing.
+   Guard order is visible only where staging itself fails: a read-only directory holding the file,
+   without `-y`, must say `already exists`, not the directory message. That is FT-E12. The mutation
+   row for guards (M5 below) drops the guard instead.
+6. **`--save-recipe`'s guard runs before the edit, not at the recipe write.** Otherwise a refused
+   recipe would still write the image output and then exit 5. Driven on the prototype: an existing
+   `r.toml`, no `-y`, `-o e.png` exits 5 and `e.png` is not created.
+7. **The write-failed message changes.** Today a sink write failure prints `could not write output`
+   with no path and no cause (`src/sink/mod.rs:212`). A failed file write now names both (Messages,
+   below). `Sink::Stdout` keeps today's text.
+8. **The stage backlog's "flush and sync" is superseded** by ruling 2 (no `fsync`).
+9. **A batch where every write fails exits 6, not 0.** Driven: `convert in --out-dir od -y` over two
+   small inputs under `ulimit -f 1` (XFSZ ignored) exits **0** on `main` with both outputs cut to
+   512 B. The prototype exits 6, prints one `error: <input>: could not write output …` line per input
+   and `error: 2 of 2 inputs failed`, and keeps both old files.
+
+### Things the frame asked design to check (driven)
+
+- **The 8 KiB line.** `BufWriter::new` takes `DEFAULT_BUF_SIZE`, which is
+  `if cfg!(target_os = "espidf") { 512 } else { 8 * 1024 }` (`library/alloc/src/io/mod.rs:44`,
+  `1.99.1`). Driven on `main` with `meta strip <png> -o old.png -y` under `ulimit -f 1`, XFSZ
+  ignored, over inputs made by `resize --max N`: 7,759 B and 7,909 B exit **0** with a 512 B file;
+  8,229 B, 8,484 B and 8,723 B exit 5 with a 512 B file. The tests use 1,328 B (a 40×40 PNG) and
+  83,916 B (the 512×512 fixture), far from the line on both sides, because an encoder update could
+  move a near-line size across it.
+- **Parallel writes.** `build` fans each target's inputs over rayon (`src/cli/build.rs:804`, pool at
+  `:825`), and `optimize` does too (`src/cli/optimize.rs:256`, `:281`). The staged name's `<n>` comes
+  from one process-wide `AtomicU64`, so two threads never pick the same name. Driven on the
+  prototype: four targets over the same 120 inputs into one `dist`, `-j 8 --no-cache`, three runs:
+  480 outputs each, exit 0, no staged file, no `AlreadyExists`.
+- **Writing over the input.** Every input is read whole with `std::fs::read`, which closes its handle
+  before returning: `Image::load` (`src/image/mod.rs:274`), the metadata lane (`src/cli/ops.rs:739`),
+  `meta copy` (`:1031-1032`), the build cache key (`src/cli/build.rs:436`). The one `File::open` on an
+  input, the 64-byte format sniff (`src/cli/ops.rs:799-801`), drops the handle at the end of that
+  statement. So no handle crustyimg holds is open at the rename. Driven: `convert self.png -o
+  self.png -y` and `meta copy --from a.jpg --to b.jpg -y` (in place) exit 0 on the prototype. Windows
+  row (d) covers the input-is-the-output case on CI.
+- **The read-only-directory refusal.** The call that fails is `create_new` on the staged path
+  (`PermissionDenied`, `EACCES`). The helper returns it as `PublishError::CreateTemp`, the sink maps it
+  to `SinkError::DirNotWritable`, and `CliError::Sink(_) => 5` (`src/cli/mod.rs:867`) gives exit 5.
+  Driven: `main` exits **0** and rewrites `ro/old.png` in place; the prototype exits 5 with the
+  message below and keeps the file. As root the directory is writable, so the row asserts its
+  precondition and fails if it cannot make a read-only directory (the
+  `tests/messages_tell_the_truth.rs:362` pattern). GitHub's hosted Ubuntu and macOS runners run as
+  the non-root `runner` user, so the row runs there.
+- **`--save-recipe`'s surfaces.** `/usr/bin/grep -rn "save_recipe" src/cli/` → one flag, on `edit`
+  only (`src/cli/mod.rs:511-513`, dispatched at `:1210`, `:1229`). `-y` is global
+  (`src/cli/mod.rs:106-108`, `global = true`), so `edit` takes it. No design question.
+- **The mode rules.** std's `OpenOptions::new()` starts at `mode: 0o666`
+  (`library/std/src/sys/fs/unix.rs:1123`, `1.99.1`), masked by the umask at `open(2)`. Driven on both
+  binaries: a new file is `0644` under umask 022 and `0600` under umask 077; `-y` over `0600` and
+  `0640` keeps the mode. On Windows `fs::Permissions` is the file's attribute word and
+  `set_permissions` is `SetFileAttributesW` with it, so the old file's attributes (say, hidden) carry
+  over (*read*). The read-only attribute never does, because a read-only destination is refused
+  first (correction 4). No `cfg` is needed: `metadata().permissions()` and `fs::set_permissions` are
+  portable.
+- **`sync_all` on Apple is `F_FULLFSYNC`.** Read: `fsync` calls `os_fsync`, which is
+  `libc::fcntl(fd, libc::F_FULLFSYNC)` under `cfg(target_vendor = "apple")`
+  (`library/std/src/sys/fs/unix.rs:1264-1271`, `1.99.1`). Moot under ruling 2.
+- **wasm32.** `src/sink` is in the wasm build. The helper uses only `std::fs`, which compiles there
+  and returns `Unsupported` at run time. `std::process::id()` **panics** on `wasm32-unknown-unknown`,
+  so `process_id()` returns 0 under `cfg(target_arch = "wasm32")`. Nothing on wasm writes a file
+  (`src/wasm.rs` returns bytes), so the helper is unreachable there. See the wasm line under
+  Verification for the command.
+- **The full disk** (ruling 4) is accepted as a loud failure; the frame's driven rows stand.
+
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/sink/mod.rs` (`:480-690`, `:868-888`), `src/cli/ops.rs` (`run_edit`
+  `:1681-1764`), `src/cli/build.rs` (`write_lock` `:673-689`), `src/source/mod.rs` (`:125-144`,
+  `:282-391`), `src/build/watch.rs` (`:104-147`), `tests/sink.rs`, `tests/messages_tell_the_truth.rs:350-370`
+  (the precondition pattern).
+- **External APIs:** none.
+- **Related code paths:** `src/sink/`, `src/cli/`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `src/sink/publish.rs` (the helper and its seam), `tests/atomic_write.rs`,
+  `decisions/DEC-<next>-a-file-write-is-all-or-nothing.md`.
+- **Files modified:** `src/sink/mod.rs`, `src/cli/ops.rs`, `src/cli/build.rs`, `src/cli/mod.rs`,
+  `SECURITY.md`, `docs/cli-reference.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md`,
+  `CHANGELOG.md`.
+- **New exports:** none public; `pub(crate)` `publish_file`, `publish_file_io`, `guard_overwrite`.
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its tests (FT ids below). "Old bytes kept" means the destination reads back exactly as
+before; "no staged file" means the directory holds no name containing `.crustyimg-`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 A failed write under 8 KiB no longer exits 0.** A 1,328 B PNG output whose write fails
+  with `EFBIG` (`ulimit -f 1`, SIGXFSZ ignored) exits 5 on each of the four sink arms: pixel lane
+  (`convert`) and byte lane (`meta strip`), each to `-o` (`Sink::File`) and `--out-dir`
+  (`Sink::Dir`). — FT-E1, FT-E2, FT-E3, FT-E4.
+- [ ] **AC-2 A failed write keeps the old file, at any size.** On each row of AC-1, and the same four
+  rows with the 83,916 B output, the old destination's bytes are kept and no staged file is left. —
+  FT-E1…FT-E8.
+- [ ] **AC-3 Every step of the helper keeps the old file and cleans up.** A failure injected at
+  create, the first write, the second write (1,024 B already staged), flush, set-permissions and
+  rename each returns `Err`, keeps the old bytes (or leaves no file, for a new path; set-permissions
+  runs only for an existing file) and leaves no staged file. — FT-U1…FT-U7.
+- [ ] **AC-4 A killed process keeps the old file.** Under `ulimit -f 1` with SIGXFSZ at its default,
+  the process dies by signal 25, the old bytes are kept, and at most one staged file is left. — FT-E9.
+- [ ] **AC-5 The message names the file and the cause.** A failed file write prints
+  `error: could not write output <path>: <io error>` and exits 5. — FT-E1…FT-E8 (assert
+  `could not write output` and `File too large`), FT-E15, FT-E22.
+- [ ] **AC-6 A directory that can't take a new file is refused by name.** `-y` over a writable file
+  in a `0555` directory exits 5 with
+  `error: could not write output ro/old.png: cannot create a new file in ro: Permission denied (os error 13)`,
+  keeps the old bytes, leaves no staged file. — FT-E11.
+- [ ] **AC-7 The guards run before staging.** The same directory without `-y` prints
+  `error: output file already exists (use --yes to overwrite): ro/old.png` (exit 5), not the directory
+  message. — FT-E12.
+- [ ] **AC-8 `-y` keeps the permission bits.** `-y` over a `0600` and a `0640` file leaves the new
+  content at the old mode (two modes, each non-default, so a skipped copy shows). — FT-U11 (helper),
+  FT-E13 (CLI).
+- [ ] **AC-9 A new file follows the umask.** A new output is `0644` under umask 022 and `0600` under
+  umask 077. — FT-E10.
+- [ ] **AC-10 A destination this user can't write is refused, as today.** `-y` over a `0444` file
+  exits 5 with `error: could not write output old.png: Permission denied (os error 13)`, keeps the
+  bytes, leaves no staged file. On Windows, the read-only attribute: exit 5, bytes kept. — FT-U12,
+  FT-E15, FT-W3.
+- [ ] **AC-11 `--save-recipe` refuses an existing recipe without `-y`.** Exit 5,
+  `error: output file already exists (use --yes to overwrite): r.toml`, the recipe's bytes kept, and
+  the image output (`-o e.png`) not created. — FT-E16.
+- [ ] **AC-12 `--save-recipe -y` replaces it.** Exit 0, the file now starts `version = "1"`, no staged
+  file. — FT-E17.
+- [ ] **AC-13 A failed `--save-recipe` write keeps the old recipe.** Under `ulimit -f 0`, SIGXFSZ
+  ignored, image to stdout: exit 5, `could not write output r.toml: File too large`, `PRECIOUS` kept,
+  no staged file. — FT-E22.
+- [ ] **AC-14 A failed lockfile write keeps the old lockfile.** `build --no-cache` in a `0555` project
+  directory (outputs into a writable `dist/`) exits 5 with
+  `error: could not write build lockfile crustyimg.build.lock: Permission denied (os error 13)`, the
+  old lockfile's bytes kept, no staged file. — FT-E21.
+- [ ] **AC-15 Parallel writes into one directory don't collide.** Four targets over the same 60
+  inputs into one `dist`, `-j 8 --no-cache`: exit 0, 240 outputs, no staged file in `dist` or the
+  project. Staged names taken from eight threads are all different. — FT-E14, FT-U10.
+- [ ] **AC-16 A batch reports each failed write and keeps each old file.** One `0444` destination
+  among two `--out-dir` outputs: exit 6, `od/a.png: Permission denied` on stderr, `a.png` kept,
+  `b.png` written. Every write in a two-input batch failing (`ulimit -f 1`): exit 6, both old files
+  kept. — FT-E19, FT-E23.
+- [ ] **AC-17 A staged file is never read as an input.** A folder with `a.png` and
+  `.a.png.crustyimg-1-0.tmp` gives one output for the folder and for `folder/*`. — FT-E20.
+- [ ] **AC-18 A long name still writes.** A 244-byte file name (240 `a`s + `.png`) writes. — FT-U9.
+- [ ] **AC-19 Output bytes don't change.** The file a sink writes equals the bytes the same command
+  sends to stdout, for `convert --format png` and `meta strip`. A successful helper write leaves
+  exactly the payload. — FT-E18, FT-U8.
+- [ ] **AC-20 Windows (CI only).** (a) `-y` over an existing file replaces it, no staged file;
+  (b) a destination held open with `share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)` (no
+  `FILE_SHARE_DELETE`) exits 5, keeps the bytes, leaves no staged file; (c) the read-only attribute:
+  AC-10; (d) `-y` with the input as the output exits 0 and leaves no staged file. — FT-W1…FT-W4.
+- [ ] **AC-21 The docs, CHANGELOG and DEC say it, verbatim.** Each sentence in Implementation Context
+  → Docs is in place and driven on its listed paths (Build Completion quotes each), the two CHANGELOG
+  sections hold the three lines, and `decisions/DEC-<next>-a-file-write-is-all-or-nothing.md` holds
+  the DEC text with its block-list `affected_scope`. No user-facing text names a spec, stage or DEC
+  id. — read by verify; FT-E11, FT-E13, FT-E16 drive the sentences.
+- [ ] **AC-22 wasm32 still builds.** `just wasm-check` and `just wasm-test` pass. — the wasm CI leg.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**, before build. Every test below except the four Windows rows ran on the
+prototype (`atomic_write`: 23 passed; the 12 unit tests passed in the 64-target baseline). Red on
+`main` means the old code restored (Trap 14 row in the mutation table).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`src/sink/publish.rs`, `#[cfg(test)] mod tests`** (all OS unless marked). Each injection test runs
+  twice where the frame says so: over an existing `OLD` file, and onto a new path.
+  - FT-U1 `a_failed_create_keeps_the_old_file` — `FailAt::Create`: `Err`, old bytes kept; new path
+    absent; no staged file.
+  - FT-U2 `a_failed_first_write_keeps_the_old_file` — `FailAt::Write(1)`: as U1.
+  - FT-U3 `a_failed_second_write_keeps_the_old_file` — `FailAt::Write(2)`: as U1.
+  - FT-U4 `a_failed_flush_keeps_the_old_file` — `FailAt::Flush`: as U1.
+  - FT-U5 `a_failed_set_permissions_keeps_the_old_file` — `FailAt::SetPermissions`, existing file
+    only: `Err`, old bytes kept, no staged file.
+  - FT-U6 `a_failed_rename_keeps_the_old_file` — `FailAt::Rename`: as U1.
+  - FT-U7 `a_second_write_failure_leaves_partial_bytes_before_cleanup` — drives `FailingFs` directly:
+    the first `write` returns 1,024, the second errs, and the staged file holds 1,024 B. Proves U3's
+    state is real.
+  - FT-U8 `a_successful_write_replaces_the_file_and_leaves_no_staged_file` — `FailingFs` that never
+    fails (chunked writes): the file equals the 5,000-byte payload, no staged file.
+  - FT-U9 `a_long_file_name_still_writes` — 244-byte name, `RealFs`: written.
+  - FT-U10 `staged_names_differ_across_threads` — eight `std::thread::scope` threads each call
+    `next_staged_name("a.png")`; all eight differ.
+  - FT-U11 `a_replaced_file_keeps_its_mode` (unix) — `0600` and `0640`, `publish` over each, mode
+    kept.
+  - FT-U12 `a_read_only_destination_is_refused_and_kept` (unix) — `0444`: asserts the precondition
+    (opening it for write fails, else "running as root?"), then `Err`, old bytes, no staged file.
+- **`tests/atomic_write.rs`** (new). Helpers: `small_png` (`resize <fixture> --max 40`, 1,328 B),
+  `big_png` (copy of `tests/fixtures/classify/photo_entropy_floor.png`, 83,916 B), `staged_left(dir)`,
+  `limited(dir, ignore_xfsz, args)` = `sh -c "[trap '' XFSZ; ]ulimit -f 1; exec <BIN> <args>"`.
+  `ulimit -f` counts 512-byte blocks under `sh` (dash on Ubuntu, bash-as-sh on macOS); both test
+  outputs exceed 1,024 B, so either unit fails them.
+  - FT-E1…FT-E8 (unix) `efbig_{small,big}_{pixel,bytes}_{file,dir}` — `convert <in> --format png`
+    (pixel) or `meta strip <in>` (bytes), to `-o old.png` or `--out-dir od` (where `od/<name>` holds
+    `OLD`), `-y`, XFSZ ignored. **Assert in this order** (trap 13): exit 5; old bytes kept; no staged
+    file in the project or `od`; stderr contains `could not write output` and `File too large`. (The
+    prototype asserted the message first, and on `main` FT-E5…E8 went red on the message, not on the
+    destroyed file.) Red on `main`: E1-E4 by exit code
+    (0), E5-E8 by old bytes (512 B left).
+  - FT-E9 (unix) `sigxfsz_kill_keeps_the_old_file` — big, SIGXFSZ default: `status.signal() ==
+    Some(25)`, old bytes kept, at most one staged file. Red on `main` by old bytes.
+  - FT-E10 (unix) `a_new_file_follows_the_umask` — `sh -c "umask 022; exec …"` → `0644`; `077` →
+    `0600`. Green on `main` (a pin: a helper that chmods new files, or uses a `0600` temp, reds it).
+  - FT-E11 (unix) `a_read_only_directory_is_refused_by_name` — precondition asserted
+    (`File::create(ro/probe)` fails); exit 5; stderr contains
+    `error: could not write output ro/old.png: cannot create a new file in ro: Permission denied`;
+    old bytes; no staged file. Red on `main` (exit 0, rewritten in place).
+  - FT-E12 (unix) `a_read_only_directory_without_yes_says_already_exists` — no `-y`: exit 5,
+    `output file already exists (use --yes to overwrite): ro/old.png`. Green on `main` (a pin).
+  - FT-E13 (unix) `yes_keeps_a_non_default_mode` — `0600`, `0640`: exit 0, content changed, mode kept.
+    Green on `main` (same inode).
+  - FT-E14 `a_parallel_build_into_one_directory_leaves_no_staged_file` (pins completeness and
+    cleanup, not name uniqueness; see M7b) — manifest `version = 1`, four
+    `[[target]]`s, `source = "src/*.png"` (60 copies of the small PNG), one recipe
+    (`version = "1"`, `[[step]] op = "auto-orient"`), `out = "dist"`, `name = "{stem}_<t>.{ext}"`;
+    `build -j 8 --no-cache`: exit 0, 240 entries in `dist`, no staged file in `dist` or the project.
+  - FT-E15 (unix) `yes_over_a_read_only_file_is_refused` — `0444`, precondition asserted; exit 5,
+    `error: could not write output old.png: Permission denied`, old bytes, no staged file. Message red
+    on `main` (`could not write output` alone).
+  - FT-E16 `save_recipe_without_yes_refuses_an_existing_recipe` — `edit small.png --invert -o e.png
+    --save-recipe r.toml` with `r.toml` = `PRECIOUS`: exit 5,
+    `error: output file already exists (use --yes to overwrite): r.toml`, `PRECIOUS` kept, `e.png`
+    absent. Red on `main` (exit 0, replaced).
+  - FT-E17 `save_recipe_with_yes_replaces_an_existing_recipe` — same with `-y`: exit 0, starts
+    `version = "1"`, no staged file.
+  - FT-E18 `a_file_output_holds_the_same_bytes_as_stdout` — for `convert <small> --format png` and
+    `meta strip <fixture>`: `-o f.png` bytes equal `-o -` stdout bytes (and stdout > 1,000 B).
+  - FT-E19 (unix) `a_batch_with_one_refused_destination_keeps_it_and_writes_the_rest` — `in/a.png`,
+    `in/b.png`, `od/a.png` = `OLD` at `0444`, `convert in --format png --out-dir od -y`: exit 6, stderr
+    contains `od/a.png: Permission denied`, `a.png` kept, `b.png` written, no staged file.
+  - FT-E20 `a_staged_file_in_an_input_folder_is_not_an_input` — `src/a.png` and
+    `src/.a.png.crustyimg-1-0.tmp` (a PNG): `convert src` and `convert 'src/*'` each write one output.
+  - FT-E21 (unix) `a_failed_lockfile_write_keeps_the_old_lockfile` — project dir with `in/`, writable
+    `dist/`, `recipes/`, manifest, `crustyimg.build.lock` = `OLD LOCK`; project dir `0555`;
+    `build --no-cache`: exit 5,
+    `error: could not write build lockfile crustyimg.build.lock: Permission denied`, `OLD LOCK` kept,
+    no staged file. Restore `0755` before asserting.
+  - FT-E22 (unix) `save_recipe_failed_write_keeps_the_old_recipe` — `sh -c "trap '' XFSZ; ulimit -f 0;
+    exec <BIN> edit small.png --invert -o - -y --save-recipe r.toml >/dev/null"`, stderr **captured
+    by the test through a pipe** (a stderr file would be capped by the same limit and `eprintln!`
+    would panic, exit 101): exit 5, then `PRECIOUS` kept, then no staged file, then
+    `could not write output r.toml: File too large` (that order, trap 13). Red on `main` (0 B left).
+  - FT-E23 (unix) `a_batch_where_every_write_fails_exits_6_and_keeps_every_file` — `in/a.png`,
+    `in/b.png` (small), `od/a.png`, `od/b.png` = `OLD`; `limited(…, true, "convert in --format png
+    --out-dir od -y")`: exit 6, both `OLD` kept, no staged file. Red on `main` (exit 0, 512 B each).
+  - FT-W1 (windows) `windows_yes_replaces_an_existing_file` — exit 0, content changed, no staged file.
+  - FT-W2 (windows) `windows_a_destination_held_open_without_share_delete_is_kept` — hold
+    `OpenOptions::new().read(true).share_mode(0x1 | 0x2)` (`std::os::windows::fs::OpenOptionsExt`;
+    Rust's own `File::open` shares delete, so the test must set it) on `old.png`, then `convert … -o
+    old.png -y`: exit 5, stderr contains `could not write output old.png:` (don't assert the OS text),
+    `OLD` kept (read through the held handle or after dropping it), no staged file.
+  - FT-W3 (windows) `windows_a_read_only_destination_is_refused_and_kept` — `set_readonly(true)`:
+    exit 5, `OLD` kept, no staged file; clear the attribute before the tempdir drops.
+  - FT-W4 (windows) `windows_yes_over_the_input_itself_replaces_it` — `convert a.png --format png -o
+    a.png -y`: exit 0, the file decodes, no staged file.
+
+### Baseline the build records before changing code (trap 13)
+
+Run `cargo test --test atomic_write --no-fail-fast` with the new test file on unchanged `main` code
+(publish.rs absent, so only the E rows compile; the U rows arrive with the helper). Quote each red
+row's failure message. Expected red on macOS (driven, see the Trap 14 row): FT-E1…FT-E9, FT-E11, FT-E15, FT-E16, FT-E19, FT-E22, FT-E23 (15 rows; FT-E1…E4 and FT-E23 by exit code 0, FT-E5…E9 and FT-E22 by old bytes once the assertions are ordered as below, FT-E11 by exit code 0, FT-E15 and FT-E19 by the message without a cause, FT-E16 by exit code 0). A row red
+for another reason (a precondition panic, a fixture missing) is not a valid baseline: fix it first.
+
+### Mutation table (trap 12): apply each alone, record every test red
+
+All rows **driven** on the prototype (macOS, 2026-11-22), each alone on a full
+`cargo test --no-fail-fast` of every target (64 targets; baseline 0 red, 0 warnings), red set read off
+the run, not reasoned. FT ids map to the test names in Failing Tests. "Green" means every other test
+in the 64 targets stayed green. Windows rows can't be driven here; the build reads the Windows leg's
+red set on its PR.
+
+- **M1, a write error is swallowed.** `src/sink/publish.rs`, `publish`'s write loop:
+  `Err(e) => return Err(PublishError::Write(e)),` → `Err(_) => break,`. Red: FT-U2, FT-U3,
+  FT-E1…FT-E8, FT-E22. Green: FT-U4 (flush), FT-E18 (no failure in that row). *Driven.*
+- **M1b, a flush error is swallowed.** `fs.flush(&mut file).map_err(PublishError::Write)?;` →
+  `let _ = fs.flush(&mut file);`. Red: FT-U4 only (a real `File::flush` cannot fail, so no CLI row can
+  see it). *Driven.*
+- **M2, write in place.** `src/sink/mod.rs`, `publish_file`'s body → `OpenOptions::new().write(true)
+  .create(true).truncate(true).open(path)` then `write_all`, both errors mapped to `WriteFailed`
+  (keeping the `?`). Red: FT-E1…FT-E9, FT-E11, FT-E22. Green: every FT-U (they call `publish`
+  directly), FT-E21 (the lockfile uses `publish_file_io`), and the error/message halves of every red
+  row. That split is the point. *Driven.*
+- **M3, the remover does nothing.** `StagedFile::drop`: delete `let _ = fs::remove_file(&self.path);`.
+  Red: FT-U2…FT-U6, FT-E1…FT-E8, FT-E22. Green: FT-U1 and FT-E21 (staging fails before a file
+  exists). *Driven.*
+- **M4, the mode isn't copied.** `if let Some(perm) = old_perm {` →
+  `if let Some(perm) = old_perm.filter(|_| false) {`. Red: FT-U5 (no set-permissions call, so no
+  `Err`), FT-U11, FT-E13. *Driven.*
+- **M5, the pixel-lane `Sink::File` overwrite guard is dropped.** `src/sink/mod.rs` `write`,
+  `Sink::File`: replace `guard_overwrite(path, overwrite)?;` (and its comment) with
+  `let _ = overwrite;`. Red: `tests/sink.rs::overwrite_guard_forbids_then_allows` (existing), FT-E12.
+  The frame's M5 (guard after staging → a temp is left) cannot go red under the RAII remover (design
+  correction 5); FT-E12 pins the order. *Driven.*
+- **M6, `--save-recipe`'s guard is dropped.** `src/cli/ops.rs` `run_edit` pre-check:
+  `crate::sink::guard_overwrite(path, overwrite)?;` → `let _ = overwrite;`. Red: FT-E16 only.
+  *Driven.*
+- **M7, the staged name's `<n>` is fixed.** `next_staged_name`:
+  `staged_name(file_name, NEXT.fetch_add(1, Ordering::Relaxed))` → `staged_name(file_name, 0)`. Red:
+  FT-U10 only. **FT-E14 stays green**: the `AlreadyExists` retry absorbs the collision. *Driven.*
+- **M7b, a fixed `<n>` and no retry.** M7 plus `&& tries < 16` → `&& tries < 0`. Red: FT-U10 only.
+  FT-E14 stays green even here (240 outputs, 8 threads, three runs on the CLI probe plus this one): a
+  staged file lives for microseconds, so a collision is too rare to drive. **FT-U10 is the uniqueness
+  pin; FT-E14 pins "every output written, nothing left behind", not uniqueness.** *Driven.*
+- **M8, the remover is disarmed before the rename.** Move `staged.armed = false;` above
+  `fs.rename(…)?`. Red: FT-U6 only. (Windows FT-W2 is the CLI row that would see it; *reasoned*.)
+  *Driven.*
+- **M9, a read-only directory falls back to writing in place.** In the create loop, before the
+  catch-all: `Err(source) if source.kind() == io::ErrorKind::PermissionDenied => { return
+  fs::write(path, bytes).map_err(PublishError::Write); }`. Red: FT-E11, FT-E21. *Driven.*
+- **M10, the write-probe on an existing destination is dropped.** Delete the
+  `OpenOptions::new().write(true).open(path).map_err(PublishError::Write)?;` statement. Red: FT-U12,
+  FT-E15, FT-E19. *Driven.*
+- **M11, a short write reported as full** (the bytes pin, trap 13). `RealFs::write`: `file.write(buf)`
+  → `file.write(&buf[..buf.len().min(4096)]).map(|_| buf.len())`. Red: 46 tests across the suite,
+  including **FT-E18 by content** (`assertion left == right failed: ["meta", "strip", …]`: the
+  83,916 B case; the 1,328 B `convert` case fits under 4,096 B, which is why FT-E18 carries both) and
+  FT-E23 (exit 0). *Driven.*
+- **Trap 14a, `main`'s `src/sink/mod.rs` restored verbatim, alone.** Does not compile (5 errors:
+  `cannot find function publish_file_io in module crate::sink`, `… publish_file …`,
+  `function guard_overwrite is private`), so every target is red at compile. *Driven.*
+- **Trap 14b, `main`'s `src/sink/mod.rs`, `src/cli/ops.rs` and `src/cli/build.rs` restored**
+  (`publish.rs` then isn't compiled, so no FT-U runs). Red, 15: FT-E1…FT-E9, FT-E11, FT-E15, FT-E16,
+  FT-E19, FT-E22, FT-E23. Green on `main` (pins of behaviour that must not change): FT-E10, FT-E12,
+  FT-E13, FT-E14, FT-E17, FT-E18, FT-E20, FT-E21. FT-E21 is green on `main` because `main`'s
+  `write_lock` already keeps the old lockfile; F2's fix (an exclusive, unpredictable staged name that
+  never follows a symlink) rests on `create_new`'s documented semantics and FT-U1, *reasoned*.
+  *Driven.*
 
 ## Implementation Context
 
@@ -467,36 +807,345 @@ Written during **design**, BEFORE build. The implementer's job in
 the build cycle. It is the equivalent of a handoff document, folded
 into the spec since there is no separate receiving agent.*
 
+### The code shape
+
+- **`src/sink/publish.rs` (new, about 160 lines plus tests).** The helper and its seam, in its own file
+  because `src/sink/mod.rs` is 1,449 lines. All `pub(crate)`:
+  - `enum PublishError { CreateTemp { dir: PathBuf, source: io::Error }, Write(io::Error) }`.
+    `CreateTemp` is any failure to create the staged file; `Write` is every later step.
+  - `trait StageFs { fn create_new(&self, &Path) -> io::Result<File>; fn write(&self, &mut File,
+    &[u8]) -> io::Result<usize>; fn flush(&self, &mut File) -> io::Result<()>; fn set_permissions(&self,
+    &Path, Permissions) -> io::Result<()>; fn rename(&self, &Path, &Path) -> io::Result<()>; }`.
+  - `struct RealFs;` implements it over `std`: `create_new` is
+    `OpenOptions::new().write(true).create_new(true).open(path)`; `write` is `File::write` (one call;
+    the helper loops); `flush`, `fs::set_permissions`, `fs::rename`.
+  - `struct StagedFile { path: PathBuf, armed: bool }` whose `Drop` runs
+    `let _ = fs::remove_file(&self.path)` while `armed`. The one remover.
+  - `static NEXT: AtomicU64`, `fn process_id() -> u32` (`0` on wasm32), `const NAME_KEEP: usize = 100`,
+    `fn staged_name(file_name: &str, n: u64) -> String` →
+    `.{first NAME_KEEP bytes of file_name, cut back to a char boundary}.crustyimg-{pid}-{n}.tmp`, and
+    `fn next_staged_name(file_name: &str) -> String` (takes `n` from `NEXT`). The cut keeps a
+    240-byte name plus the suffix under the 255-byte name limit.
+  - `fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(), PublishError>`, in this
+    order:
+    1. `dir` = `path.parent()`, or `.` when it is empty.
+    2. If `fs::symlink_metadata(path)` succeeds: open `path` for writing with no truncate and drop it
+       (a failure is `Write`), then keep `meta.permissions()`. Otherwise no permissions to copy.
+    3. Loop: `fs.create_new(dir.join(next_staged_name(name)))`. On `AlreadyExists` retry, at most 16
+       times; any other error, or the 17th, returns `CreateTemp { dir, source }`. On success wrap the
+       path in an armed `StagedFile`.
+    4. Write: loop `fs.write` until every byte is out. `Ok(0)` is `WriteZero`; `Interrupted` retries;
+       any other error returns `Write`.
+    5. `fs.flush`, then `drop(file)`. The file is closed before the rename because Windows refuses to
+       rename an open file.
+    6. If permissions were kept: `fs.set_permissions(staged, perm)`.
+    7. `fs.rename(staged, path)`, then disarm the remover. The remover is disarmed **after** the rename
+       returns `Ok`, never before.
+    No `BufWriter`, no `sync_all`, no directory `fsync`.
+  - `#[cfg(test)] mod tests`: `enum FailAt { Create, Write(usize), Flush, SetPermissions, Rename }`
+    and `struct FailingFs { at: FailAt, writes: Cell<usize> }`, which delegates to `RealFs` and fails
+    with `io::Error::other("injected failure")` at its step. Its `write` passes at most
+    `CHUNK = 1024` bytes to `RealFs.write` and counts calls (1-based), so `FailAt::Write(2)` fails
+    with 1,024 bytes already in the staged file. The unit tests use a 5,000-byte payload, so a full
+    write takes five calls.
+- **`src/sink/mod.rs`.**
+  - `:39-40`: drop `std::fs::OpenOptions` and `BufWriter` from the imports; add `mod publish;`.
+  - `:210-213`: `SinkError::Io` stays, text unchanged, doc now "An I/O error while writing to stdout."
+    Add after it `WriteFailed { path: String, source: io::Error }` and
+    `DirNotWritable { path: String, dir: String, source: io::Error }` (texts under Messages).
+  - The four arms: `write` `Sink::File` (`:499-509`), `write` `Sink::Dir` (`:533-543`), `write_bytes`
+    `Sink::File` (`:645-652`), `write_bytes` `Sink::Dir` (`:665-672`). Each keeps its guards where they
+    are and replaces `OpenOptions … truncate(true) … BufWriter … write_all … Ok(())` with
+    `publish_file(<path>, <bytes>)`. Fix the comment at `:497` ("never truncate then error") and `:499`
+    ("then write to a BufWriter<File>").
+  - `:881`: `guard_overwrite` becomes `pub(crate)`.
+  - New, after `guard_overwrite`: `pub(crate) fn publish_file(path: &Path, bytes: &[u8]) ->
+    Result<(), SinkError>` (calls `publish::publish(path, bytes, &publish::RealFs)` and maps
+    `CreateTemp` → `DirNotWritable`, `Write` → `WriteFailed`, each with `path.display()`), and
+    `pub(crate) fn publish_file_io(path: &Path, bytes: &[u8]) -> io::Result<()>` (the same call,
+    returning the bare `source`) for the lockfile. Gate `publish_file_io` with
+    `#[cfg(not(target_arch = "wasm32"))]`: only the CLI calls it, and `just wasm-check` on the
+    prototype (rc=0) warned "function `publish_file_io` is never used" (PR #240 makes wasm clippy
+    `-D warnings`).
+  - Module doc `:13-16` and `:22-26`: the overwrite guard runs before anything is created, and a file
+    output is staged beside the destination and renamed over it. No spec or DEC ids.
+- **`src/cli/ops.rs`.**
+  - `run_edit`, right after step 1 (`:1687-1688`): when `save_recipe` is `Some(path)`, run
+    `reject_symlink_destination(path)?` and `guard_overwrite(path, overwrite)?`, with `overwrite` from
+    `global.yes` as `run_copy_metadata` builds it (`:1076-1080`). Comment: the recipe's destination is
+    guarded before anything is written, so a refused recipe leaves the image output unwritten too.
+  - `:1758-1761`: drop the late symlink check (moved up) and replace `std::fs::write(path, toml)…`
+    with `crate::sink::publish_file(Path::new(path), toml.as_bytes())?`.
+  - `:1675-1680` doc: an existing recipe without `--yes` is refused before the run; a write failure
+    is `SinkError::WriteFailed` or `DirNotWritable` (exit 5).
+  - `:22`: `SinkError` becomes unused in this file; drop it from the `use` (clippy `-D warnings`).
+- **`src/cli/build.rs`.** `write_lock` (`:673-689`): body becomes
+  `crate::sink::publish_file_io(Path::new(path), contents.as_bytes()).map_err(write_err)`. The doc
+  comment drops "the same temp→rename discipline the cache store uses" for "staged beside it and
+  renamed into place, like every file output". `CliError::LockWrite`'s text is unchanged.
+- **`src/cli/mod.rs:511`** (`--save-recipe` help): "Write the op chain as a TOML recipe to FILE after
+  a successful edit. An existing FILE needs --yes."
+- **`tests/atomic_write.rs` (new):** the end-to-end rows, `#[cfg(unix)]` and `#[cfg(windows)]`
+  modules as marked.
+
+### Messages (verbatim, each with its exit code and its test)
+
+- A file write that fails, any sink arm, `--save-recipe`, a read-only destination:
+  `error: could not write output <path>: <io error>`, **exit 5**. `<path>` is the `-o` path as given,
+  or, for `--out-dir`, the joined path `safe_join` returns (canonical directory plus name). Driven:
+  `error: could not write output old.png: File too large (os error 27)`;
+  `error: could not write output old.png: Permission denied (os error 13)` (0444, `-y`);
+  `error: could not write output r.toml: File too large (os error 27)`. — FT-E1…E8, FT-E15, FT-E17.
+- A directory that won't take the staged file:
+  `error: could not write output <path>: cannot create a new file in <dir>: <io error>`, **exit 5**.
+  `<dir>` is `path.parent()` as given, or `.`. Driven:
+  `error: could not write output ro/old.png: cannot create a new file in ro: Permission denied (os error 13)`.
+  — FT-E11.
+- `--save-recipe` over an existing file without `-y`: the image lane's own text,
+  `SinkError::AlreadyExists` (`src/sink/mod.rs:219-221`):
+  `error: output file already exists (use --yes to overwrite): r.toml`, **exit 5**. — FT-E16.
+- The lockfile: `CliError::LockWrite`, unchanged (`src/cli/mod.rs:727`):
+  `error: could not write build lockfile crustyimg.build.lock: Permission denied (os error 13)`,
+  **exit 5**. — FT-E21.
+- In a batch, each failed input prints `error: <input>: could not write output <path>: <cause>`, then
+  `error: N of M inputs failed`, **exit 6** (the batch path, unchanged). — FT-E19.
+- stdout: `error: could not write output`, exit 5, unchanged (no test change; out of scope).
+
+No message names a spec, stage or DEC id.
+
+### What doesn't change: output bytes
+
+The change is only in how bytes reach the disk; no encoder is touched. Today's pins of output bytes
+go through `encode_to_bytes` or stdout (`tests/recipe_corpus_output.rs` hashes encoded bytes;
+`tests/avif_tile_pin.rs`), not through a file sink, so none of them would see a write path that
+changed bytes. New pin **FT-E18**: the file a sink writes is byte-identical to what the same command
+sends to stdout (which does not use the helper), for the pixel lane (`convert … --format png`) and the
+byte lane (`meta strip`). M11 turns it red by content (a hash-style `left == right` on the 83,916 B
+case), not by exit code (see the table).
+
+### The new DEC (final text; the build creates the file)
+
+The build creates `decisions/DEC-<next>-a-file-write-is-all-or-nothing.md` from
+`decisions/_template.md`, taking the next free id at build time (other STAGE-063 designs may have
+claimed ids since). `affected_scope` in **block-list form** (HANDOFF trap 7):
+`src/sink/mod.rs`, `src/sink/publish.rs`, `src/cli/ops.rs`, `src/cli/build.rs`, `SECURITY.md`,
+`docs/cli-reference.md`, `docs/api-contract.md`, `tests/atomic_write.rs`. Body:
+
+> **Decision: a file write is all or nothing.**
+>
+> - Every file crustyimg writes for the user is staged in a new file in the destination's own
+>   directory, created exclusively (`create_new`, which refuses an existing path and never follows a
+>   symlink), and renamed over the destination only after every byte is written. That covers image
+>   outputs on every verb, `build` outputs, `meta` writing in place, `edit --save-recipe` and the
+>   build lockfile. One helper does it, `src/sink/publish.rs`.
+> - A failed write exits non-zero and leaves the destination's old bytes untouched, or leaves no file
+>   if there was none. No staged file survives an error the process returns. A killed process can
+>   leave one, named `.<name>.crustyimg-<pid>-<n>.tmp`; its `.tmp` extension keeps it out of
+>   crustyimg's folder and glob inputs.
+> - The symlink and overwrite guards (DEC-035) run before anything is created. An existing
+>   destination this user cannot open for writing is refused, as it was before writes were staged,
+>   so `-y` never replaces a read-only file.
+> - `-y` replaces the file at that name with a new file. Its permission bits carry over. Its owner
+>   (unless crustyimg runs as root), ACLs, extended attributes (on macOS, Finder tags) and hard links
+>   do not.
+> - A destination whose directory can't take a new file fails with exit 5 and names the directory.
+>   There is no in-place fallback: it would bring back the write that destroys the old file.
+> - Replacing a file needs room for the old and the new file at once. On a full disk that fails
+>   loudly and keeps the old file.
+> - The guarantee covers errors and killed processes. It does not cover power loss: nothing calls
+>   `fsync` on the file or its directory. (`sync_all` is `F_FULLFSYNC` on macOS, about 5 ms a file.)
+> - stdout is a stream: its errors exit non-zero, and there is nothing to stage. The build cache
+>   keeps its own staged write (`src/build/cache.rs`), whose entries are hash-checked on read.
+>
+> See also: DEC-035 (symlinked destinations), DEC-044 (the out-dir is created first; the staged file
+> goes inside it), DEC-059 (the lockfile, already written by temp and rename).
+
+**DEC-059's pointer (ship-time text, not an edit now):** DEC-059's "Written atomically (temp →
+`rename`), so a concurrent reader never sees a half-file" (`decisions/DEC-059-*.md:132`) stays true.
+At ship, append to that bullet: "The staged write is DEC-<next>'s helper."
+
+### Docs (re-checked `file:line`, exact text)
+
+Every sentence below states behaviour. The build drives each on the exit paths listed with it and
+quotes the result in Build Completion; verify drives them again.
+
+1. `SECURITY.md:41-44`, threat 3. After "and the tool does not overwrite an existing file without
+   `--yes`." insert: "A write that fails leaves the existing file as it was: output is staged beside
+   the destination and renamed into place, and a destination crustyimg could not write before is
+   still refused." Paths: one input `-o` (FT-E1, FT-E15), `--out-dir` batch (FT-E2), a batch with
+   one failing input (FT-E19), `build` (FT-E21).
+2. `SECURITY.md:87`, row 3. Replace "no overwrite without `--yes`" with "no overwrite without `--yes`
+   (image output AND `--save-recipe`); writes are staged and renamed, all or nothing". Paths: `-o`
+   (FT-E1), `--save-recipe` without and with `-y` (FT-E16, FT-E17).
+3. `docs/cli-reference.md:55`, exit 5. New text: "Output write refused or failed (exists without
+   `--yes`; path traversal; symlinked destination; a read-only destination; a directory that can't
+   take a new file; the write itself failed, in which case the existing file is left as it was)."
+   Paths: `-o` (FT-E1, FT-E15), `--out-dir` (FT-E2, FT-E11), `--save-recipe` (FT-E16).
+4. `docs/cli-reference.md`, a note right under the exit-code table (after `:58`), not in the `-y`
+   row: "**Replacing a file.** crustyimg writes each output to a new file beside the destination and
+   renames it over the old one only when every byte is written, so a failed write keeps the old file.
+   With `-y` the result is a new file at that name: it keeps the old file's permissions, but not its
+   owner, ACLs, extended attributes (Finder tags on macOS) or hard links. The directory must allow
+   new files: in a read-only directory `-y` exits `5`." Paths: `-y` mode kept (FT-E13), read-only
+   directory (FT-E11), failed write (FT-E1).
+5. `docs/cli-reference.md:332-337`, `--save-recipe`. After "A failed run writes no recipe." add:
+   "An existing FILE is replaced only with `-y`; without it `edit` exits `5` before writing anything."
+   Paths: FT-E16, FT-E17.
+6. `docs/api-contract.md:60`, exit 5. New text: "Output write failed / refused (exists without
+   `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 /
+   DEC-035; a failed write leaves the existing file as it was)." (The SPEC/DEC ids already in this
+   row stay; this is a contract doc, not user-facing help.) Paths: FT-E1, FT-E2.
+7. `skills/crustyimg/SKILL.md:54-55`. After "only when overwriting is what the user wants." add: "The
+   same holds for `edit --save-recipe FILE`." `skills/crustyimg/SKILL.md:335`, exit 5 row: "Output
+   write refused or failed (exists, symlink, path traversal, read-only directory; a failed write keeps
+   the old file)" | "Add `-y` if overwriting is intended; write to a directory you can create files
+   in". Paths: FT-E16, FT-E11.
+8. `--help`: `src/cli/mod.rs:511` as in the code shape. Path: FT-E16.
+9. Unchanged, checked: `README.md:292-295` ("`5` output refused") stays a one-line summary;
+   `docs/cli-reference.md:39` and `src/cli/mod.rs:106` (`-y`: "Assume "yes" to overwrite prompts
+   (non-interactive).") stay as they are, because the note in 4 carries the detail.
+
+### CHANGELOG (verbatim, under `## [Unreleased]`)
+
+`### Fixed`:
+- **A failed write no longer leaves a short or empty file.** Every file crustyimg writes (image
+  outputs on every verb, `build` outputs, `meta` writing in place, `edit --save-recipe` and the build
+  lockfile) now goes to a new file beside the destination and is renamed over it only when every
+  byte is written. A write that fails (a full disk, a file-size limit) exits 5, names the file and
+  the cause, and leaves the file that was there as it was. 0.8.2 and earlier exited 0 over a
+  truncated output under 8 KiB, and destroyed the old file on a larger one. `-y` now makes a new
+  file: it keeps the old file's permissions, but not its owner, ACLs, extended attributes (Finder
+  tags on macOS) or hard links, and replacing a file needs room for both at once.
+
+`### Changed`:
+- **`-y` into a directory that can't take new files is refused.** It exits 5 with
+  `could not write output <file>: cannot create a new file in <dir>: …`. 0.8.2 and earlier rewrote
+  the file in place, which is the write that could destroy it.
+- **`edit --save-recipe` needs `-y` to replace an existing recipe.** Without it `edit` exits 5 with
+  `output file already exists (use --yes to overwrite): <file>` before writing anything. 0.8.2 and
+  earlier replaced the recipe silently.
+
+### Size
+
+**[M] holds.** Derivation: code in 5 files (`src/sink/publish.rs` new, `src/sink/mod.rs`,
+`src/cli/ops.rs`, `src/cli/build.rs`, `src/cli/mod.rs`). The prototype's `git diff --stat`: 5 files,
+865 insertions, 46 deletions; `publish.rs` 375 lines of which 167 before `#[cfg(test)]`
+(`/usr/bin/grep -n` → line 168); call sites `src/sink/mod.rs` 85, `src/cli/ops.rs` 15,
+`src/cli/build.rs` 8 changed lines; `tests/atomic_write.rs` 428 lines (without the Windows rows).
+Tests: 12 unit + 23 end-to-end + 4 Windows = 39 (counted by FT id: U1-U12, E1-E23, W1-W4). Docs in 5 files plus the CHANGELOG and the DEC. One mechanism and one helper, so not L; the
+test matrix (3 guarantees × 2 lanes × 2 sinks × 2 sizes, plus modes, directories, recipes, the lock,
+3 OSes) is past S.
+
+### Overlap with open PRs and pushed branches (from their file lists, 2026-11-22)
+
+Read with `gh pr list --state open --json number,title,files` and `git branch -r`. There is **no
+pushed `feat/spec-15[4-8]*` branch**; the remote `feat/spec-150…153` and `feat/spec-159…` branches
+belong to shipped specs. Files this spec touches that another open PR also touches:
+- `src/cli/ops.rs` — **PR #240** (`ci: run clippy on the wasm32 library build`). Its hunks: the
+  `use super::common::{…}` block (`@@ -25,6 +25,14 @@`), and `run_metadata_lane` (`:799`, `:868`) and
+  `run_copy_metadata` (`:984`). This spec changes the `use crate::sink::{…}` line (`:22`, drops
+  `SinkError`) and `run_edit` (`:1681-1764`). The `:22` line sits three lines above #240's first hunk:
+  expect a trivial conflict on rebase; keep both sides.
+- `CHANGELOG.md` — **PR #237** (heifer). It adds lines at the top of `## [Unreleased]`
+  (`@@ -7,6 +7,21 @@`). This spec adds under the existing `### Changed` and `### Fixed`. Keep both.
+- `src/cli/mod.rs` — **PR #226** (`docs(agents)`). This spec changes one doc comment (`:511`). If it
+  conflicts, keep both.
+- `src/cli/build.rs` — no open PR touches it today. **SPEC-157** (destination identity, the
+  lockfile's paths) and **SPEC-158** (lockfile size) will; their designs name their functions. This
+  spec changes **only `write_lock`** (`:673-689`), its body and doc comment, and nothing in
+  `lock_output_path`, `lock_record`, `prepare_target`, `check_output_injective` or `run_build`. A
+  conflict inside `write_lock`: keep this spec's body (the helper call) and the other side's
+  path/contents logic around it.
+- `src/sink/mod.rs`, `src/sink/publish.rs`, `tests/atomic_write.rs`, `SECURITY.md`,
+  `docs/cli-reference.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md`: no open PR.
+On a rebase conflict in the STAGE-063 file, keep both sides and recount its `**Count:**` line with a
+fresh `/usr/bin/grep -c`. On a conflict in any other file not named above, stop and report. Never
+edit `projects/PROJ-017-geometry-as-recipe-steps/`.
+
+### Verification the build runs
+
+- `just check` with stdout redirected to a file (an interactive terminal fails
+  `display_sink_refuses_non_tty`); read `$?`, not a pipe's.
+- The full mutation table below, each row alone, on a full `cargo test --no-fail-fast` of every
+  target, red set read off the run. A mutant that doesn't compile stops `cargo test`; run that row's
+  targets separately and say so.
+- `just wasm-check` and `just wasm-test` (AGENTS §15 build rule; `src/sink` is in the wasm build).
+- `cargo clippy --all-targets -- -D warnings` on the default and the lean
+  (`--no-default-features`) builds (the verify-includes-lean rule).
+- **CI legs to read on the PR:** the three-OS `cargo test` matrix (`.github/workflows/ci.yml:177-201`),
+  the msrv 1.90.0 leg (`:360`), the lean leg, the wasm legs. **Windows' leg is the only evidence for
+  FT-W1…W4**: read its red set on the PR, quote the four rows' results, and if W2's exit code or
+  message differs from the reasoned one below, stop and report rather than loosen the assertion.
+  Don't poll CI: start one background `gh pr checks <n> --watch` and wait for its notification.
+- **Checkpoints:** push the branch after (1) the helper and its unit tests, (2) the four sink arms,
+  (3) `--save-recipe` and `write_lock`, (4) the end-to-end file, (5) docs, CHANGELOG and DEC.
+
+### What the Windows rows will see (reasoned; CI only)
+
+- W1: `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING)` succeeds; exit 0.
+- W2: crustyimg's write-probe open succeeds (the holder shares write). `MoveFileExW` fails (the
+  destination is open without `FILE_SHARE_DELETE`; Windows reports this as `ERROR_ACCESS_DENIED`).
+  std retries with `FileRenameInfoEx` + POSIX semantics, which also fails on a target open without
+  share-delete, and returns the first error: exit 5,
+  `could not write output old.png: Access is denied. (os error 5)`. The remover deletes the staged
+  file (it is closed, so delete works). If CI shows a sharing violation (`os error 32`) instead, the
+  test still passes, because it asserts only the prefix.
+- W3: the write-probe open fails with `ERROR_ACCESS_DENIED` before anything is staged: exit 5, no
+  staged file was ever made.
+- W4: crustyimg holds no handle on the input at the rename (every input read is `std::fs::read`), so
+  `MoveFileExW` replaces it: exit 0.
+
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-035` — symlinked destinations are refused even with `--yes`; the guard still runs first and
+  the rename (which replaces a link rather than following it) hardens it.
+- `DEC-044` — `--out-dir` is created before the write; the staged file goes inside it.
+- `DEC-059` — the lockfile is already written by temp and rename; it now uses the shared helper. Its
+  ship-time pointer is above.
+- `DEC-061` — symlinked parent directories and destination identity stay SPEC-157's ground.
+- `DEC-<next>` (new, created by the build) — a file write is all or nothing.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `no-new-top-level-deps-without-decision` — no new dependency: the helper is hand-rolled on `std`
+  (`tempfile` stays a dev-dependency).
+- `untrusted-input-hardening` — `create_new` never follows a symlink at the staged name, which fixes
+  `write_lock`'s predictable `{path}.tmp{pid}` (F2).
+- `no-unwrap-on-recoverable-paths` — every step returns its error; the remover ignores only its own
+  `remove_file` result.
+- `clippy-fmt-clean`, `test-before-implementation`, `every-public-fn-tested`.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- SPEC-005 (the sink), SPEC-034/037 (symlink guard, DEC-035), SPEC-063/067 (build lockfile and
+  `--watch`, DEC-059/060), PATCH-001 (out-dir auto-create, DEC-044).
+- The frame of this spec (`88089d4`) and the maintainer's rulings above.
 
 ### Out of scope (for this spec specifically)
 
 - stdout and the display sink: a closed pipe already exits 5; a stream has no old file to keep.
-- The build cache (`src/build/cache.rs`): already temp→rename with errors propagated and hash-checked reads.
-- `fsync` / power-loss durability, pending maintainer Q2 (recommended: not guaranteed, said so in the DEC).
-- Removing stale `.crustyimg-` temps a killed process leaves.
+- The build cache (`src/build/cache.rs`): already temp→rename with errors propagated and hash-checked
+  reads.
+- `fsync` and power-loss durability (ruling 2; a non-guarantee in the DEC).
+- Removing stale `.crustyimg-` staged files a killed process leaves.
 - Symlinked parent directories and destination identity: SPEC-157 and DEC-061.
 - The lockfile size contract: SPEC-158.
+- Two `optimize` inputs mapping to one destination in a batch (the last rename wins, whole; no torn
+  file). Not new, not this spec's.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- Read `src/sink/mod.rs:480-690` and `src/cli/ops.rs:1681-1764` before writing; the four arms are
+  near-identical and each keeps its own guards.
+- The prototype this design drove kept `publish.rs` free of `cfg(unix)` except in tests. Don't reach
+  for `OpenOptionsExt::mode`: std's default `0o666` already is the rule.
+- Test preconditions that need a non-root user **assert** the precondition (fail with "running as
+  root?"), never print a skip (HANDOFF trap 11).
+- FT-E22 must capture stderr through a pipe (`Command::output()` does). A redirect to a file inside
+  the `sh -c` would be capped by `ulimit -f 0` and turn the row into a panic (exit 101), driven at
+  design.
+- Comments and user-facing text read behaviour-first, with no spec or DEC ids.
+- No version bump.
 
 ---
 
