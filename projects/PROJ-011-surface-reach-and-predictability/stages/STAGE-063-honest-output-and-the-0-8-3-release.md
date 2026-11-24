@@ -147,11 +147,15 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   file, `--check` passed while the file on disk did not match its lock record. `--check` compares the bytes the
   run produced, not the tree. SPEC-157 documents this; decide whether a verify-mode build should be read-only
   and/or hash the files on disk (a behaviour change, so a maintainer call).
-- [ ] (not yet written) — [S] **`build`'s destination identity ignores Unicode normalization.**
-  Filed by the SPEC-157 design (2026-11-22), driven on its prototype on macOS APFS: `s1/café.png` (NFC) and
-  `s2/café.png` (NFD) built into one `out` exit 0 with one file on disk and two lock records, because APFS
-  treats the two spellings as one name and the identity compares them as two. Closing it needs NFC/NFD tables
-  (`unicode-normalization` or hand-rolled), which `std` lacks: a dependency decision first.
+- [ ] (not yet written) — [S] **`build`'s destination identity ignores Unicode normalization and full case
+  folding.** Filed by the SPEC-157 design (2026-11-22), driven on its prototype on macOS APFS: `s1/café.png`
+  (NFC) and `s2/café.png` (NFD) built into one `out` exit 0 with one file on disk and two lock records, because
+  APFS treats the two spellings as one name and the identity compares them as two. SPEC-157's verify found the
+  same for `ß`/`SS` (`to_lowercase` keeps them apart). SPEC-157's punch list closed the overwrite of a file the
+  build reads by a same-file (device + inode) check, so only the output-to-output collision is left, on any
+  build, not only a fresh one; its re-verify found `--check` exits 0 while the lock holds two paths for that
+  one file. Closing it needs NFC/NFD and case-folding tables (`unicode-normalization` or hand-rolled), which `std`
+  lacks: a dependency decision first.
 - [ ] (not yet written) — [S] **A rename out of code into a docs-only folder skips the CI gates.** Filed by the
   SPEC-154 verify (2026-11-22), driven in a scratch repo with the `changes` job's own diff forms. `git diff
   --name-only` detects renames by default, so moving `src/x.rs` to `docs/x.rs` lists only `docs/x.rs`, which

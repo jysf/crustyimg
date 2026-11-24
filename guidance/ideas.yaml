@@ -257,6 +257,51 @@ ideas:
     gate: null
     notes: "A 12-byte Adobe APP14 with transform 5: djpeg warns `Unknown Adobe color transform code 5`, assumes YCCK for four components and renders it; zune-jpeg refuses the file (`Unknown Adobe colorspace 5`). Upstream decoder behaviour, unchanged by SPEC-156 (`meta strip` keeps the segment as-is, which is right). Low priority: no real-world file seen; report upstream if one turns up."
 
+  - id: build-output-shadows-bundled-recipe
+    title: "A `build` output named `web`, `gallery` or `product` shadows the bundled recipe of that name"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "An output file whose path matches a target's `recipe = \"web\"` (or `gallery`, `product`) is read as a recipe file on the next build, which then exits 3. Pre-existing on `main`. Fix: resolve a bundled recipe name before a same-named file, or refuse an output that a recipe name would resolve to."
+
+  - id: build-template-separator-leaves-out-dir
+    title: "A `build` template name with a separator exits 6 but leaves the created `out` folder behind"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "`name = \"src/a.{ext}\"`: `safe_join` refuses it at write time (exit 6), after `create_dir_all` made the `out` folder. Pre-existing. Fix: refuse a template name with a separator at plan time, before any folder is created."
+
+  - id: build-create-dir-left-on-failure
+    title: "`build` leaves an empty folder when a step after `create_dir_all` fails"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Any write failure after the `out` folder is created leaves it empty on disk. Pre-existing. Low priority; same root as `build-template-separator-leaves-out-dir`."
+
+  - id: build-folder-source-case-on-case-sensitive-fs
+    title: "`build`'s folder-source listing check folds letter case where the glob check does not"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "On a case-sensitive filesystem holding both `SRC/` and `src/`, folder source `SRC` with `out = \"src\"` is refused (exit 2), although listing `SRC/` would never read `src/`; glob `SRC/*.png` with the same `out` builds. New in SPEC-157, consistent with its documented 'case ignored on every OS' rule, and rare. Fix only if someone hits it: compare the folder arm the way the glob arm does."
+
+  - id: build-output-link-to-source-message
+    title: "`build` refuses an output that is a link to a source as an overwrite, without naming the link"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "A symlink planted at an output name that points to a source now fails at planning with exit 2 `would overwrite \"dist/a.png\", which target #0 reads as a source`, where it used to be the sink's exit 6. Safer, but the message doesn't say the output is a link. Optional polish: add 'through a link' when the planned path is a symlink."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"
