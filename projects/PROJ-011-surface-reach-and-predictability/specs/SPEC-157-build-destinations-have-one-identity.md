@@ -1273,7 +1273,7 @@ and rewrote the lock to `build/dist/a.png`; `--check` then exited 0.
 Matrix (each leg a fresh `CARGO_TARGET_DIR`): default, `--no-default-features`, `--features webp-lossy`: `fmt --check`,
 `clippy --all-targets -D warnings` and the full `cargo test --no-fail-fast`, all rc=0. `just wasm-check` rc=0.
 
-CI snapshot: CI_SNAPSHOT_PLACEHOLDER
+CI snapshot: at head `7e1411c`, every leg pass: macOS, Ubuntu and Windows (`build / test / clippy / fmt`, Windows 20m15s), lean, webp-lossy, avif, both heic legs, msrv 1.90.0, wasm round-trip, ddphotos parity, browser smoke, cargo-deny, DCO, cost-capture, front-matter, plan. Release-only jobs skipped. The PR is still a draft.
 
 ### Build-phase reflection (3 questions, short answers)
 
