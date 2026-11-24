@@ -33,7 +33,13 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   folder sources, refused on the first build (FT-38–42, M16), with `READABLE_EXTENSIONS` copied from the
   source filter and pinned by FT-52. Pins FT-43–51 (M17–M19). Exit 6 in `SECURITY.md`; `SKILL.md`
   added to scope. STAGE-063's NFC/NFD entry extended to `ß`/`SS` by the orchestrator on `main`.
-- [ ] **re-verify** — `prompts/SPEC-157-reverify.md` (Opus, read-only). Drives both fixes on both
-  sides, their false refusals, the reasoned shapes, the extension-list drift guard and the stat cost.
-  ⛔ #270 is not merged until the re-verify reports.
+- [x] **re-verify** (2026-11-24, Opus, $3.43) — PUNCH LIST at `8a7b03c`, **no claims**. Both fixes
+  driven on release builds of both sides (`ß`/`SS`, NFD/NFC, a link through `src`, chaining, `**`, a
+  sub-folder manifest, a case-sensitive image); nothing wrongly refused (twice-built, `--watch`, sub-folder
+  outputs, pinned webp); stat cost +0.15 s on 2,000 inputs. **Two asserts:** FT-52 misses a removed
+  extension; FT-35/36 can skip silently on CI. **Three wording items.** Two out-of-spec findings filed in
+  `guidance/ideas.yaml`; the `--check` residual added to STAGE-063's NFC/NFD entry.
+- [ ] **punch list 2** — `prompts/SPEC-157-punchlist-2.md` (Sonnet). Asserts and wording only, so no
+  re-verify: the orchestrator checks the report, then ship.
+  ⛔ #270 is not merged until the orchestrator has checked punch list 2's report.
 - [ ] **ship**

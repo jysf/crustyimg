@@ -152,8 +152,9 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   (NFC) and `s2/café.png` (NFD) built into one `out` exit 0 with one file on disk and two lock records, because
   APFS treats the two spellings as one name and the identity compares them as two. SPEC-157's verify found the
   same for `ß`/`SS` (`to_lowercase` keeps them apart). SPEC-157's punch list closed the overwrite of a file the
-  build reads by a same-file (device + inode) check, so only the output-to-output collision on a fresh build is
-  left. Closing it needs NFC/NFD and case-folding tables (`unicode-normalization` or hand-rolled), which `std`
+  build reads by a same-file (device + inode) check, so only the output-to-output collision is left, on any
+  build, not only a fresh one; its re-verify found `--check` exits 0 while the lock holds two paths for that
+  one file. Closing it needs NFC/NFD and case-folding tables (`unicode-normalization` or hand-rolled), which `std`
   lacks: a dependency decision first.
 - [ ] (not yet written) — [S] **A rename out of code into a docs-only folder skips the CI gates.** Filed by the
   SPEC-154 verify (2026-11-22), driven in a scratch repo with the `changes` job's own diff forms. `git diff
