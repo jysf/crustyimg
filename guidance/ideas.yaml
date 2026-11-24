@@ -284,6 +284,24 @@ ideas:
     gate: null
     notes: "Any write failure after the `out` folder is created leaves it empty on disk. Pre-existing. Low priority; same root as `build-template-separator-leaves-out-dir`."
 
+  - id: build-folder-source-case-on-case-sensitive-fs
+    title: "`build`'s folder-source listing check folds letter case where the glob check does not"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "On a case-sensitive filesystem holding both `SRC/` and `src/`, folder source `SRC` with `out = \"src\"` is refused (exit 2), although listing `SRC/` would never read `src/`; glob `SRC/*.png` with the same `out` builds. New in SPEC-157, consistent with its documented 'case ignored on every OS' rule, and rare. Fix only if someone hits it: compare the folder arm the way the glob arm does."
+
+  - id: build-output-link-to-source-message
+    title: "`build` refuses an output that is a link to a source as an overwrite, without naming the link"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "A symlink planted at an output name that points to a source now fails at planning with exit 2 `would overwrite \"dist/a.png\", which target #0 reads as a source`, where it used to be the sink's exit 6. Safer, but the message doesn't say the output is a link. Optional polish: add 'through a link' when the planned path is a symlink."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"
