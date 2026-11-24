@@ -839,8 +839,10 @@ fn check_destinations(
 ///
 /// Creates the folder, resolves it again, and refuses the write if it is no
 /// longer where planning put it (a folder swapped for a link in between). The
-/// file name is joined as one component and never followed; a link at the file
-/// itself is refused by the sink even with `--yes`.
+/// file name is joined with `safe_join`, which refuses a name that holds a
+/// separator (planning joins the name as written, so `src/a.{ext}` is compared
+/// as `<out>/src/a.png` and may be refused as an overlap first); a link at the
+/// file itself is refused by the sink even with `--yes`.
 fn write_planned(
     bytes: &[u8],
     ext: &str,

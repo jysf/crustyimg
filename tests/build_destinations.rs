@@ -792,6 +792,26 @@ mod links {
     }
 
     #[test]
+    fn a_link_planted_at_an_output_file_makes_build_exit_6_and_is_not_followed() {
+        // The sink's link refusal exits 5 on `apply`; `build` aggregates per-input
+        // failures, so it exits 6 for the same refusal. (The folder-moved race is
+        // not deterministic to drive end to end; the unit row beside
+        // `write_planned` pins that one.)
+        let victim = TempDir::new().unwrap();
+        let target = victim.path().join("keep.png");
+        std::fs::write(&target, b"untouched").unwrap();
+        let dir = project(&[("src/a.png", "dist", None)]);
+        std::fs::create_dir(dir.path().join("dist")).unwrap();
+        symlink(&target, dir.path().join("dist/a.png")).unwrap();
+
+        let out = run(dir.path(), &[]);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(6), "{err}");
+        assert!(err.contains("1 of 1 inputs failed"), "{err}");
+        assert_eq!(std::fs::read(&target).unwrap(), b"untouched");
+    }
+
+    #[test]
     fn an_in_tree_link_builds_and_locks_the_real_path() {
         let dir = project(&[("src/a.png", "dist", None)]);
         std::fs::create_dir_all(dir.path().join("build/dist")).unwrap();

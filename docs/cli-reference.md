@@ -384,11 +384,15 @@ directory), with `..` applied and links followed. The build is refused with exit
 nothing, when:
 
 - two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
-  link to `dist`). Letter case is ignored on every OS, so `a.png` and `A.png` in one folder collide on
-  Linux too;
+  link to `dist`). Letter case is ignored on every OS as `str::to_lowercase` folds it, so `a.png` and
+  `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. Two outputs that land in
+  one new file by names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught;
 - an output would replace a file the build reads: a source of any target, a recipe file, a file a
   recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
-  cannot be another target's source;
+  cannot be another target's source. An output that already exists and is the same file as one of
+  these is refused too, whatever its name (a hard link; on a Mac, `ß` for `SS` or NFC for NFD);
+- a target's source is a glob or a folder that would list one of its outputs on the next build
+  (`source = "src/*.png"`, `out = "src"`, `name = "{stem}_w.{ext}"`), which would feed the output back in;
 - an output would land in `.crustyimg/`;
 - an `out` resolves outside the build tree through a link. A link to a folder inside the tree is fine;
   to publish outside the tree, build inside it and copy.

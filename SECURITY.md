@@ -39,14 +39,14 @@ agent-run workflow this repo uses.
    (`{stem}_web.{ext}`) into `--out-dir`. Mitigations (SPEC-005 + SPEC-034 /
    DEC-035): `safe_join` rejects an expanded name that is absolute, contains a
    path separator, or contains `..`; the destination is **refused if it is a
-   symlink** (`SinkError::Traversal`, exit 5) **even with `--yes`**, so a planted
+   symlink** (`SinkError::Traversal`, exit 5; `build` aggregates per-input failures, so it exits 6) **even with `--yes`**, so a planted
    symlink in `--out-dir` cannot redirect a write outside it; and the tool does
    not overwrite an existing file without `--yes`. A write that fails leaves the existing
    file as it was: output is staged beside the destination and renamed into place, and a
    destination crustyimg could not write before is still refused. `build` resolves each target's `out`
    once, before writing, with links followed: an `out` that resolves outside the build tree is refused
    (exit 2), as is an output that would replace a file the build reads or two outputs that are one file;
-   the folder is resolved again just before each write, and the write is refused (exit 5) if it moved.
+   the folder is resolved again just before each write, and the write is refused (exit 6: `build` counts it as a failed input) if it moved.
    On input, directory/glob
    sources are non-recursive (DEC-010) and **skip any entry whose real path
    escapes the root** (symlink-escape check, always anchored — SPEC-034). Inputs
