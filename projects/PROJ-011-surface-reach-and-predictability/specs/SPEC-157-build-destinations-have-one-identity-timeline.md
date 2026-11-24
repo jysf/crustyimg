@@ -20,6 +20,16 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   `9733cd8`; CI running at report time (13 passed, 5 in progress, none failed; orchestrator-read).
   Baseline red as predicted (FT-5/19/20/27 green). 24 ACs met; AC-22 rests on the Windows leg.
   Mutations match except M12, which also reddens FT-28 (table cell). Upgrade drift driven once.
-- [ ] **verify** — `prompts/SPEC-157-verify.md` (Opus). Applies AGENTS §15's coverage map after the
-  fact. ⛔ #270 is not merged until verify (and any re-verify) reports.
+- [x] **verify** (2026-11-23, Opus, $12.19) — PUNCH LIST at `9733cd8`. The coverage map was driven in
+  full; every refusal message matches byte for byte; FT-29/FT-30 10/10; CI green incl. Windows.
+  **Two claims:** a source is overwritten on APFS through `ß`/`SS` or NFC/NFD (exit 0), and a glob
+  source writing into its own folder builds once, then exits 2 on every later build (new in this PR).
+  **One assert:** UX1–UX3 turn no rows red, and six refusals have no row. **Wording:** exit 6, not 5,
+  in `SECURITY.md`; the M12 cell; the reflection's "one component". Three pre-existing findings were
+  filed in `guidance/ideas.yaml`.
+- [ ] **punch list** — `prompts/SPEC-157-punchlist.md` (Sonnet). Maintainer rulings: close the
+  overwrite with a same-file (device + inode) check, no Unicode dependency, leaving output-to-output
+  `ß`/NFC as a residual; refuse the glob case on the first build.
+- [ ] **re-verify** — narrow, after the punch list (two claim items).
+  ⛔ #270 is not merged until the re-verify reports.
 - [ ] **ship**
