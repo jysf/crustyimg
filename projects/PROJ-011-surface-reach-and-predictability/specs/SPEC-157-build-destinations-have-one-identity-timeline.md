@@ -27,9 +27,13 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   **One assert:** UX1–UX3 turn no rows red, and six refusals have no row. **Wording:** exit 6, not 5,
   in `SECURITY.md`; the M12 cell; the reflection's "one component". Three pre-existing findings were
   filed in `guidance/ideas.yaml`.
-- [ ] **punch list** — `prompts/SPEC-157-punchlist.md` (Sonnet). Maintainer rulings: close the
-  overwrite with a same-file (device + inode) check, no Unicode dependency, leaving output-to-output
-  `ß`/NFC as a residual; refuse the glob case on the first build.
-- [ ] **re-verify** — narrow, after the punch list (two claim items).
+- [x] **punch list** (2026-11-24, Sonnet, $4.08 measured before its last commit) — PR #270 at
+  `8a7b03c` (code at `7e1411c`, CI 18 passed / 8 skipped / none failed, orchestrator-read). Fix 1:
+  a same-file (device + inode) check, `cfg(unix)` (FT-35/36/37, M15). Fix 2: a listing check for glob and
+  folder sources, refused on the first build (FT-38–42, M16), with `READABLE_EXTENSIONS` copied from the
+  source filter and pinned by FT-52. Pins FT-43–51 (M17–M19). Exit 6 in `SECURITY.md`; `SKILL.md`
+  added to scope. STAGE-063's NFC/NFD entry extended to `ß`/`SS` by the orchestrator on `main`.
+- [ ] **re-verify** — `prompts/SPEC-157-reverify.md` (Opus, read-only). Drives both fixes on both
+  sides, their false refusals, the reasoned shapes, the extension-list drift guard and the stat cost.
   ⛔ #270 is not merged until the re-verify reports.
 - [ ] **ship**
