@@ -504,14 +504,22 @@ fn an_out_in_another_letter_case_overlaps_the_source() {
 // ── Names the filesystem merges but a lower-cased string does not ─────────────
 
 /// Whether the temp filesystem treats `a` and `b` as one name, tested by
-/// creating one and looking for the other. Prints the reason when it does not.
+/// creating one and looking for the other. Locally a filesystem that keeps them
+/// apart skips the test with the reason printed. Under `CI` (GitHub Actions sets
+/// `CI=true`, and plain `cargo test` hides a passing test's output) it fails
+/// instead, so a green run means the test ran.
 #[cfg(target_os = "macos")]
 fn fs_merges(a: &str, b: &str) -> bool {
     let probe = TempDir::new().unwrap();
     std::fs::write(probe.path().join(a), b"x").unwrap();
     let merged = probe.path().join(b).exists();
     if !merged {
-        eprintln!("skipped: this filesystem keeps {a:?} and {b:?} apart");
+        let why = format!("this filesystem keeps {a:?} and {b:?} apart");
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{why}; on CI this test must run, not skip, or it proves nothing"
+        );
+        eprintln!("skipped: {why}");
     }
     merged
 }

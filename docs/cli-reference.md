@@ -385,8 +385,9 @@ nothing, when:
 
 - two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
   link to `dist`). Letter case is ignored on every OS as `str::to_lowercase` folds it, so `a.png` and
-  `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. Two outputs that land in
-  one new file by names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught;
+  `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. The check compares
+  outputs with the files the build reads, never two outputs with each other by file identity, so two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build;
 - an output would replace a file the build reads: a source of any target, a recipe file, a file a
   recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
   cannot be another target's source. An output that already exists and is the same file as one of

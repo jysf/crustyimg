@@ -144,6 +144,37 @@ cost:
         three fresh-target matrix legs and `just wasm-check`.
         Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
         (x0.10), $15 output.
+    - cycle: reverify
+      date: 2026-11-24
+      model: claude-opus-4
+      interface: claude-code
+      tokens_total: 4026988
+      tokens_breakdown:
+        input: 76
+        cache_creation: 110280
+        cache_read: 3884821
+        output: 31811
+      estimated_usd: 3.43
+      note: >
+        Figures handed over by the orchestrator in the punch-list-2 prompt, measured before the
+        session's final message. Opus rates.
+    - cycle: punchlist-2
+      date: 2026-11-24
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2606978
+      tokens_breakdown:
+        input: 64
+        cache_creation: 75161
+        cache_read: 2513852
+        output: 17901
+      estimated_usd: 1.30
+      note: >
+        Measured from the session JSONL, found by content ("SPEC-157 — PUNCH LIST 2 prompt"), deduped
+        by message.id, max output_tokens per id. Measured before the final spec commit and the CI
+        wait, so the true total is slightly higher.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -951,11 +982,11 @@ Body (`## Decision`):
 >    triggers a rebuild, even inside an excluded directory (rule 2 guarantees the build's own writes are never
 >    such a file).
 >
-> Not covered: two outputs that land in one new file because their names differ only in Unicode
-> normalization (NFC and NFD) or in a case `to_lowercase` does not fold (`ß` and `SS`) are one file on macOS
-> and two identities here, because neither file exists at planning time; that needs normalization tables
-> `std` does not have. The output-to-output collision is all that is left: an output over a file the build
-> reads is caught by file identity *(corrected at punch list)*. Destinations of `apply` and the
+> Not covered: two outputs whose names differ only in Unicode normalization (NFC and NFD) or in a case
+> `to_lowercase` does not fold (`ß` and `SS`) are one file on macOS and two identities here, on any build, new
+> file or not; that needs normalization tables `std` does not have. The check compares outputs with the files
+> the build reads, never two outputs with each other by file identity, so the output-to-output collision is
+> all that is left: an output over a file the build reads is caught by file identity *(corrected at punch list)*. Destinations of `apply` and the
 > single-file verbs (`-o`, `--out-dir`) are not resolved this way.
 
 `## Context`: the two P1 findings (`docs/reviews/2026-11-10-external-code-review.md`), the frame's driven
@@ -992,8 +1023,9 @@ In `decisions/DEC-061-*.md`:
    >
    > - two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
    >   link to `dist`). Letter case is ignored on every OS as `str::to_lowercase` folds it, so `a.png` and
-   >   `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. Two outputs that land in
-   >   one new file by names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught;
+   >   `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. The check compares
+   >   outputs with the files the build reads, never two outputs with each other by file identity, so two
+   >   outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build;
    > - an output would replace a file the build reads: a source of any target, a recipe file, a file a
    >   recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
    >   cannot be another target's source. An output that already exists and is the same file as one of
@@ -1064,7 +1096,7 @@ In `decisions/DEC-061-*.md`:
   `crustyimg.build.lock`, and exited 0. Each target's `out` is now resolved before anything is written, and
   such a build is refused with exit 2. So is a source that would list its own output on the next build:
   `source = "src/*.png"` or `"src"` with `out = "src"` and `name = "{stem}_w.{ext}"` built once and then
-  exited 2 on every later run; it is now refused on the first. *(corrected at punch list)*
+  exited 2 on every later run; it is now refused on the first.
 - `build --watch` no longer rebuilds in a loop when `out` is a link into a watched source folder, and no
   longer misses an edit to a source that sits inside an `out` folder.
 
@@ -1075,12 +1107,15 @@ In `decisions/DEC-061-*.md`:
   tree and silently overwrote the source on a warm one.
 - `build` ignores letter case when it checks that outputs are distinct, on every OS: `a.png` and `A.png`
   written to one folder are refused on Linux too. Only what `str::to_lowercase` folds counts as one name
-  (`ß` and `SS` do not), so two outputs that land in one new file by names only a Mac's filesystem merges
-  (`ß`/`SS`, NFC/NFD) are not caught; an output that is already a file the build reads is, by file identity. *(corrected at punch list)*
+  (`ß` and `SS` do not). The check compares outputs with the files the build reads, never two outputs with
+  each other by file identity: an output that is already a file the build reads is caught that way, but two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build.
 - `crustyimg.build.lock` records each output's path from the build root. A lockfile written with an `out`
   spelled through `..`, a link, or a case that differs from the folder on disk reports path drift once
   under `build --check`; run `crustyimg build` once to refresh it.
 ```
+
+Both Fixed and Changed sentences marked *(corrected at punch list)*: the "refused on the first" sentence, and the case sentence (reworded again at punch list 2).
 
 ### Overlap with other open work (from file lists, 2026-11-22)
 
@@ -1216,7 +1251,7 @@ with a second index `by_file` (device and inode, from `std::fs::metadata`, links
 folded-string lookup misses, `check_destinations` stats the planned output and refuses on a hit with that read's
 clause. Windows skips it (NTFS does not merge `ß`/`SS` and does not normalize, so the folded name is the identity
 there; *reasoned, not driven*).
-- Red on `9733cd8` (driven): FT-35, FT-36, FT-37 each exit 0 with the source replaced (`left: Some(0), right: Some(2)`).
+- Red on `9733cd8` (driven): FT-35 and FT-36 each exit 0 with the source replaced (`left: Some(0), right: Some(2)`). FT-37's hard-link case exits 0 with the source unchanged, because the staged rename breaks the link, so it was red only on the exit code. *(corrected at punch list 2)*
 - Green after: all three. FT-35 and FT-36 ran on this APFS volume (not skipped; checked with `--nocapture`).
 
 **Fix 2: a glob or folder source that would list its output is refused on the first build.** `listers_of` builds,
@@ -1274,6 +1309,40 @@ Matrix (each leg a fresh `CARGO_TARGET_DIR`): default, `--no-default-features`, 
 `clippy --all-targets -D warnings` and the full `cargo test --no-fail-fast`, all rc=0. `just wasm-check` rc=0.
 
 CI snapshot: at head `7e1411c`, every leg pass: macOS, Ubuntu and Windows (`build / test / clippy / fmt`, Windows 20m15s), lean, webp-lossy, avif, both heic legs, msrv 1.90.0, wasm round-trip, ddphotos parity, browser smoke, cargo-deny, DCO, cost-capture, front-matter, plan. Release-only jobs skipped. The PR is still a draft.
+
+### Punch list 2 (re-verify)
+
+Starting point: PR #270 head `8a7b03c`, unmoved.
+
+- **FT-52 catches an extension removed from the copy.** It now probes a literal list of the 28 source
+  extensions, the copy's own members and `OUTPUT_EXTENSIONS`, and asserts the real filter and the copy
+  agree on each. The test lives in `src/cli/build.rs`'s test module, not `tests/`, so that file changed
+  beyond the comment. Each mutant alone on the copy, FT-52 red:
+  - remove `nef`: `the source filter and READABLE_EXTENSIONS disagree on `.nef``
+  - remove `webp`: `... disagree on `.webp``
+  - add `xyz`: `... disagree on `.xyz``
+
+  The first draft (literal list + `OUTPUT_EXTENSIONS` only) left the `xyz` mutant green, because nothing
+  probed an extension that exists only in the copy; adding the copy's members to the probe fixed it.
+- **FT-35 and FT-36 do not pass silently on a skip.** Under `CI` a filesystem that does not merge the
+  names fails with a message saying why; locally it skips and prints the reason.
+  - `CI=true`, APFS: both pass.
+  - probe forced to "not merged" (temporary `&& false`, reverted), `CI=true`: both FAILED, with
+    `this filesystem keeps "ß-probe" and "SS-probe" apart; on CI this test must run, not skip, or it proves nothing`.
+  - same forced edit, `CI` unset: both ok, each printing `skipped: this filesystem keeps ...`.
+- **Residual reworded** in `docs/cli-reference.md`, `CHANGELOG.md` and the spec's copies: the check
+  compares outputs with the files the build reads, never two outputs with each other by file identity, so
+  names only a Mac's filesystem merges are not caught, on any build.
+- **Comment fixed**: `src/cli/build.rs` now names `readable_extensions_match_the_source_filter`.
+- **Spec punch-list text**: FT-37 said red only on the exit code (source unchanged, the staged rename
+  breaks the link); markers moved out of the CHANGELOG fence.
+- **Verbatim check** (script, whitespace normalized only for the docs blockquotes): all 6 bullets in the
+  CHANGELOG fence are byte-exact substrings of `CHANGELOG.md`; no marker inside the fence; the four docs
+  blockquotes, the SKILL sentence, the exit-2 row and the lockfile phrase all match their source files.
+- **Matrix**, fresh `CARGO_TARGET_DIR` per leg: `fmt --check` (after one `cargo fmt` of the new array),
+  `clippy --all-targets -D warnings` and full test green on default (1448 passed), `--no-default-features`
+  (1382) and `--features webp-lossy` (1452). The default and no-default legs ran before the fmt-only
+  whitespace change to the test's array.
 
 ### Build-phase reflection (3 questions, short answers)
 

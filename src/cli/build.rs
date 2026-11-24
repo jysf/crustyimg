@@ -601,7 +601,7 @@ fn reads_of(
 
 /// The source extensions the source filter accepts when it lists a folder or
 /// expands a glob (a copy of the source module's private list, which this file
-/// may not widen; `source_extensions_match_the_source_filter` drives it against
+/// may not widen; `readable_extensions_match_the_source_filter` drives it against
 /// the real filter so the two cannot drift apart unnoticed). A planned output
 /// with one of these would be read by the next build.
 const READABLE_EXTENSIONS: &[&str] = &[
@@ -1948,15 +1948,24 @@ mod tests {
         assert_eq!(fold_case("\u{c9}t\u{c9}.PNG"), "\u{e9}t\u{e9}.png");
     }
 
-    /// `READABLE_EXTENSIONS` is a copy of the source filter's list. List a real
-    /// folder holding one file per extension in either list, and require the
-    /// filter to pick exactly the copy's members (an extension it dropped, or
-    /// one of the sink's it now reads, fails here).
+    /// `READABLE_EXTENSIONS` is a copy of the source filter's list. Probe the
+    /// real filter with a literal list of the extensions it accepts (so an
+    /// extension dropped from the copy is still probed), the copy's own members
+    /// (so one added to the copy is probed too) and the sink's, and require the
+    /// filter and the copy to agree on each.
     #[test]
     fn readable_extensions_match_the_source_filter() {
+        const SOURCE_EXTENSIONS: &[&str] = &[
+            "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "webp", "avif", "svg", "nef",
+            "nrw", "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw",
+            "rwl", "raw", "heic", "heif",
+        ];
         let dir = tempfile::TempDir::new().unwrap();
-        let mut probed: Vec<&str> = READABLE_EXTENSIONS.to_vec();
+        let mut probed: Vec<&str> = SOURCE_EXTENSIONS.to_vec();
+        probed.extend(READABLE_EXTENSIONS);
         probed.extend(OUTPUT_EXTENSIONS);
+        probed.sort_unstable();
+        probed.dedup();
         for ext in &probed {
             std::fs::write(dir.path().join(format!("f.{ext}")), b"x").unwrap();
         }
@@ -1976,9 +1985,13 @@ mod tests {
                 .into_owned()
         })
         .collect();
-        let expected: std::collections::BTreeSet<String> =
-            READABLE_EXTENSIONS.iter().map(|e| e.to_string()).collect();
-        assert_eq!(listed, expected);
+        for ext in &probed {
+            assert_eq!(
+                listed.contains(*ext),
+                is_readable_name(&format!("f.{ext}")),
+                "the source filter and READABLE_EXTENSIONS disagree on `.{ext}`"
+            );
+        }
     }
 
     #[test]

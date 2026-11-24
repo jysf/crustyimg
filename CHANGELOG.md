@@ -65,8 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tree and silently overwrote the source on a warm one.
 - `build` ignores letter case when it checks that outputs are distinct, on every OS: `a.png` and `A.png`
   written to one folder are refused on Linux too. Only what `str::to_lowercase` folds counts as one name
-  (`ß` and `SS` do not), so two outputs that land in one new file by names only a Mac's filesystem merges
-  (`ß`/`SS`, NFC/NFD) are not caught; an output that is already a file the build reads is, by file identity.
+  (`ß` and `SS` do not). The check compares outputs with the files the build reads, never two outputs with
+  each other by file identity: an output that is already a file the build reads is caught that way, but two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build.
 - `crustyimg.build.lock` records each output's path from the build root. A lockfile written with an `out`
   spelled through `..`, a link, or a case that differs from the folder on disk reports path drift once
   under `build --check`; run `crustyimg build` once to refresh it.
