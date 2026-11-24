@@ -388,7 +388,9 @@ fn build_root() -> Result<PathBuf, CliError> {
 /// letter case, so a manifest relying on `a.png` and `A.png` being two files
 /// would break there; refusing it everywhere keeps one manifest meaning one
 /// thing. No Unicode normalization and no full case folding: that needs tables
-/// `std` does not have.
+/// `std` does not have. Names this misses (`ß`/`SS`, NFC/NFD) are caught for a
+/// file that already exists by [`Reads::by_file`], which compares the file
+/// itself.
 fn fold_case(path: &str) -> String {
     path.to_lowercase()
 }
@@ -522,6 +524,21 @@ fn identity_of(root: &Path, path: &Path) -> String {
     fold_case(&abs.to_string_lossy())
 }
 
+/// Every file this build reads, with the clause that says who reads it. The
+/// first reader of a file wins.
+struct Reads {
+    /// By folded canonical path.
+    by_name: HashMap<String, String>,
+    /// By device and inode, for the read files that exist (links followed, as
+    /// the reads were). Two names for one file (a name `fold_case` does not
+    /// merge but the filesystem does, or a hard link) share one entry. Unix
+    /// only: on Windows NTFS's case mapping does not merge `ß` and `SS` and
+    /// NTFS does not normalize, so the folded name is already the file's
+    /// identity there.
+    #[cfg(unix)]
+    by_file: HashMap<(u64, u64), String>,
+}
+
 /// Every file this build reads, by folded canonical path, with the clause that
 /// says who reads it. The first reader of a file wins. Order: the manifest, the
 /// lockfile, then per target in manifest order its resolved sources, its recipe
@@ -531,10 +548,25 @@ fn reads_of(
     prepared: &[PreparedTarget],
     registry: &OperationRegistry,
     manifest_path: &Path,
-) -> HashMap<String, String> {
-    let mut reads: HashMap<String, String> = HashMap::new();
+) -> Reads {
+    let mut reads = Reads {
+        by_name: HashMap::new(),
+        #[cfg(unix)]
+        by_file: HashMap::new(),
+    };
     let mut note = |path: &Path, clause: String| {
-        reads.entry(identity_of(root, path)).or_insert(clause);
+        #[cfg(unix)]
+        if let Ok(meta) = std::fs::metadata(path) {
+            use std::os::unix::fs::MetadataExt;
+            reads
+                .by_file
+                .entry((meta.dev(), meta.ino()))
+                .or_insert_with(|| clause.clone());
+        }
+        reads
+            .by_name
+            .entry(identity_of(root, path))
+            .or_insert(clause);
     };
     note(manifest_path, "which is the build manifest".to_owned());
     note(
@@ -565,6 +597,117 @@ fn reads_of(
         }
     }
     reads
+}
+
+/// The source extensions the source filter accepts when it lists a folder or
+/// expands a glob (a copy of the source module's private list, which this file
+/// may not widen; `source_extensions_match_the_source_filter` drives it against
+/// the real filter so the two cannot drift apart unnoticed). A planned output
+/// with one of these would be read by the next build.
+const READABLE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "webp", "avif", "svg", "nef", "nrw",
+    "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw", "rwl", "raw",
+    "heic", "heif",
+];
+
+fn is_readable_name(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            READABLE_EXTENSIONS
+                .iter()
+                .any(|r| e.eq_ignore_ascii_case(r))
+        })
+}
+
+/// A source argument that lists files at build time rather than naming one: a
+/// glob or a folder. A file it would list next time includes this build's own
+/// outputs.
+enum Lister {
+    /// A glob. `pattern` is the argument with its literal prefix resolved the
+    /// way `out` is (links followed, `.`/`..`/case normalized) and made
+    /// root-relative, so it can be matched against a planned output, which is
+    /// root-relative too.
+    Glob {
+        shown: String,
+        pattern: glob::Pattern,
+    },
+    /// A folder, listed non-recursively: the resolved absolute folder.
+    Folder { shown: String, dir: PathBuf },
+}
+
+impl Lister {
+    fn shown(&self) -> &str {
+        match self {
+            Lister::Glob { shown, .. } | Lister::Folder { shown, .. } => shown,
+        }
+    }
+}
+
+/// The globs and folders among one target's source arguments. A plain file
+/// source is not here: it is a read, and a read is checked by name and file.
+fn listers_of(root: &Path, target: &crate::build::Target) -> Vec<Lister> {
+    let mut found = Vec::new();
+    for arg in target.source.as_slice() {
+        if crate::source::looks_like_glob(arg) {
+            // Split at the first component that holds a metacharacter: the
+            // part before it is a folder path, the rest is matched as written.
+            let mut literal = PathBuf::new();
+            let mut rest: Vec<String> = Vec::new();
+            for part in Path::new(arg).components() {
+                let text = part.as_os_str().to_string_lossy().into_owned();
+                if rest.is_empty() && !crate::source::looks_like_glob(&text) {
+                    literal.push(part.as_os_str());
+                } else {
+                    rest.push(text);
+                }
+            }
+            let dir = resolve_out_dir(root, &literal.to_string_lossy());
+            if !dir.starts_with(root) {
+                continue; // a pattern outside the tree cannot match an output
+            }
+            let rooted = root_relative(root, &dir);
+            let escaped = glob::Pattern::escape(&rooted);
+            let joined = join_rel(&escaped, &rest.join("/"));
+            if let Ok(pattern) = glob::Pattern::new(&joined) {
+                found.push(Lister::Glob {
+                    shown: arg.clone(),
+                    pattern,
+                });
+            }
+        } else if Path::new(arg).is_dir() {
+            found.push(Lister::Folder {
+                shown: arg.clone(),
+                dir: resolve_out_dir(root, arg),
+            });
+        }
+    }
+    found
+}
+
+/// Would `lister` list a file planned at `rel` (root-relative, `/` separators)
+/// in the folder `dir`, named `name`, on the next build?
+fn lister_reads(lister: &Lister, rel: &str, dir: &Path, name: &str) -> bool {
+    if !is_readable_name(name) {
+        return false;
+    }
+    match lister {
+        // The options `glob::glob` walks with, except that `*` stops at `/`:
+        // the walk matches one path component at a time.
+        Lister::Glob { pattern, .. } => pattern.matches_with(
+            rel,
+            glob::MatchOptions {
+                case_sensitive: true,
+                require_literal_separator: true,
+                require_literal_leading_dot: false,
+            },
+        ),
+        Lister::Folder { dir: folder, .. } => {
+            !name.contains('/')
+                && fold_case(&folder.to_string_lossy()) == fold_case(&dir.to_string_lossy())
+        }
+    }
 }
 
 /// Resolve every target's `out` once and refuse the build, before anything is
@@ -598,6 +741,10 @@ fn check_destinations(
     check_output_injective(prepared)?;
 
     let reads = reads_of(&root, prepared, registry, manifest_path);
+    let listers: Vec<Vec<Lister>> = prepared
+        .iter()
+        .map(|p| listers_of(&root, p.target))
+        .collect();
     for (i, p) in prepared.iter().enumerate() {
         for input in &p.inputs {
             let file_name = crate::sink::expand_template(
@@ -633,19 +780,54 @@ fn check_destinations(
             for ext in exts {
                 let name = file_name.replace(EXT_SENTINEL, ext);
                 let abs = p.out_dir.join(&name);
-                if let Some(what) = reads.get(&fold_case(&abs.to_string_lossy())) {
+                let rel = join_rel(&p.rel_dir, &name);
+                let overlap = |what: &str| {
                     let chained =
                         what.ends_with("reads as a source") && !what.contains(&format!("#{i} "));
                     let what = if chained {
                         format!("{what}; one target's output cannot be another target's source")
                     } else {
-                        what.clone()
+                        what.to_owned()
                     };
-                    return Err(CliError::OutputOverlap {
+                    CliError::OutputOverlap {
                         target: i,
-                        output: join_rel(&p.rel_dir, &name),
+                        output: rel.clone(),
                         what,
-                    });
+                    }
+                };
+                if let Some(what) = reads.by_name.get(&fold_case(&abs.to_string_lossy())) {
+                    return Err(overlap(what));
+                }
+                // The same file under a name `fold_case` does not merge (`ß` and
+                // `SS`, NFC and NFD on APFS, a hard link): compare the file.
+                #[cfg(unix)]
+                if let Ok(meta) = std::fs::metadata(&abs) {
+                    use std::os::unix::fs::MetadataExt;
+                    if let Some(what) = reads.by_file.get(&(meta.dev(), meta.ino())) {
+                        return Err(overlap(what));
+                    }
+                }
+                // A glob or folder source that would list this output next time.
+                for (j, listed) in listers.iter().enumerate() {
+                    for lister in listed {
+                        if lister_reads(lister, &rel, &p.out_dir, &name) {
+                            let kind = match lister {
+                                Lister::Glob { .. } => "pattern",
+                                Lister::Folder { .. } => "folder",
+                            };
+                            let what = format!(
+                                "which target #{j}'s source {kind} `{}` would read on the next build",
+                                lister.shown()
+                            );
+                            return Err(if j == i {
+                                overlap(&what)
+                            } else {
+                                overlap(&format!(
+                                    "{what}; one target's output cannot be another target's source"
+                                ))
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -1762,6 +1944,39 @@ mod tests {
     fn fold_case_lowers_every_letter_not_only_ascii() {
         assert_eq!(fold_case("DIST/A.png"), "dist/a.png");
         assert_eq!(fold_case("\u{c9}t\u{c9}.PNG"), "\u{e9}t\u{e9}.png");
+    }
+
+    /// `READABLE_EXTENSIONS` is a copy of the source filter's list. List a real
+    /// folder holding one file per extension in either list, and require the
+    /// filter to pick exactly the copy's members (an extension it dropped, or
+    /// one of the sink's it now reads, fails here).
+    #[test]
+    fn readable_extensions_match_the_source_filter() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut probed: Vec<&str> = READABLE_EXTENSIONS.to_vec();
+        probed.extend(OUTPUT_EXTENSIONS);
+        for ext in &probed {
+            std::fs::write(dir.path().join(format!("f.{ext}")), b"x").unwrap();
+        }
+        let listed: std::collections::BTreeSet<String> = crate::source::resolve_all(
+            &[dir.path().to_string_lossy().into_owned()],
+            &mut std::io::empty(),
+            OnEmpty::Fail,
+        )
+        .unwrap()
+        .iter()
+        .map(|i| {
+            i.path()
+                .unwrap()
+                .extension()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+        let expected: std::collections::BTreeSet<String> =
+            READABLE_EXTENSIONS.iter().map(|e| e.to_string()).collect();
+        assert_eq!(listed, expected);
     }
 
     #[test]

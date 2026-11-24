@@ -47,6 +47,16 @@ fn write_file(dir: &Path, rel: &str, bytes: &[u8]) -> PathBuf {
     path
 }
 
+/// Write a solid-color RGB JPEG at `dir/rel`.
+fn write_jpeg(dir: &Path, rel: &str, w: u32, h: u32) -> PathBuf {
+    let img = RgbImage::from_pixel(w, h, image::Rgb([200, 30, 30]));
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    write_file(dir, rel, &buf.into_inner())
+}
+
 /// Write a solid-color RGB PNG at `dir/rel`.
 fn write_png(dir: &Path, rel: &str, w: u32, h: u32) -> PathBuf {
     let img = RgbImage::from_pixel(w, h, image::Rgb([200, 30, 30]));
@@ -405,6 +415,194 @@ fn check_refuses_the_same_way_and_writes_nothing() {
     assert!(!dir.path().join(".crustyimg").exists());
 }
 
+// ── Extension, cache-dir and manifest-path cells ──────────────────────────────
+
+#[test]
+fn a_non_png_extension_overlap_is_refused_and_a_pinned_other_one_is_not() {
+    // `{ext}` is checked under every extension the sink can write, not just png.
+    let dir = project(&[("src/a.jpg", "src", None)]);
+    write_jpeg(dir.path(), "src/a.jpg", 2, 2);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"src/a.jpg\", which target #0 reads as a source",
+    );
+
+    // A pinned `.png` target reads `a.jpg` and writes `a.png`: no overlap.
+    let pinned = project(&[("src/a.jpg", "src", Some("{stem}.png"))]);
+    write_jpeg(pinned.path(), "src/a.jpg", 2, 2);
+    let out = run(pinned.path(), &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(pinned.path().join("src/a.png").exists());
+}
+
+#[test]
+fn the_cache_dir_is_refused_in_any_letter_case() {
+    let dir = project(&[("src/a.png", ".CRUSTYIMG/x", None)]);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would write \".CRUSTYIMG/x/a.{ext}\" inside .crustyimg/, the build's cache directory",
+    );
+}
+
+#[test]
+fn the_manifest_is_refused_when_given_by_a_non_default_path() {
+    let dir = project(&[("src/a.png", "dist", None)]);
+    write_file(
+        dir.path(),
+        "alt.toml",
+        manifest(&[("src/a.png", ".", Some("alt.toml"))]).as_bytes(),
+    );
+    refused(
+        dir.path(),
+        &["alt.toml"],
+        "target #0 would overwrite \"alt.toml\", which is the build manifest",
+    );
+}
+
+#[test]
+fn an_existing_lockfile_is_refused() {
+    let dir = project(&[("src/a.png", "dist", None)]);
+    let first = run(dir.path(), &[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    assert!(dir.path().join("crustyimg.build.lock").exists());
+
+    write_file(
+        dir.path(),
+        "crustyimg.build.toml",
+        manifest(&[("src/a.png", ".", Some("crustyimg.build.lock"))]).as_bytes(),
+    );
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"crustyimg.build.lock\", which is the build lockfile",
+    );
+}
+
+#[test]
+fn an_out_reached_as_x_dotdot_src_overlaps_the_source() {
+    let dir = project(&[("src/a.png", "x/../src", None)]);
+    refused(dir.path(), &[], SRC_OVERLAP);
+    assert!(!dir.path().join("x").exists());
+}
+
+#[test]
+fn an_out_in_another_letter_case_overlaps_the_source() {
+    // Only a filesystem that merges `src` and `SRC` can overlap; elsewhere
+    // `SRC` is another folder and the build is allowed.
+    let probe = TempDir::new().unwrap();
+    std::fs::create_dir(probe.path().join("probe")).unwrap();
+    if !probe.path().join("PROBE").exists() {
+        eprintln!("skipped: this filesystem keeps `probe` and `PROBE` apart");
+        return;
+    }
+    let dir = project(&[("src/a.png", "SRC", None)]);
+    refused(dir.path(), &[], SRC_OVERLAP);
+}
+
+// ── Names the filesystem merges but a lower-cased string does not ─────────────
+
+/// Whether the temp filesystem treats `a` and `b` as one name, tested by
+/// creating one and looking for the other. Prints the reason when it does not.
+#[cfg(target_os = "macos")]
+fn fs_merges(a: &str, b: &str) -> bool {
+    let probe = TempDir::new().unwrap();
+    std::fs::write(probe.path().join(a), b"x").unwrap();
+    let merged = probe.path().join(b).exists();
+    if !merged {
+        eprintln!("skipped: this filesystem keeps {a:?} and {b:?} apart");
+    }
+    merged
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_sharp_s_over_its_own_source_is_refused() {
+    if !fs_merges("\u{df}-probe", "SS-probe") {
+        return;
+    }
+    let dir = project(&[("src/\u{df}.png", "src", Some("SS.{ext}"))]);
+    write_png(dir.path(), "src/\u{df}.png", 2, 2);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"src/SS.png\", which target #0 reads as a source",
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_nfd_name_over_an_nfc_source_is_refused() {
+    if !fs_merges("\u{e9}-probe", "e\u{301}-probe") {
+        return;
+    }
+    let dir = project(&[("src/\u{e9}.png", "src", Some("e\u{301}.{ext}"))]);
+    write_png(dir.path(), "src/\u{e9}.png", 2, 2);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"src/e\u{301}.png\", which target #0 reads as a source",
+    );
+}
+
+// ── A source that would read its own output on the next build ─────────────────
+
+#[test]
+fn a_glob_source_that_would_read_its_output_is_refused_on_the_first_build() {
+    let dir = project(&[("src/*.png", "src", Some("{stem}_w.{ext}"))]);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"src/a_w.png\", which target #0's source pattern \
+         `src/*.png` would read on the next build",
+    );
+    assert!(!dir.path().join("crustyimg.build.lock").exists());
+}
+
+#[test]
+fn a_folder_source_that_would_read_its_output_is_refused_on_the_first_build() {
+    let dir = project(&[("src", "src", Some("{stem}_w.{ext}"))]);
+    refused(
+        dir.path(),
+        &[],
+        "target #0 would overwrite \"src/a_w.png\", which target #0's source folder \
+         `src` would read on the next build",
+    );
+}
+
+#[test]
+fn every_spelling_of_a_listing_source_and_an_out_is_refused() {
+    // Source spellings (glob and folder) against `out` spellings of one folder.
+    // `x/../src/*.png` is absent: its `x` does not exist, so the glob lists
+    // nothing and the build stops earlier ("no images matched").
+    for source in ["src/*.png", "./src/*.png", "src/**/*.png", "src", "src/"] {
+        for out in ["src", "./src", "src/", "a/../src"] {
+            let dir = project(&[(source, out, Some("{stem}_w.{ext}"))]);
+            let before = snapshot(dir.path());
+            let result = run(dir.path(), &[]);
+            let err = stderr(&result);
+            assert_eq!(result.status.code(), Some(2), "{source} / {out}: {err}");
+            assert!(
+                err.contains("would overwrite \"src/a_w.png\"")
+                    && err.contains(&format!("`{source}` would read on the next build")),
+                "{source} / {out}: {err}"
+            );
+            assert_eq!(before, snapshot(dir.path()), "{source} / {out}");
+        }
+    }
+}
+
+#[test]
+fn a_glob_that_does_not_match_its_output_still_builds_again() {
+    let dir = project(&[("src/*.png", "src", Some("{stem}.webp"))]);
+    for _ in 0..2 {
+        let out = run(dir.path(), &[]);
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    }
+    assert!(dir.path().join("src/a.webp").exists());
+}
+
 // ── Order of errors ───────────────────────────────────────────────────────────
 
 #[test]
@@ -538,6 +736,59 @@ mod links {
             0,
             "nothing is written outside the tree"
         );
+    }
+
+    #[test]
+    fn a_hard_link_to_a_source_at_the_output_name_is_refused() {
+        // The same file under two names: no string comparison sees it.
+        let dir = project(&[("src/a.png", "src", Some("x.png"))]);
+        std::fs::hard_link(dir.path().join("src/a.png"), dir.path().join("src/x.png")).unwrap();
+        refused(
+            dir.path(),
+            &[],
+            "target #0 would overwrite \"src/x.png\", which target #0 reads as a source",
+        );
+    }
+
+    #[test]
+    fn an_out_that_is_itself_a_link_out_of_the_tree_is_refused() {
+        let outside = TempDir::new().unwrap();
+        let dir = project(&[("src/a.png", "link", None)]);
+        symlink(outside.path(), dir.path().join("link")).unwrap();
+        refused(
+            dir.path(),
+            &[],
+            "target #0's out \"link\" resolves outside the build tree through the link \"link\"; \
+             build inside the tree and copy the outputs where you need them",
+        );
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_glob_through_a_link_and_an_out_through_a_link_are_refused() {
+        for (source, out) in [
+            ("lnk/*.png", "src"),
+            ("src/*.png", "lnk"),
+            ("lnk/*.png", "lnk"),
+        ] {
+            let dir = project(&[(source, out, Some("{stem}_w.{ext}"))]);
+            symlink("src", dir.path().join("lnk")).unwrap();
+            refused(
+                dir.path(),
+                &[],
+                &format!(
+                    "target #0 would overwrite \"src/a_w.png\", which target #0's source \
+                     pattern `{source}` would read on the next build"
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn an_out_that_is_a_link_to_the_source_folder_overlaps_the_source() {
+        let dir = project(&[("src/a.png", "lnk", None)]);
+        symlink("src", dir.path().join("lnk")).unwrap();
+        refused(dir.path(), &[], SRC_OVERLAP);
     }
 
     #[test]
