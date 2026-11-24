@@ -39,7 +39,9 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   outputs, pinned webp); stat cost +0.15 s on 2,000 inputs. **Two asserts:** FT-52 misses a removed
   extension; FT-35/36 can skip silently on CI. **Three wording items.** Two out-of-spec findings filed in
   `guidance/ideas.yaml`; the `--check` residual added to STAGE-063's NFC/NFD entry.
-- [ ] **punch list 2** — `prompts/SPEC-157-punchlist-2.md` (Sonnet). Asserts and wording only, so no
-  re-verify: the orchestrator checks the report, then ship.
-  ⛔ #270 is not merged until the orchestrator has checked punch list 2's report.
-- [ ] **ship**
+- [x] **punch list 2** (2026-11-24, Sonnet, $1.30 measured before its last commit) — PR #270 at
+  `afbee0c`, CI 18 passed / 8 skipped / none failed (orchestrator-read); merges cleanly. FT-52 probes a
+  literal list (nef, webp, xyz mutants each red); FT-35/36 fail instead of skip under `CI` (macOS log shows
+  both ran); residual reworded to "on any build"; comment and FT-37 text fixed. The only non-test
+  `src/` change is the comment. **Approved for merge by the orchestrator.**
+- [ ] **ship** — `prompts/SPEC-157-ship.md` (Sonnet), after the maintainer merges #270.
