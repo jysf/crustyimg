@@ -9,6 +9,8 @@ Cycle prompts live in `prompts/SPEC-162-<cycle>.md`.
 
 - [x] **frame + design** (2026-11-24, orchestrator, Opus) — folded into the spec: the measurement of run
   45501714010 is the frame; `## Outputs`, the ACs and the mutation table are the design. No separate sessions.
-- [ ] **build** — prompts/SPEC-162-build.md (Sonnet), on branch `chore/spec-162-ci-runs-each-test-once`.
-- [ ] **verify** — prompt written after the build report (Opus, read-only).
+- [x] **build** (2026-11-25, Sonnet, $2.17 measured before its last edits) — draft PR #271 at `e54e5b5`; code last
+  changed at `ecf0dc7` (run 45539781614 green). 102.6 → 62.3 runner-minutes; cache kept (Build + Test −43/−23/−47%).
+  M3 did not match AC-5: a shared `CARGO_TARGET_DIR` serves stale outer artifacts across worktrees (the AC's mistake).
+- [~] **verify** — prompts/SPEC-162-verify.md (Opus, read-only). Don't merge #271 before it reports.
 - [ ] **ship** — after the maintainer merges the PR.
