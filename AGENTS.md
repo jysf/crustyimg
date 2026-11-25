@@ -205,10 +205,12 @@ just wasm-check                     # run after touching any engine module
 
 **`just check` is a weaker gate than CI.** `just lint` runs clippy without
 `--all-targets` (use `just lint-all` for CI's version), and `just check` builds
-only the default features. CI adds separate jobs for `--features avif`,
-`--features webp-lossy`, `--features heic`, `--no-default-features`, MSRV,
-`cargo-deny` and `cost-data`. A green `just check` can still fail CI: run the
-job your change affects. The feature jobs test different behaviour, not just
+only the default features. Besides the three required `check` legs, CI runs
+jobs for `--features webp-lossy`, `--features heic`, `--no-default-features`,
+MSRV, `cargo-deny`, the cost and front-matter audits, the wasm round-trip
+(`just wasm-check` plus both wasm test sets) and the ddphotos page parity. A
+path classifier skips the heavy steps when a push changes only docs. A green
+`just check` can still fail CI: run the job your change affects. The feature jobs test different behaviour, not just
 different dependencies. For example, the lean build rejects
 `convert --format avif` with exit 4.
 
