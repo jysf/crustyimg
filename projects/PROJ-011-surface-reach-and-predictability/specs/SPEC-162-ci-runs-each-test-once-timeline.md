@@ -20,6 +20,10 @@ Cycle prompts live in `prompts/SPEC-162-<cycle>.md`.
   orchestrator. Three out-of-spec findings filed in `guidance/ideas.yaml` (`ci-classifier-pr-diffs-the-whole-branch`,
   `native-lean-plus-avif-build`, `rust-cache-on-feature-legs`); the optional skip-name guard was declined.
   Rulings: the cache stays, with AC-7 restated to the Build step (−70–90% on every warm leg); the hash goes.
-- [~] **punch list** — prompts/SPEC-162-punchlist.md (Sonnet). Don't merge #271 before the re-verify reports.
-- [ ] **re-verify** — after the punch list reports.
+- [x] **punch list** (2026-11-25, Sonnet, $1.34 measured before its last push) — PR #271 at `793dc0c`. `9897c9a`
+  gates the cache step and drops the probe hash; `793dc0c` restates AC-5/AC-7 and fixes the spec text. Run
+  45556625777 green, 66.9 runner-min; Build step ubuntu 27 s, macOS 21 s, windows 50 s; the probe built cold once
+  (folder renamed). A full key match saves nothing, so the PR's cache never gains `avif-probe`; `main` has no
+  `check` entry, so its first post-merge run should save one with it. Diff checked by the orchestrator.
+- [~] **re-verify** — prompts/SPEC-162-reverify.md (Opus, read-only). Don't merge #271 before it reports.
 - [ ] **ship** — after the maintainer merges the PR.
