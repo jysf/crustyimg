@@ -173,21 +173,21 @@ cost:
       date: 2026-11-25
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 3872520
+      tokens_total: 4252855
       tokens_breakdown:
-        input: 82
-        cache_creation: 139957
-        cache_read: 3710007
-        output: 22474
-      estimated_usd: 1.98
+        input: 88
+        cache_creation: 142623
+        cache_read: 4085272
+        output: 24872
+      estimated_usd: 2.14
       note: >
         Measured from the session JSONL, found by the prompt's title or file name, two sessions (the first attempt stopped at step 0 and was redone in a fresh worktree), deduped by
-        message.id (41 messages; max output_tokens per id), 0 subagent transcripts. Measured after the final push, before this cost commit's own turns.
-        Newly recorded.
+        message.id (44 messages: 39 + 5; max output_tokens per id), 0 subagent transcripts. Re-measured by the orchestrator from both whole
+        transcripts after the session ended ($1.88 + $0.26); the session's own figure ($1.98) was taken before its last turns.
         Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
   totals:
-    tokens_total: 81521220
-    estimated_usd: 51.80
+    tokens_total: 81901555
+    estimated_usd: 51.96
     session_count: 8
 ---
 
