@@ -151,27 +151,23 @@ fn both_encode_paths_set_the_thread_count() {
 
 /// Build (once, memoized for the process) a probe `crustyimg` with
 /// `ravif/threading` reachable (`--features image/rayon`) in its own
-/// `CARGO_TARGET_DIR` — never the shared one
-/// ([[concurrent-differently-featured-builds-corrupt-a-shared-target-dir]]).
+/// `CARGO_TARGET_DIR` — never the shared one, because a differently featured
+/// build in the shared target folder would corrupt it.
 /// A debug build is enough: this drives byte-identity, not speed.
 ///
-/// The folder is `<target>/tmp/avif-probe-<hash of this checkout's path>`:
-/// - It is the same from run to run, so the nested build is incremental
-///   and only the first run in a checkout pays for a cold build.
+/// The folder is `<target>/tmp/avif-probe`:
+/// - It is the same folder every run, so the nested build is incremental
+///   and only the first run pays for a cold build.
 /// - It lives under the cargo target directory, so `cargo clean` removes
 ///   it and nothing accumulates in the system temp folder.
-/// - Each checkout hashes to its own folder. Two worktrees sharing one
-///   `CARGO_TARGET_DIR` would otherwise share a probe, and the second
-///   could be served the first one's binary instead of a rebuild of its
-///   own source.
+/// - A `CARGO_TARGET_DIR` shared between checkouts is unsupported: cargo
+///   then reuses the other checkout's test binary, with that checkout's
+///   manifest path built in. Each checkout uses its own target folder, as
+///   for every other test.
 fn probe_binary() -> &'static PathBuf {
     static PROBE: OnceLock<PathBuf> = OnceLock::new();
     PROBE.get_or_init(|| {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-        let target_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("avif-probe-{:016x}", hasher.finish()));
+        let target_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("avif-probe");
         let status = Command::new("cargo")
             .args(["build", "--features", "image/rayon"])
             .env("CARGO_TARGET_DIR", &target_dir)

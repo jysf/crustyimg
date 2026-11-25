@@ -195,10 +195,14 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      # Restores the dependency build from the last run of this branch, or of main.
-      # The AVIF probe's own build (target/tmp) is saved in the same cache.
-      # The cache key already includes the OS, so each leg keeps its own.
+      # Restores the dependency build from this pull request's last run, or from
+      # main's. The AVIF probe's folder under target/tmp happens to survive the
+      # action's cleanup, which does not promise to keep it; the probe then
+      # rebuilds only crustyimg itself. The key includes the runner's OS and
+      # architecture, so each leg keeps its own entry. Skipped when no code
+      # changed, like the steps after it.
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
         with:
           key: check
 
