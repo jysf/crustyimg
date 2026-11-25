@@ -173,12 +173,15 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
-- [ ] **SPEC-162** (written 2026-11-24, orchestrator; frame and design folded into the spec) — [S] **CI runs each test once.**
-  The `avif` job repeats the Ubuntu `check` leg exactly (`avif` is a default feature; `--features` adds to the defaults),
-  11.7 runner-minutes a run. `avif_tile_pin` cold-builds a second crustyimg into a new temp folder per process on 6 legs
-  (150 s each), never deleting it: 179 folders, 229 GB on the maintainer's Mac on 2026-11-24. Remove the job, build the
-  probe into a per-checkout folder under `CARGO_TARGET_TMPDIR`, skip it on the feature legs, and keep a build cache on
-  `check` only if a measured run shows it pays. Baseline: run 45501714010, about 103 runner-minutes.
+- [x] **SPEC-162** (merged 2026-11-25, PR #271) — [S] **CI runs each test once.**
+  The `avif` job (a duplicate of the Ubuntu `check` leg, 11.7 runner-minutes a run) is gone. `avif_tile_pin` now builds
+  its probe into `<target>/tmp/avif-probe` under `CARGO_TARGET_TMPDIR` and is skipped on the `webp-lossy` and `heic`
+  legs, so it no longer leaves a 150 s cold build and a temp folder per process (179 folders, 229 GB on 2026-11-24).
+  `check` keeps `Swatinem/rust-cache@v2`, gated on the code classifier; the Build step fell 70-90% on every warm leg.
+  Run total 102.6 -> 66.9 runner-minutes (62.3 on the best warm run). Verify's two claims (a Build + Test bar that
+  measured noise, and an ungated cache restore on docs-only runs) and the probe hash that protected nothing were fixed
+  at the punch list; re-verify found none. A shared `CARGO_TARGET_DIR` between checkouts is documented as unsupported.
+  Three out-of-spec findings filed in `guidance/ideas.yaml`.
 - [ ] (not yet written) — [S] **Strict mode for watermark builds (review, product view).** Out of this stage: the
   watermark and recipe items go to PROJ-017 or PROJ-013. Filed here only so the review's point has an owner: a warm
   build hides the skipped-watermark warning, so "every image is marked or the build fails" is not expressible.
@@ -245,7 +248,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 7 shipped / 0 active / **17 pending** — 2026-11-25 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 7 ticked, 17 open; SPEC-157 shipped).
+**Count:** 8 shipped / 0 active / **16 pending** — 2026-11-25 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 8 ticked, 16 open; SPEC-162 shipped).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

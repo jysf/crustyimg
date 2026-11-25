@@ -29,4 +29,5 @@ Cycle prompts live in `prompts/SPEC-162-<cycle>.md`.
   From rust-cache's source: a full key match saves nothing, and `main`'s first green run after the merge saves a
   `check` entry including `target/tmp/avif-probe`. Two wording items left for ship (the AC-5 row in Build
   Completion; tick the other ACs).
-- [ ] **ship** — prompts/SPEC-162-ship.md (Sonnet), after the maintainer merges #271.
+- [x] **merge** (2026-11-25, maintainer) — PR #271 as 73f13ad, head 288a367 (a merge of `main` into the approved 793dc0c; no change of its own).
+- [x] **ship** (2026-11-25, Sonnet, ~$0.7 measured after the push; total spec cost in `cost.totals`) — PR #271 merged as 73f13ad; reflected and archived. `main`'s CI was still running at ship (macOS and Windows `check`, macOS `heic`), so the three-entry cache check is open.

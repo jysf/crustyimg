@@ -7,7 +7,7 @@
 task:
   id: SPEC-162
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -43,40 +43,94 @@ value_link: "infrastructure enabling STAGE-063's fixes: every PR gets the same g
 # claude-ai | api | ollama | other.
 cost:
   sessions:
+    - cycle: design
+      date: 2026-11-24
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      note: >
+        Frame and design were folded into the orchestrator's own session, which is not metered per spec
+        (AGENTS section 4 allows null for un-metered main-loop cycles).
     - cycle: build
       date: 2026-11-24
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 4954980
+      tokens_total: 6801312
       tokens_breakdown:
-        input: 98
-        cache_creation: 107045
-        cache_read: 4826722
-        output: 21115
-      estimated_usd: 2.17
+        input: 126
+        cache_creation: 118178
+        cache_read: 6652291
+        output: 30717
+      estimated_usd: 2.9
       note: >
-        Measured from the session JSONL (found by the prompt's title), deduped by message.id, max output_tokens
-        per id, no subagent transcripts. Taken before the last few edits, so it slightly undercounts.
-        Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok.
+        Build cycle. Measured at ship from the session JSONL (identified by its first user message, which names the
+        cycle's prompt file), deduped by message.id, max output_tokens per id, no subagent transcripts.
+        Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok. Was $2.17, taken before its last edits.
+    - cycle: verify
+      date: 2026-11-25
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 4336373
+      tokens_breakdown:
+        input: 82
+        cache_creation: 118246
+        cache_read: 4184561
+        output: 33484
+      estimated_usd: 3.67
+      note: >
+        Verify cycle. Measured at ship from the session JSONL (identified by its first user message, which names the
+        cycle's prompt file), deduped by message.id, max output_tokens per id, no subagent transcripts.
+        Rates: Opus $5 input, $6.25 cache_creation, $0.50 cache_read, $25 output per MTok.
     - cycle: punchlist
       date: 2026-11-25
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2872305
+      tokens_total: 3329239
       tokens_breakdown:
-        input: 70
-        cache_creation: 84726
-        cache_read: 2774560
-        output: 12949
-      estimated_usd: 1.34
+        input: 78
+        cache_creation: 89214
+        cache_read: 3221408
+        output: 18539
+      estimated_usd: 1.58
       note: >
-        Measured from the session JSONL (found by the prompt's title), deduped by message.id, max output_tokens
-        per id, no subagent transcripts. Taken just before the last push, so it slightly undercounts.
+        Punch-list cycle. Measured at ship from the session JSONL (identified by its first user message, which names the
+        cycle's prompt file), deduped by message.id, max output_tokens per id, no subagent transcripts.
+        Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok. Was $1.34, taken before its last push.
+    - cycle: reverify
+      date: 2026-11-25
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2088838
+      tokens_breakdown:
+        input: 46
+        cache_creation: 86791
+        cache_read: 1987635
+        output: 14366
+      estimated_usd: 1.9
+      note: >
+        Re-verify cycle. Measured at ship from the session JSONL (identified by its first user message, which names the
+        cycle's prompt file), deduped by message.id, max output_tokens per id, no subagent transcripts.
+        Rates: Opus $5 input, $6.25 cache_creation, $0.50 cache_read, $25 output per MTok.
+    - cycle: ship
+      date: 2026-11-25
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1214696
+      tokens_breakdown:
+        input: 34
+        cache_creation: 65397
+        cache_read: 1142940
+        output: 6325
+      estimated_usd: 0.68
+      note: >
+        Ship cycle (this session). Measured at ship from the session JSONL (identified by its first user message, which names the
+        cycle's prompt file), deduped by message.id, max output_tokens per id, no subagent transcripts.
         Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok.
   totals:
-    tokens_total: 7827285
-    estimated_usd: 3.51
-    session_count: 2
+    tokens_total: 17770458
+    estimated_usd: 10.73
+    session_count: 6
 ---
 
 # SPEC-162: CI runs each test once
@@ -162,22 +216,22 @@ CI runs each check once, with the same coverage:
 
 ## Acceptance Criteria
 
-- [ ] **AC-1: the `avif` job is gone, and nothing else changed.**
+- [x] **AC-1: the `avif` job is gone, and nothing else changed.**
   - No job is named `avif`.
   - The required checks are still the three `check` legs:
     `gh api repos/jysf/crustyimg/branches/main/protection/required_status_checks --jq .contexts`.
   - `git diff --stat origin/main` shows only `ci.yml`, `tests/avif_tile_pin.rs` and the SPEC-162
     files.
-- [ ] **AC-2: the probe is incremental.** Run `cargo test --test avif_tile_pin` twice on one target
+- [x] **AC-2: the probe is incremental.** Run `cargo test --test avif_tile_pin` twice on one target
   folder.
   - Quote each run's wall time.
   - Quote the nested build's `Compiling` and `Fresh` lines from the second run.
   - The second run compiles nothing in the probe folder: neither crustyimg nor any dependency.
-- [ ] **AC-3: nothing is left in the temp folder.**
+- [x] **AC-3: nothing is left in the temp folder.**
   - Count `${TMPDIR}crustyimg-spec124-probe-target-*` and `${TMPDIR}avif-probe-*` before and after
     both runs.
   - Both counts are unchanged.
-- [ ] **AC-4: the probe still sees a source change** (mutants M1 and M2 below).
+- [x] **AC-4: the probe still sees a source change** (mutants M1 and M2 below).
   - After a green run on the same probe folder, remove the pin.
   - The probe must rebuild, and the test must go red.
   - Restore the pin, and the test goes green again.
@@ -185,12 +239,12 @@ CI runs each check once, with the same coverage:
   test binary in the other, with the first checkout's manifest path built in, so a run there can be a
   false green or a false red whatever the probe does. Each checkout uses its own `CARGO_TARGET_DIR`,
   as for every other test. Met by the doc comment on `probe_binary()`.
-- [ ] **AC-6: two concurrent runs don't corrupt each other.**
+- [x] **AC-6: two concurrent runs don't corrupt each other.**
   - Start two `cargo test --test avif_tile_pin` at once, in one checkout with one target folder.
   - Both must pass.
   - The second must wait on cargo's lock. Quote the "Blocking waiting for file lock" line, or
     explain why it didn't appear.
-- [ ] **AC-7: the build cache is kept only if it pays.**
+- [x] **AC-7: the build cache is kept only if it pays.**
   - Add `Swatinem/rust-cache@v2` to the three `check` legs and push twice. The first run saves the
     cache; the second restores it, and that second run is the measurement.
   - Keep the cache only if both of these hold:
@@ -205,14 +259,14 @@ CI runs each check once, with the same coverage:
     cache can only speed up the Build step, and the macOS Test step swings by more than 20% between
     runs (424, 394 and 434 s), so a Build + Test bar measured that noise. The Build step fell 70-90%
     on every warm leg in both warm runs.
-- [ ] **AC-8: the probe test runs where it should, and only there.** On the final CI run at the PR
+- [x] **AC-8: the probe test runs where it should, and only there.** On the final CI run at the PR
   head:
   - each `check` leg's log shows `avif_output_is_identical_across_ambient_core_counts ... ok`;
   - the `webp-lossy` log and both `heic` logs show the `avif_tile_pin` binary with `1 filtered out`,
     and no line for that test;
   - across the whole suite, `cargo test -- --list` shows exactly one test that the skip pattern
     matches.
-- [ ] **AC-9: the saving is measured, not estimated.**
+- [x] **AC-9: the saving is measured, not estimated.**
   - Sum each job's `completed_at - started_at` for the final run
     (`gh api repos/jysf/crustyimg/actions/runs/<id>/jobs`).
   - Next to the baseline, give:
@@ -221,7 +275,7 @@ CI runs each check once, with the same coverage:
     - each leg's Test step.
   - The orchestrator's estimate was 103 → 55–60 runner-minutes. Report what was measured, even if it
     misses that.
-- [ ] **AC-10: every gate is green on the PR head:** the local matrix and the CI legs.
+- [x] **AC-10: every gate is green on the PR head:** the local matrix and the CI legs.
 
 ## Failing Tests
 
@@ -339,6 +393,7 @@ says that without the pin, 1, 4 and 14 threads give three different hashes. Quot
   - AC-3: met. Before: 0 old (`crustyimg-spec124-probe-target-*`) and 0 new (`avif-probe-*`) in `$TMPDIR`. After both runs: 0 and 0. The baseline run on `main` left 1 old folder, which I deleted.
   - AC-4: met. M1 and M2 below: each went red on a probe folder that had just been green, and green again after the restore.
   - AC-5: partly as written. B (pin removed, shared target) went red; A went green before. A's second run went RED, not green (see findings). With A's sources touched, A went green again; the folders were `avif-probe-26f05cfb9e2c46e9` (A) and `avif-probe-66c2fddb20c8b56c` (B).
+  - AC-5 (restated at the punch list): a shared target folder is unsupported, and the criterion is met by the probe's doc comment on `probe_binary()`. The row above is kept as history.
   - AC-6: met. Two concurrent runs, one checkout, one target: both `2 passed`. The second printed `Blocking waiting for file lock on build directory`.
   - AC-7: met, cache kept. Numbers below.
   - AC-8: met, from run `45539781614` at `ecf0dc7`. All three `check` legs show `avif_output_is_identical_across_ambient_core_counts ... ok`. `webp-lossy`, `heic` ubuntu and `heic` macOS show the `avif_tile_pin` binary with `1 passed; ... 1 filtered out` and only `both_encode_paths_set_the_thread_count`. `cargo test -- --list` has exactly 1 test matching the pattern.
@@ -400,6 +455,7 @@ Verify found two claims and one wording item; the orchestrator ruled on both cla
   - The `if:` can't be shown skipping on this PR, because a docs-only push on a PR still runs everything. Instead: the cache step's line and the Build step's line are the same text, `if: needs.changes.outputs.code == 'true'` (two identical lines in the `check` job, same indentation).
   - Run total: 66.9 runner-minutes.
 - **Local matrix** (default, `--no-default-features`, `--features webp-lossy`; fmt, `clippy --all-targets -D warnings`, full test): all green. Tests passed: 1448, 1382, 1452; 0 failed.
+- **`main`'s CI at the merge (ship, 2026-11-25, `73f13ad`):** read once, 13 of 16 checks green; the `check` legs on macOS and Windows and `heic` on macOS were still running, so the three-entry check was not made. The cache list at that moment held one `check` entry on `refs/heads/main`, Linux, 641,110,814 bytes; macOS and Windows entries were not there yet. Whether `avif-probe` is inside it, and whether all three legs save, is for that run to show once it finishes green.
 
 ### Build-phase reflection (3 questions, short answers)
 
@@ -420,10 +476,30 @@ Verify found two claims and one wording item; the orchestrator ruled on both cla
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things, each a place where the spec stated a claim nobody had driven.
+   (a) Folding frame and design into the orchestrator cost two design errors: AC-5 expected a shared
+   `CARGO_TARGET_DIR` to give A green after B's red, against the saved lesson that a target folder shared across
+   worktrees serves a stale library; AC-7 put a 20% bar on Build + Test when a cache can only touch Build (the macOS
+   Test step swung 394-434 s on its own). A separate design session would not have had the lesson either; what would
+   have caught both is a rule that the design reads its ACs against the lessons list and names the step each saving bar
+   can touch. (b) The build measured one warm run, called AC-7 met at -22.5% on macOS, and verify's second sample was
+   -15.5%; a second baseline run of `main` had macOS Build + Test at 848 s against 560 s, +51%. One sample per side
+   cannot hold a bar of 20%. (c) The probe hash shipped with a doc sentence claiming a protection that M4 never showed;
+   verify drove it and got a 1 s false green either way. M4's own text said "if nothing goes wrong, say so", and the
+   build kept the hash anyway as "cheap insurance".
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Propose, not applied. I checked AGENTS 15-16, HANDOFF and the SPEC-155/156/157 reflections; none covers these
+   three, so each is new. (1) AGENTS 15 design: an AC that measures a saving names the step the change can affect,
+   not a sum that includes steps it cannot. (2) AGENTS 15 design or verify: a CI timing bar needs two warm samples
+   on each side, or a stated noise band taken from two runs of the unchanged base. (3) AGENTS 15 design, for an
+   orchestrator that folds design into the spec: check each AC against the saved lessons list and cite the lesson
+   or "none apply". The first two fit one sentence each beside "a bound is a claim until its worst input is driven";
+   the third fits the HANDOFF. DEC-020 and DEC-081 still name the removed `avif` job; both are dated records, so
+   left alone (build listed them).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. The three ideas verify filed already cover the gaps (`ci-classifier-pr-diffs-the-whole-branch`,
+   `native-lean-plus-avif-build`, `rust-cache-on-feature-legs`). One open fact, not a spec: `main`'s first post-merge
+   run should save three `check` entries including `target/tmp/avif-probe`; if a leg's entry lacks it, the probe is
+   cold on every PR (about 150 s per leg) and that would be a spec.
