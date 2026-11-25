@@ -10,7 +10,7 @@
 > cycle/cost state rather than this static snapshot, use `just status` (active project)
 > or `just specs-by-stage` (cost + ship dates, every project).
 
-**118 specs across 7 projects** (114 shipped, 4 in flight).
+**154 specs across 15 projects** (148 shipped, 6 in flight).
 
 ## Contents
 
@@ -20,7 +20,11 @@
 - [PROJ-007 — Reproducible build (build + cache + lockfile + `--watch`)](#proj-007) — shipped · 9 specs
 - [PROJ-008 — WASM core + demo page](#proj-008) — shipped · 33 specs
 - [PROJ-009 — Input reach (modern-format decode)](#proj-009) — shipped · 4 specs
-- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — active · 17 specs
+- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — shipped · 19 specs
+- [PROJ-011 — A Declared Build Can Do What the CLI Can](#proj-011) — active · 22 specs
+- [PROJ-013 — Carried Correctness and Instruments](#proj-013) — proposed · 1 spec
+- [PROJ-015 — Colour and Grading](#proj-015) — proposed · 1 spec
+- [PROJ-017 — Geometry as Recipe Steps](#proj-017) — proposed · 10 specs
 
 ---
 
@@ -313,7 +317,7 @@ Broaden what crustyimg can READ so the already-shipped engine (optimize / conver
 
 ## <a id="proj-010"></a>PROJ-010 — Post-launch correctness and consolidation
 
-*status: active · 17 specs, 13 shipped*
+*status: shipped · 19 specs, 18 shipped*
 
 Fix the launch-gating classifier regression (dithered/halftoned graphics promoted to lossy AVIF after resize), confirm hostile-input behavior on the native CLI and wasm builds, then deliver three carried-forward stages…
 
@@ -343,12 +347,14 @@ Fix the launch-gating classifier regression (dithered/halftoned graphics promote
 |---|---|---|---|---|
 | [SPEC-112](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-112-wasm-transform-runs-bundled-recipes.md) | critical | **shipped** | `wasm::transform` runs the bundled recipes | STAGE-040's precondition for the 0.7.0 cut: make the README's claim about `transform()` true before that README renders on the crates.io crate page. |
 
-### STAGE-042 — release-safety instruments _(active)_
+### STAGE-042 — release-safety instruments _(shipped)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-118](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-118-shipped-surface-conformance-matrix.md) | high | design | the shipped-surface conformance matrix | STAGE-042's central instrument. Every PROJ-010 defect so far has been an UNENUMERATED CELL — a verb × input × entry-point combination nobody listed, so nobody tested. This spec builds the enumeration itself, and it would have caught… |
-| [SPEC-123](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-123-avif-byte-determinism-across-thread-counts.md) | high | design | is AVIF output byte-deterministic across thread counts? | The repo's reproducible-build story — `build --frozen`, the lockfile, the cache key — rests on byte-stable output. Upstream gives no such guarantee for AVIF and has a filed nondeterminism bug. Nobody has measured whether the claim we… |
+| [SPEC-123](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-123-avif-byte-determinism-across-thread-counts.md) | high | **shipped** | is AVIF output byte-deterministic across thread counts? | The repo's reproducible-build story — `build --frozen`, the lockfile, the cache key — rests on byte-stable output. Upstream gives no such guarantee for AVIF and has a filed nondeterminism bug. Nobody has measured whether the claim we… |
+| [SPEC-124](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-124-pin-the-avif-encoder-tile-count.md) | high | **shipped** | pin the AVIF encoder's tile count | Closes both riders SPEC-123 measured. AVIF output stops depending on the machine's core count — which removes a live `diff` false positive — and the multi-tile compression penalty comes back, on a tool whose thesis is quality-per-byte.… |
+| [SPEC-125](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-125-lossless-webp-never-silently-halves-bit-depth.md) | high | **shipped** | lossless WebP never silently halves bit depth | A default-path silent downgrade on a shipped verb, reported with a perfect quality score. `convert --format webp` halves a >8-bit source and prints `ssim 100.0` — the honest-size line reads as reassurance for the one thing that went wrong. |
 
 ### STAGE-043 — pinned-path correctness _(shipped)_
 
@@ -370,11 +376,109 @@ Fix the launch-gating classifier regression (dithered/halftoned graphics promote
 | [SPEC-115](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-115-optimize-never-passes-through-bytes-it-cannot-name.md) | high | **shipped** | `optimize` never passes through bytes it cannot name | STAGE-045's only spec. `optimize` on the three input families PROJ-009 delivered can ship the source container verbatim — vector XML, a HEIF container, a whole camera-raw file — labeled as a PNG or JPEG it never produced. On stdin it… |
 | [SPEC-117](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-117-pin-build-and-apply-against-the-adopted-format-defect.md) | medium | **shipped** | pin `build` and `apply --recipe web` against the adopted-format defect | STAGE-045's last item. SPEC-115 fixed the adopted-format defect at one seam that four verbs share. Its verify DROVE `build` and `apply --recipe web` green on the real binary but pinned neither, so a refactor can re-break them in silence… |
 
-### STAGE-046 — Output Fidelity on Shipped Verbs _(proposed)_
+### STAGE-046 — Output Fidelity on Shipped Verbs _(shipped)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-119](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-119-animated-input-is-never-silently-flattened.md) | critical | **shipped** | animated input is never silently flattened | STAGE-046's first and most urgent item. The tool accepts a valid animated file, discards every frame but the first, reports the loss as a 72% win with a perfect quality score, and — through `lint` — actively recommends the command that… |
 | [SPEC-120](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-120-measure-the-linear-light-premise.md) | high | **shipped** | measure the linear-light premise before fixing it | STAGE-046's falsification gate. The linear-light entry set its own premise test and this spec runs it, so the repo either fixes a measured defect or closes an unmeasured one — instead of shipping a plausible improvement. |
-| [SPEC-121](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-121-ops-preserve-colour-type-and-bit-depth.md) | high | design | ops preserve colour type and bit depth | STAGE-046's largest correctness item. Three op bodies widen every image to RGBA8 and never narrow back, so `resize`, `thumbnail`, `edit` and the flagship `web` add an all-opaque alpha channel (+12.4% bytes, measured) and halve 16-bit input… |
-| [SPEC-122](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-122-resize-resamples-in-linear-light.md) | high | design | `resize` resamples in linear light | STAGE-046's last defect, and the only one whose premise was measured before it was specced. `Resize::apply` resamples non-linear sRGB as if it were linear; against an independent reference the shipped downscale scores 70.45 and 84.45 where… |
+| [SPEC-121](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-121-ops-preserve-colour-type-and-bit-depth.md) | high | **shipped** | ops preserve colour type and bit depth | STAGE-046's largest correctness item. Three op bodies widen every image to RGBA8 and never narrow back, so `resize`, `thumbnail`, `edit` and the flagship `web` add an all-opaque alpha channel (+12.4% bytes, measured) and halve 16-bit input… |
+| [SPEC-122](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-122-resize-resamples-in-linear-light.md) | high | **shipped** | `resize` resamples in linear light | STAGE-046's last defect, and the only one whose premise was measured before it was specced. `Resize::apply` resamples non-linear sRGB as if it were linear; against an independent reference the shipped downscale scores 70.45 and 84.45 where… |
+
+## <a id="proj-011"></a>PROJ-011 — A Declared Build Can Do What the CLI Can
+
+*status: active · 22 specs, 20 shipped*
+
+A declared `build` should be able to express what the CLI can already do. Today it cannot: the operation registry holds four ops, so a recipe cannot carry a watermark, a format or a quality — and `build` binds sources…
+
+### STAGE-049 — `apply` and `build` Agree _(shipped)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-126](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-126-apply-and-build-agree-on-output-format.md) | high | **shipped** | `apply` and `build` agree on output format | PROJ-011's entry point. `apply` and `build` must agree on what a recipe's output format is before `Recipe` can gain a `format` field — otherwise the disagreement gets baked into the schema. Today a `*.build.lock` pins bytes the `apply`… |
+
+### STAGE-050 — Recipe Reach _(shipped)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-127](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-127-recipes-carry-format-and-quality.md) | high | **shipped** | recipes carry format and quality | STAGE-050's thesis item. A recipe that cannot name its own output format is not a portable description of a job — the caller has to supply half of it. SPEC-126 made `apply` and `build` agree on what a format means, which is the… |
+| [SPEC-128](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-128-recipes-can-express-watermark.md) | high | **shipped** | recipes can express watermark | STAGE-050's structural item. A recipe cannot express `watermark` today — not because the op is missing, but because the registry seam cannot construct an operation whose parameters name a FILE. Widening that seam is what lets the registry… |
+| [SPEC-129](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-129-build-cache-hashes-watermark-asset-content.md) | high | **shipped** | build cache hashes watermark asset content | STAGE-050's correctness item. The stage delivers `build`-driving-watermark end-to-end; a `build` that serves a stale overlay from cache does not deliver that — it delivers **a wrong output no one asked for**, silently. Closing this is the… |
+| [SPEC-131](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-131-typed-per-operation-parameter-structs.md) | high | **shipped** | typed per-operation parameter structs | STAGE-050's recipe-reach outcome is "a recipe can express the whole job"; that only holds if a recipe that says something wrong is refused rather than silently run with defaults. Closes the silent-default path the watermark recipe surface… |
+| [SPEC-132](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-132-build-watch-watches-recipe-asset-paths.md) | high | **shipped** | build --watch watches recipe asset paths | STAGE-050's outcome is one `build` that watermarks a whole site from a manifest; `build --watch` is how a designer iterates on that watermark, and today it never sees the watermark file change. |
+| [SPEC-133](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-133-watermark-refuses-to-damage-an-image.md) | high | **shipped** | watermark refuses to damage an image | Delivers STAGE-050's "a watermark that refuses to wreck an image, and skips one it cannot sensibly mark" — without it, one `build` over a mixed site silently writes clipped, ruined or unmarked-but-reported-as-marked thumbnails at exit 0. |
+| [SPEC-134](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-134-name-template-extension-pins-the-output-format.md) | medium | **shipped** | a `--name-template` extension pins the output format | STAGE-050's predictability outcome: a file named `.png` contains a PNG. Today a literal `--name-template` extension is silently ignored on every verb except `build`'s terminal-`optimize` targets, so the same recipe + template writes… |
+
+### STAGE-054 — Recipe Reach Follow-Through _(active)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-135](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-135-watermark-refuses-a-size-or-scale-that-is-not-a-sensible-number.md) | high | **shipped** | watermark refuses a size or scale that is not a sensible number | STAGE-054's first deliverable, and the 0.8.0 gate: a watermark size or scale that is not a sensible number is refused on the CLI as it already is in a recipe. |
+| [SPEC-137](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-137-svg-text-in-any-font-family-renders-in-the-bundled-font.md) | high | **shipped** | SVG text in any font family renders in the bundled font | Closes one of STAGE-054's two 0.8.1 silent-wrong-output bugs: SVG text that names a font family stops vanishing on the CLI and in the browser build. |
+| [SPEC-138](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-138-build-refuses-the-output-flags-its-manifest-owns.md) | high | **shipped** | build refuses the output flags its manifest owns | Closes one of STAGE-054's two 0.8.1 silent-wrong-output bugs: `build` stops accepting output flags it never reads, so a user is never told "ok" while getting a format or location they did not ask for. |
+| [SPEC-143](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-143-a-watermark-that-draws-nothing-is-refused.md) | high | **shipped** | a watermark that draws nothing is refused | Closes STAGE-054's first success criterion, "no CLI or recipe path draws an invisible mark at exit 0": a mark with no visible pixel after opacity is refused on the CLI, in a recipe and in wasm, instead of writing an unmarked image at exit… |
+| [SPEC-144](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-144-a-tag-push-publishes-every-channel-on-runners-that-exist.md) | high | **shipped** | a tag push publishes every channel, on runners that exist | infrastructure: keeps the 0.8.x line STAGE-054 carries releasable; the next tag publishes every channel from CI, after the binaries exist |
+| [SPEC-146](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-146-ci-runs-the-wasm-round-trip-tests.md) | high | **shipped** | CI runs the wasm round-trip tests | STAGE-054 follow-through, and STAGE-053's "a wasm32 CI leg" deliverable: the 47 wasm round-trip tests run on every code PR, so a wasm-only regression turns CI red. |
+
+### STAGE-063 — Honest output and the 0.8.3 release _(active)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-148](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-148-lint-fixes-what-it-names.md) | high | **shipped** | lint fixes what it names | STAGE-063's first success criterion: every `fix:` line `lint` prints, run verbatim, fixes the file, and `gps-metadata-leak` needs a coordinate. |
+| [SPEC-149](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-149-no-flag-is-accepted-and-ignored.md) | high | **shipped** | No flag is accepted and ignored | Delivers STAGE-063's "no global flag is accepted and then ignored": each of --keep-gps, -v, responsive --name-template/--format and build-only flags is honoured or refused with exit 2. |
+| [SPEC-150](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-150-two-messages-tell-the-truth-and-help-carries-no-spec-ids.md) | high | **shipped** | Two messages tell the truth, and --help carries no spec ids | Delivers STAGE-063's "two misleading messages say what is true": a folder with no images says so, and no rendered help page, completion script or browser message shows an internal spec or DEC id. |
+| [SPEC-154](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-154-ci-path-classifier-runs-the-gates-for-every-build-and-test-input.md) | high | **shipped** | CI path classifier runs the gates for every build and test input | infrastructure enabling STAGE-063's honest-output fixes: every PR that changes a build or test input runs the gates that judge it |
+| [SPEC-155](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-155-a-write-that-fails-must-not-report-success-or-destroy-the-old-file.md) | high | **shipped** | A write that fails must not report success or destroy the old file | STAGE-063 success criterion: a write that fails exits non-zero and leaves the previous file intact |
+| [SPEC-156](../projects/PROJ-011-surface-reach-and-predictability/specs/done/SPEC-156-meta-strip-keeps-the-adobe-app14-colour-transform-marker.md) | high | **shipped** | meta strip keeps the Adobe APP14 colour-transform marker | STAGE-063's success criterion that `meta strip` leaves a JPEG rendering the same |
+| [SPEC-157](../projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-157-build-destinations-have-one-identity.md) | high | verify | build destinations have one identity | STAGE-063's success criterion that `build` never overwrites a declared source and never records two outputs for one file |
+| [SPEC-162](../projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-162-ci-runs-each-test-once.md) | medium | build | CI runs each test once | infrastructure enabling STAGE-063's fixes: every PR gets the same gates for about half the runner time |
+
+## <a id="proj-013"></a>PROJ-013 — Carried Correctness and Instruments
+
+*status: proposed · 1 spec, 0 shipped*
+
+⚠ **This is a continuation lane, not a bounded wave, and that is a deliberate choice rather than an oversight.** PROJ-010 shipped its code and met all five of its success signals, but left ~53 real items behind —…
+
+### STAGE-052 — Output Fidelity on Shipped Verbs, Continued _(proposed)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-130](../projects/PROJ-013-carried-correctness-and-instruments/specs/SPEC-130-webp-discovered-in-directory-and-glob-batches.md) | high | verify | WebP discovered in directory and glob batches | Batch verbs stop silently returning less than they were given: a directory or glob of `.webp` files is processed like any other image, and `lint --max-warnings 0` on a directory stops being a false green for animated WebP — the gate… |
+
+## <a id="proj-015"></a>PROJ-015 — Colour and Grading
+
+*status: proposed · 1 spec, 0 shipped*
+
+crustyimg's pixel pipeline is correct about the space and the depth it works in, and on that correctness it exposes a grading surface — a LUT, then curves and exposure — that is only honest if the pipeline underneath it…
+
+### STAGE-055 — Grading Reach — the `.cube` LUT op _(proposed)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-136](../projects/PROJ-015-colour-and-grading/specs/SPEC-136-the-cube-lut-op.md) | medium | design | A recipe can express a `.cube` LUT | Delivers all three of STAGE-055's `delivers` items — the op, the linear application at the source's depth, and the `.cube` content in the cache key. |
+
+## <a id="proj-017"></a>PROJ-017 — Geometry as Recipe Steps
+
+*status: proposed · 10 specs, 9 shipped*
+
+Every geometry edit a photo owner reaches for — crop, straighten, quarter turn, flip, trim, pad — exists as a recipe step, so an edit made anywhere (the CLI, the ddphotos edit page, a hand-written recipe) can be saved…
+
+### STAGE-058 — Lossless geometry: crop, quarter-turn rotate, flip, pad, trim _(shipped)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-141](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-141-no-existing-recipe-output-changes.md) | high | **shipped** | No existing recipe's output changes: the PROJ-017 guard | Makes STAGE-058's "the existing recipe corpus gives byte-identical output before and after the stage" and PROJ-017's fourth success signal a test that runs on every PR, instead of a claim. |
+| [SPEC-145](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-145-crop-as-a-recipe-step-in-units-that-survive-a-resize.md) | high | **shipped** | crop as a recipe step, in units that survive a resize | The first of STAGE-058's five geometry ops, and the unit rule (a DEC) that lets a crop made on the ddphotos page's preview replay on the full-size original |
+| [SPEC-147](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-147-rotate-by-quarter-turns-and-flip-as-recipe-steps.md) | high | **shipped** | rotate by quarter turns and flip, as recipe steps | STAGE-058's quarter-turn `rotate` and `flip` steps, exact in pixels, and the one rule for orientation tags after any geometry step |
+| [SPEC-151](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-151-pad-as-a-recipe-step.md) | high | **shipped** | pad as a recipe step | The fourth of STAGE-058's lossless geometry ops and the first that adds pixels: pad to an aspect or by a border, so a recipe can make a square or framed image the same way at any size |
+| [SPEC-152](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-152-trim-as-a-recipe-step.md) | high | **shipped** | trim as a recipe step | Delivers STAGE-058's `trim` step: remove a uniform border within a stated tolerance, the inverse of `pad`, and the last of the five ops the `edit` flags spec needs |
+| [SPEC-153](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-153-edit-flags-for-the-five-geometry-ops-and-the-ordering-rule.md) | high | **shipped** | edit flags for the five geometry ops, and the ordering rule | Delivers STAGE-058's "`edit` flags for all five, with a written ordering rule, and `--save-recipe` that writes them" for crop, rotate and flip, and the ordering rule all five share; the `--pad`/`--trim` half (filed after this entry) closes… |
+| [SPEC-159](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-159-pad-with-a-transparent-fill-and-the-no-alpha-output-rule.md) | high | **shipped** | pad with a transparent fill, and the no-alpha output rule | Delivers STAGE-058's promised `pad` 'filled with a colour or transparent', and the rule for what a transparent fill does in a format that cannot store it |
+| [SPEC-160](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-160-edit-pad-and-trim-and-parse-color-refuses-a-sign.md) | high | **shipped** | edit --pad and --trim, and parse_color refuses a sign | Delivers STAGE-058's last promise, `edit` flags for `pad` and `trim` that `--save-recipe` writes and `apply` replays, and closes the stage. |
+
+### STAGE-060 — The ddphotos edit page crops and straightens, and its recipe replays on the original _(active)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-142](../projects/PROJ-017-geometry-as-recipe-steps/specs/done/SPEC-142-ddphotos-page-native-vs-wasm-parity-harness.md) | high | **shipped** | ddphotos page native-vs-wasm parity harness | Infrastructure enabling STAGE-060's "a recipe from the page that the CLI replays on the full-size original, proven by a native-vs-wasm parity test": the test exists and is green on today's resize + watermark recipes before crop or… |
+| [SPEC-161](../projects/PROJ-017-geometry-as-recipe-steps/specs/SPEC-161-crop-on-the-ddphotos-edit-page-the-recipe-model-and-the-4x-replay.md) | medium | frame | crop on the ddphotos edit page: the recipe model and the 4x replay | The recipe half of STAGE-060's "crop on the ddphotos edit page", and its "recipe from the page that the CLI replays on the full-size original" proven by a 4× replay |

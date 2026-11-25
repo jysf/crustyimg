@@ -155,8 +155,8 @@ tables.**
      `- [x] **SPEC-157** (merged <date>, PR #270) — [M] …`, in the style of the SPEC-156 entry. Fix
      it by hand if not. Touch no other entry.
    - Recount the `**Count:**` line with greps you just ran, and show them. Today it reads
-     `6 shipped / 0 active / 17 pending`; expect `7 shipped / 0 active / 16 pending`, unless another
-     session changed the stage meanwhile.
+     `6 shipped / 0 active / 18 pending` (the orchestrator added SPEC-162's entry on 2026-11-24); expect
+     `7 shipped / 0 active / 17 pending`, unless another session changed the stage meanwhile.
    - ⛔ Don't change STAGE-063's `status` or its reflection. All four P1 specs (SPEC-154 to 157) have
      now shipped. Say so in your report, but closing the stage or starting its release line is the
      orchestrator's call.

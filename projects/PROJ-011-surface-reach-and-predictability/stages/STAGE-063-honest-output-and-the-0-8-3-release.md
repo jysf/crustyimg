@@ -170,6 +170,12 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
 - [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
   macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
   `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
+- [ ] **SPEC-162** (written 2026-11-24, orchestrator; frame and design folded into the spec) — [S] **CI runs each test once.**
+  The `avif` job repeats the Ubuntu `check` leg exactly (`avif` is a default feature; `--features` adds to the defaults),
+  11.7 runner-minutes a run. `avif_tile_pin` cold-builds a second crustyimg into a new temp folder per process on 6 legs
+  (150 s each), never deleting it: 179 folders, 229 GB on the maintainer's Mac on 2026-11-24. Remove the job, build the
+  probe into a per-checkout folder under `CARGO_TARGET_TMPDIR`, skip it on the feature legs, and keep a build cache on
+  `check` only if a measured run shows it pays. Baseline: run 45501714010, about 103 runner-minutes.
 - [ ] (not yet written) — [S] **Strict mode for watermark builds (review, product view).** Out of this stage: the
   watermark and recipe items go to PROJ-017 or PROJ-013. Filed here only so the review's point has an owner: a warm
   build hides the skipped-watermark warning, so "every image is marked or the build fails" is not expressible.
@@ -236,7 +242,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 6 shipped / 0 active / **17 pending** — 2026-11-23 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 23 in total, 6 ticked, 17 open; the SPEC-155 ship ticked its entry; no other session changed the stage meanwhile).
+**Count:** 6 shipped / 0 active / **18 pending** — 2026-11-24 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 6 ticked, 18 open; the orchestrator added SPEC-162's entry).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
