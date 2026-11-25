@@ -182,6 +182,10 @@ STAGE-058 spec. Its frame prompt is `specs/prompts/SPEC-153-frame.md`.
 **Reserved (2026-11-22):** STAGE-060's "Crop on the page" is **SPEC-161**. Its frame prompt is
 `specs/prompts/SPEC-161-frame.md`.
 
+**Reserved (2026-11-25):** STAGE-060's "`crop`'s aspect can follow each image's orientation" is
+**SPEC-163**, ahead of SPEC-161's design (maintainer ruling 2026-11-22). Its frame prompt is
+`specs/prompts/SPEC-163-frame.md`.
+
 ### Handed in from PROJ-011 (not yet scheduled)
 
 The maintainer ruled on 2026-11-05 that PROJ-017 takes three recipe-validation items from PROJ-011's
