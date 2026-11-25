@@ -1,7 +1,7 @@
 ---
 stage:
   id: STAGE-054
-  status: active
+  status: on_hold
   priority: high
   target_complete: null
 
@@ -77,6 +77,8 @@ is pending that answer too (do not move any of them before then).
 the six watermark and cached-build items moved to PROJ-013 STAGE-052. The ubuntu-22.04 retirement,
 crates.io OIDC and release-check tightening wait for the 0.8.3 tag. The SPEC-135, SPEC-138 and
 SPEC-143 cleanup items are tests and wording only; no one is waiting on them.
+**2026-11-25:** the three recipe-validation items handed to PROJ-017 left this list; their full
+text now lives in PROJ-017's brief, under "Handed in from PROJ-011".
 
 ## Spec Backlog
 
@@ -104,13 +106,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
     small inputs at exit 0 (the text raster is enormous); `watermark --size` shares it. A
     resource-limit question in DEC-036's family, not a malformed-recipe one, so SPEC-131 refuses
     only `size <= 0` and non-finite values. Open: the cap, and whether it lives in the schema.
-
-- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **wasm `validate(recipe_toml)` export returning structured,
-  per-step recipe errors.** Filed by SPEC-131's design (2026-10-24). Roadmap row #6's (recipe
-  playground) prerequisite: no wasm export checks a recipe without an image today, and
-  `transform` decodes its input before it builds the pipeline. Consumes SPEC-131's
-  `OperationRegistry::param_specs` and its `recipe step N ('op'): …` errors; the natural home for
-  "did you mean …?" key suggestions, which SPEC-131 declined.
 
 - [ ] (not yet written) — [S] **Encoding verbs resolve their inputs twice.** Filed by SPEC-134's
   re-verify (2026-10-26). To decide the format pin before branching, `web`, `optimize` and
@@ -141,18 +136,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   1×1; make the sentence accurate. (2) The AC-4 table test in `tests/watermark_cli_params.rs`
   stops at its first failing row. Collect every row's failure and assert once, so a mutation that
   breaks several rows shows all of them. Docs and test only, no behaviour change.
-
-- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **A recipe's `format = "bogus"` is refused as an "extension".**
-  Filed by the 0.8.0 release-notes session (2026-10-27): it exits 4 with
-  `unsupported output extension: bogus`, but the user wrote a recipe key, not a file extension.
-  Name the key and the step, as other recipe load errors do (DEC-102), and check whether it
-  should be refused at load (exit 1) instead of at encode (exit 4).
-
-- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **A recipe's `quality = 101` is accepted and treated as 100.**
-  Filed by the 0.8.0 release-notes session (2026-10-27), consistent with `-q 101` on the CLI.
-  `recipes/README.md` now documents 0–100, so the schema accepts a value the guide calls out of
-  range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
-  `-q` too; or document the clamp.
 
 - [x] **SPEC-138** (merged 2026-10-30, PR #221) — [S] **`build --format` is accepted and silently ignored.**
   Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
@@ -230,7 +213,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   actionlint (`-shellcheck=`) in CI; A1 runs nowhere automatically. (5) DEC-111: one sentence on
   ruling 5 (only npm holds `id-token`) and on the PR dry-run wrapper.
 
-**Count:** 6 shipped / 0 active / **10 pending** — re-derived 2026-11-05 after six items moved to PROJ-013 STAGE-052.
+**Count:** 6 shipped / 0 active / **7 pending** — re-derived 2026-11-25 (13 backlog checkboxes, 6 ticked, 7 open) after the three recipe-validation items moved to PROJ-017's brief.
 
 ## Design Notes
 

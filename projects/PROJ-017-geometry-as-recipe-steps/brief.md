@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-017
-  status: proposed
+  status: active
   priority: high
   target_ship: null
 
@@ -184,22 +184,26 @@ STAGE-058 spec. Its frame prompt is `specs/prompts/SPEC-153-frame.md`.
 
 ### Handed in from PROJ-011 (not yet scheduled)
 
-PROJ-011 is closing, and the maintainer ruled on 2026-11-05 that PROJ-017 takes three
-recipe-validation items. Their full text stays in PROJ-011's
-`stages/STAGE-054-recipe-reach-follow-through.md`, each marked "handed to PROJ-017". This list
-only points at them. None is on the build order above, and none blocks a geometry spec.
+The maintainer ruled on 2026-11-05 that PROJ-017 takes three recipe-validation items from PROJ-011's
+STAGE-054. On 2026-11-25 their full text moved here, and PROJ-011 went `on_hold`. None is on the build
+order above, and none blocks a geometry spec. When one is framed, it takes a spec id and moves to a
+stage: probably a small recipe-validation stage, since none is geometry. The first two touch recipe
+load, as every STAGE-058 op does, so frame them when no build is changing that code.
 
-- **A recipe's `format = "bogus"` is refused as an "extension"** (exit 4, at encode). It should
-  name the key and the step, and may belong at load (exit 1).
-- **A recipe's `quality = 101` is accepted as 100.** Refuse it at load like every other ranged
-  key, and `-q` too, or document the clamp.
-- **A wasm `validate(recipe_toml)` export** that returns per-step errors without an image. It's
-  the recipe playground's prerequisite (`guidance/ideas.yaml`, `wasm-validate-export`).
-
-When one is framed, it takes a spec id here and moves to a stage: probably a small
-recipe-validation stage after STAGE-058, since none is geometry. Mark its STAGE-054 line
-`(moved to PROJ-017, SPEC-NNN)` at the same time. The first two touch recipe load, as every
-STAGE-058 op does, so frame them after STAGE-058's ops land to avoid sharing files with a build.
+- **A recipe's `format = "bogus"` is refused as an "extension".** Filed by the 0.8.0 release-notes
+  session (2026-10-27): it exits 4 with `unsupported output extension: bogus`, but the user wrote a
+  recipe key, not a file extension. Name the key and the step, as other recipe load errors do
+  (DEC-102), and check whether it should be refused at load (exit 1) instead of at encode (exit 4).
+- **A recipe's `quality = 101` is accepted and treated as 100.** Filed by the 0.8.0 release-notes
+  session (2026-10-27), consistent with `-q 101` on the CLI. `recipes/README.md` documents 0–100, so
+  the schema accepts a value the guide calls out of range. Decide: refuse it at load, as every other
+  ranged recipe key is refused (DEC-102), and `-q` too; or document the clamp.
+- **A wasm `validate(recipe_toml)` export returning structured, per-step recipe errors.** Filed by
+  SPEC-131's design (2026-10-24). Roadmap row #6's (recipe playground) prerequisite: no wasm export
+  checks a recipe without an image today, and `transform` decodes its input before it builds the
+  pipeline. Consumes SPEC-131's `OperationRegistry::param_specs` and its `recipe step N ('op'): …`
+  errors; the natural home for "did you mean …?" key suggestions, which SPEC-131 declined
+  (`guidance/ideas.yaml`, `wasm-validate-export`).
 
 ## Dependencies
 

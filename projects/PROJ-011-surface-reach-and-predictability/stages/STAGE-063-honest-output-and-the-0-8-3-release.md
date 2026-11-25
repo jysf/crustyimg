@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-063                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: on_hold                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -209,19 +209,19 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   `lint`, `diff`, `view` take `-o`/`--out-dir`/`-y`); an unknown template token is written literally
   (`resize --out-dir t --name-template '{stem}-{w}w.{ext}'` → `t/gps-{w}w.jpg`). SPEC-149 builds its refusal as a
   per-verb table; this item extends it. Decide per combination: refuse (exit 2) or document.
-- [ ] (→ folded into SPEC-150, frame 2026-11-06) — [S] **`optimize -q` and `web -q` blame flags the user did not pass (finding B).** Filed by
+- [x] (folded into SPEC-150, shipped 2026-11-07, PR #257) — [S] **`optimize -q` and `web -q` blame flags the user did not pass (finding B).** Filed by
   the SPEC-149 frame (2026-11-06): `optimize gps.jpg -q 10 -o o.jpg` exits 2 with `-q/--quality cannot be combined
   with --target/--ssim/--max-size`, though none was given; the default `AutoQuality::Fast`
   (`src/cli/optimize.rs:837-838`, `:691-693`) trips `reject_quality_with_auto`. Exit 2 may be right; the message
   is not. May fold into SPEC-150.
-- [ ] (→ folded into SPEC-150 as docs-only, pending ruling; frame 2026-11-06 drove ICC dropped too, and found DEC-003's
-  amendment calling `meta copy` "JPEG and PNG" while the code refuses PNG) — [S] **DEC-003's pixel-lane preserve claim is false (finding C).** Filed by the SPEC-149
+- [x] (folded into SPEC-150 as docs-only, shipped 2026-11-07, PR #257: DEC-003 amended to "pixel-lane encodes
+  drop all metadata", and `meta copy` corrected to JPEG only) — [S] **DEC-003's pixel-lane preserve claim is false (finding C).** Filed by the SPEC-149
   frame (2026-11-06): DEC-003 says pixel-lane encodes keep ICC and copyright/artist and drop only GPS. Driven:
   `resize` of a JPEG with exiftool-written `Artist`, `Copyright` and GPS keeps 0 of them (ICC not driven).
   Either amend DEC-003 (and `AGENTS.md:503`, `SECURITY.md:50`) to "drops all metadata", or build the selective
   preserve, which is also what a real `--keep-gps` would need (`meta copy` restores both today, JPEG/PNG).
-- [ ] (→ (1), (3), (5) folded into SPEC-150, frame 2026-11-06; (4) ruled out: clap's message is true and the exit is the same;
-  (2) stays here) — [S] **Leftovers from SPEC-149's build and verify (2026-11-06).** (1) a `"` in a path prints
+- [x] ((1), (3), (5) folded into SPEC-150, shipped 2026-11-07, PR #257; (4) ruled out: clap's message is true and the
+  exit is the same; (2) split out to its own line below, 2026-11-25) — [S] **Leftovers from SPEC-149's build and verify (2026-11-06).** (1) a `"` in a path prints
   unescaped in `could not read font file "a"b.ttf": …` (`src/cli/ops.rs`, `watermark_overlay`). (2) FT-1's `meta copy`
   row copies PNG to PNG so it exits 4 even without the flag, so it proves only that the guard runs first; the real
   workaround is covered by `tests/keep_gps_workaround.rs`. (3) the existing message `metadata lane does not support
@@ -230,6 +230,11 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   spec/DEC ids for `--no-cache` (SPEC-064), `--check` (SPEC-066), the `--frozen`/`--locked` note and `--strict`
   (DEC-059), `--watch` (SPEC-067), and the `build` (SPEC-063, DEC-057), `lint` (SPEC-050, DEC-050) and `meta`
   (SPEC-087, SPEC-089) descriptions; SPEC-150 owns this sweep.
+
+- [ ] (not yet written) — [S] **FT-1's `meta copy` row proves only that the guard runs first.** Split out of
+  SPEC-149's build and verify leftovers (item 2) on 2026-11-25. The row copies PNG to PNG, so it exits 4 even
+  without the flag; the real workaround is covered by `tests/keep_gps_workaround.rs`. Make the row use a JPEG
+  source so the flag is what it tests, or drop it.
 
 - [ ] (not yet written) — [S] **`docs/recipes.md:148` mirrors `lint`'s "each with a runnable fix" line.** Filed by the
   SPEC-150 frame (2026-11-06). SPEC-148 made `fix: null` real (stdin, 16-bit PNG, formats the metadata lane cannot write),
@@ -248,7 +253,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 8 shipped / 0 active / **16 pending** — 2026-11-25 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 8 ticked, 16 open; SPEC-162 shipped).
+**Count:** 8 shipped + 3 folded into SPEC-150 / 0 active / **14 pending** — 2026-11-25 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 25 in total, 11 ticked, 14 open; the three SPEC-150 fold-ins ticked, and item (2) of the SPEC-149 leftovers split out to its own line).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

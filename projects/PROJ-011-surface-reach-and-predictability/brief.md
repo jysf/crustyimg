@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-011
-  status: active
+  status: on_hold
   priority: high
   target_ship: null
 
@@ -132,6 +132,12 @@ single user-visible outcome instead. **Six measured defects were deliberately le
 - **The engineering-quality backlog** — three external review batches, STAGE-042's remainder, the
   `F32x4` cap gap. No user-facing thesis; it belongs in the correctness lane.
 
+> **On hold since 2026-11-25 (maintainer).** Its four review P1s (SPEC-154 to 157) and SPEC-162 have
+> shipped. STAGE-054 (7 open) and STAGE-063 (14 open, the 0.8.3 release line among them) are `on_hold`
+> with it, and every open item is small. PROJ-017 is the one active project, so `just status` shows it.
+> Resume by setting this brief and those two stages back to `active` (and PROJ-017 to `on_hold`, or
+> `just status` will show only the higher-numbered one).
+
 ## Stage Plan
 
 **Ordered by dependency.** Both stages are byte- or behaviour-changing, so the project carries
@@ -236,8 +242,8 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   `wasm::transform` has two sources of truth for format and that needs deciding regardless. The
   cost gate is hygiene, not a live hazard.
 
-**Count:** 2 shipped / 2 active / 1 proposed — re-derived 2026-11-11 from the `status:` line of
-each file in `stages/` (STAGE-049, 050 shipped; STAGE-054, 063 active; STAGE-053 proposed). STAGE-041
+**Count:** 2 shipped / 0 active / 2 on_hold / 1 proposed — re-derived 2026-11-25 from the `status:` line
+of each file in `stages/` (STAGE-049, 050 shipped; STAGE-054, 063 on_hold; STAGE-053 proposed). STAGE-041
 moved to PROJ-019 the same day and is no longer counted. ⚠ The checklist above lags the stage
 files: it doesn't tick 049/050 or list STAGE-063. Re-derive with a grep you just ran; never
 restate a tally you carried forward.
