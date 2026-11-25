@@ -217,53 +217,130 @@ fn edit_save_recipe_round_trips_through_apply() {
     );
 }
 
-/// Flag order is independent: `--invert --resize-max 8` and `--resize-max 8 --invert`
-/// produce identical output bytes (canonical order is positional-independent).
-#[test]
-fn edit_flag_order_independent() {
+// ── Byte pin: typed order and the surviving outputs of the original flags ─────
+
+/// A seeded RGB8 noise image: xorshift64 from `seed`, one step per sample, each
+/// sample `[0, 30, 255][s % 3]`, row-major, R then G then B. It is written here,
+/// not taken from crustyimg, so the pins below are independent of the code under test.
+fn noise_rgb8(w: u32, h: u32, seed: u64) -> RgbImage {
+    let mut s = seed;
+    let mut raw = Vec::with_capacity((w * h * 3) as usize);
+    for _ in 0..(w * h * 3) {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        raw.push([0u8, 30, 255][(s % 3) as usize]);
+    }
+    RgbImage::from_raw(w, h, raw).unwrap()
+}
+
+/// FNV-1a 64 over a byte slice.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Run `edit n.png ARGS -o out.png -y --save-recipe r.toml` on the 61×41 noise
+/// fixture (seed 7). Returns the decoded output and the saved recipe text.
+fn edit_noise(args: &[&str]) -> (image::RgbImage, String) {
     let dir = TempDir::new().unwrap();
-    let input = write_png(&dir, "in.png", 32, 32);
-    let a = dir.path().join("a.png");
-    let b = dir.path().join("b.png");
+    let input = dir.path().join("n.png");
+    noise_rgb8(61, 41, 7).save(&input).unwrap();
+    let out = dir.path().join("out.png");
+    let recipe = dir.path().join("r.toml");
+    let output = Command::new(BIN)
+        .arg("edit")
+        .arg(&input)
+        .args(args)
+        .args(["-o", out.to_str().unwrap(), "-y", "--save-recipe"])
+        .arg(&recipe)
+        .output()
+        .expect("failed to run edit");
+    assert!(
+        output.status.success(),
+        "edit {args:?} must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let px = image::open(&out).unwrap().to_rgb8();
+    (px, std::fs::read_to_string(&recipe).unwrap())
+}
 
-    // Order A: --invert first, then --resize-max.
-    let status_a = Command::new(BIN)
-        .args([
-            "edit",
-            input.to_str().unwrap(),
-            "--invert",
-            "--resize-max",
-            "8",
-            "-o",
-            a.to_str().unwrap(),
-            "-y",
-        ])
-        .status()
-        .expect("failed to run edit order A");
+/// The four invocations whose output does not depend on the order rule keep their
+/// decoded pixels and their saved recipe text byte for byte. The hashes were
+/// recorded from the 0.8.2 release build, decoded by an independent decoder.
+#[test]
+fn edit_byte_pin_unchanged_invocations() {
+    let head = "version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n";
+    let resize = "\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 30\n";
+    let invert = "\n[[step]]\nop = \"invert\"\n";
+    type Row<'a> = (&'a [&'a str], (u32, u32), u64, String);
+    let rows: [Row; 4] = [
+        (
+            &["--resize-max", "30"],
+            (30, 20),
+            0x01a0_3151_2f8d_2eaf,
+            format!("{head}{resize}"),
+        ),
+        (
+            &["--invert"],
+            (61, 41),
+            0xfd42_fcdc_e5e3_c92e,
+            format!("{head}{invert}"),
+        ),
+        (
+            &["--resize-max", "30", "--invert"],
+            (30, 20),
+            0x62d0_5258_55cf_f6a7,
+            format!("{head}{resize}{invert}"),
+        ),
+        (
+            &["--auto-orient", "--resize-max", "30"],
+            (30, 20),
+            0x01a0_3151_2f8d_2eaf,
+            format!("{head}{resize}"),
+        ),
+    ];
+    for (args, dims, hash, text) in rows {
+        let (px, recipe) = edit_noise(args);
+        assert_eq!(px.dimensions(), dims, "pixel pin {args:?}: dimensions");
+        assert_eq!(
+            fnv1a64(px.as_raw()),
+            hash,
+            "pixel pin {args:?}: got {:#x}",
+            fnv1a64(px.as_raw())
+        );
+        assert_eq!(recipe, text, "recipe pin {args:?}");
+    }
+}
 
-    assert!(status_a.success(), "edit order A must exit 0");
-
-    // Order B: --resize-max first, then --invert.
-    let status_b = Command::new(BIN)
-        .args([
-            "edit",
-            input.to_str().unwrap(),
-            "--resize-max",
-            "8",
-            "--invert",
-            "-o",
-            b.to_str().unwrap(),
-            "-y",
-        ])
-        .status()
-        .expect("failed to run edit order B");
-
-    assert!(status_b.success(), "edit order B must exit 0");
-
-    // Both outputs must be byte-identical (canonical ordering enforced by build_edit_ops).
-    let bytes_a = std::fs::read(&a).unwrap();
-    let bytes_b = std::fs::read(&b).unwrap();
-    assert_eq!(bytes_a, bytes_b, "flag order must not affect output bytes");
+/// Op flags run in the order typed: `--invert --resize-max 30` inverts, then
+/// resizes. The old canonical order resized first and hashed `0x62d0525855cff6a7`.
+/// The fixture is noise, where the two orders differ (a solid colour cannot tell
+/// them apart).
+#[test]
+fn edit_invert_then_resize_runs_in_typed_order() {
+    let (typed, recipe) = edit_noise(&["--invert", "--resize-max", "30"]);
+    assert_eq!(typed.dimensions(), (30, 20));
+    assert_eq!(
+        fnv1a64(typed.as_raw()),
+        0x5d24_8c13_6b8b_3ad7,
+        "got {:#x}",
+        fnv1a64(typed.as_raw())
+    );
+    let (other, _) = edit_noise(&["--resize-max", "30", "--invert"]);
+    assert_ne!(
+        typed.as_raw(),
+        other.as_raw(),
+        "the two orders must produce different pixels on noise"
+    );
+    assert_eq!(
+        recipe,
+        "version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n\n[[step]]\nop = \"invert\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 30\n"
+    );
 }
 
 /// `--save-recipe` to an unwritable path (nonexistent directory) → exit 5.

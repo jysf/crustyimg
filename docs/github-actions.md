@@ -111,15 +111,23 @@ the job name from step 1.
 ## 5. Fix what it finds
 
 Each annotation names the rule and suggests a fix. These are the common ones. Each command
-rewrites the file in place:
+rewrites the file in place. `lint` prints each one ready to paste, with the file name
+quoted when it needs it (POSIX quotes on macOS and Linux, PowerShell quotes on Windows);
+`<file>`, `<budget>` and `<width>` stand for the file, its byte budget and its intended width:
 
 | Rule | What it means | Fix |
 |---|---|---|
 | `privacy/gps-metadata-leak` | The file holds the location where it was taken. | `crustyimg meta clean --gps <file> -o <file> -y` |
-| `size/oversized-bytes` | The file is over its budget. | `crustyimg optimize <file> --profile preserve --max 1600 -o <file> -y` |
-| `dims/oversized-dimensions` | The image is wider than it's ever shown. | `crustyimg resize --max 1600 <file> -o <file> -y` |
+| `size/oversized-bytes` | The file is over its budget. | `crustyimg optimize --max-size <budget> <file> -o <file> -y` |
+| `dims/oversized-dimensions` | The image is wider than it's ever shown. | `crustyimg resize --max <width> <file> -o <file> -y` |
 | `orient/orientation-not-baked` | The pixels are stored sideways, and only a metadata flag turns them upright. | `crustyimg auto-orient <file> -o <file> -y` |
+| `color/wrong-colorspace` (CMYK JPEG) | The file isn't in a web colorspace. | `crustyimg convert --format jpeg <file> -o <file> -y` |
+| `color/wrong-colorspace` (16-bit) | The channels are 16-bit, which the web doesn't need. | No command: crustyimg can't reduce bit depth, so re-export at 8 bits per channel. |
 | `size/truncated-or-corrupt` | The file isn't a readable image. | Export it again. |
+
+The metadata fixes (`meta clean --gps` and `meta strip`) work on JPEG and PNG only. A finding
+on a format the metadata lane can't write, such as WebP, TIFF or AVIF, prints no command and says
+so in its message; remove the metadata with another tool.
 
 To remove all metadata, not only the location (camera serial numbers, for example), use
 `crustyimg meta strip <file> -o <file> -y`.

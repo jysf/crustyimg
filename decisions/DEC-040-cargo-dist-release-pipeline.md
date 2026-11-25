@@ -139,3 +139,10 @@ step 7, **[MAINTAINER-AUTHORIZED]**).
   nothing to the shipped binary's dependency tree and does not affect `cargo deny` (cf.
   DEC-037, the cargo-deny supply-chain gate, which is the precedent for a tooling DEC).
   `[profile.dist]` is inert for normal `cargo build`/`test`.
+
+## Amendment — 2026-11-03 (SPEC-144): runner override (DEC-111)
+
+`aarch64-apple-darwin` builds on `macos-15` through `[dist.github-custom-runners]`; dist 0.32.0's
+default `macos-14` was retired on 2026-11-02. The custom publish jobs' permissions are set in
+`[dist.github-custom-job-permissions]` (least privilege: only `publish-npm` holds `id-token`).
+`scripts/check-release-pipeline.sh` asserts both. The 0.32.0 pin stands.

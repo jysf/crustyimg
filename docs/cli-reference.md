@@ -18,7 +18,7 @@ crustyimg [GLOBAL OPTIONS] <COMMAND> [INPUT...] [OPTIONS]
   the target extension).
 - **Per-command fan-out is sequential;** `apply --recipe` is the parallel path (`-j N`).
 - **Pipes stay clean:** with `-o -` (stdout) all diagnostics go to stderr.
-- **Default drop-GPS:** pixel-lane encodes strip GPS unless you pass `--keep-gps`.
+- **Metadata is dropped on pixel-lane encodes,** GPS included. `--keep-gps` is refused (exit `2`); to keep metadata, run `crustyimg meta copy --from <in> --to <out> -y` after the encode (JPEG only).
 - **SVG text always draws in the bundled Go font.** crustyimg never reads the fonts installed on
   your system, so `<text>` in any `font-family` (`sans-serif`, `Arial`, a family you do not
   have) draws in Go. Bold and italic draw upright in Go Regular, and characters Go does not
@@ -37,9 +37,10 @@ Available on every command (before or after the subcommand):
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. |
-| `--verbose` | `-v` | Increase verbosity (repeatable, `-vv`); logs to stderr. |
-| `--keep-gps` | | Keep GPS/location tags on pixel-lane encodes (default drops them). |
+| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning, which is unconditional so a silent-corruption path can never be fully suppressed. Also silences `-v`. |
+| `--verbose` | `-v` | Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. Silent by default; `-Q` wins. |
+| `--keep-gps` | | Refused (exit `2`): pixel-lane encodes drop all metadata. Use `meta copy` after the encode (JPEG only). Hidden from `--help`. |
+| `--check` / `--strict` / `--no-cache` / `--watch` | | `build` only (see Project builds); refused with exit `2` on every other command, and `--strict` is refused without `--check`. |
 | `--version` / `--help` | `-V` / `-h` | Standard. |
 
 ## Exit codes
@@ -48,12 +49,20 @@ Available on every command (before or after the subcommand):
 |---|---|
 | `0` | Success. |
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
-| `2` | Usage error (bad args) — clap's standard code. |
-| `3` | Input not found / unreadable (or an empty glob). |
-| `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`). |
-| `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
+| `2` | Usage error (bad args) — clap's standard code; also a `build` refused before it writes (a malformed manifest, or outputs that collide, replace a file the build reads, or resolve outside the tree). |
+| `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
+| `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`), or a recipe step writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG). |
+| `5` | Output write refused or failed (exists without `--yes`; path traversal; symlinked destination; a read-only destination; a directory that can't take a new file; the write itself failed, in which case the existing file is left as it was). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). |
+
+**Replacing a file.** crustyimg writes each output to a new file beside the destination and
+renames it over the old one only when every byte is written, so a failed write keeps the old file.
+With `-y` the result is a new file at that name: it keeps the old file's permissions, but not its
+owner, ACLs, extended attributes (Finder tags on macOS) or hard links. The directory must allow
+new files: in a read-only directory `-y` exits `5` (`6` for a batch, after the other inputs are
+written). A process that is killed mid-write can leave a `.<name>.crustyimg-<…>.tmp` file beside the
+destination; it is safe to delete.
 
 ---
 
@@ -201,7 +210,7 @@ Generate a width × format responsive set into `--out-dir` (never upscaling) and
 paste-ready `<picture>`/srcset snippet to stdout. Bakes EXIF orientation first, so
 requested widths are compared against the visually-correct source width (a sideways
 1200×800 source measures as 800 wide; `--widths 600` on it comes back 600×900, not a
-plain dimension swap). `--no-snippet` suppresses the snippet. Single input.
+plain dimension swap). `--no-snippet` suppresses the snippet. Single input. Output names are fixed as `{stem}-{w}w.{ext}`: `--name-template` and `--format` are refused (exit `2`); choose formats with `--formats`.
 ```sh
 crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
 ```
@@ -227,7 +236,9 @@ crustyimg auto-orient photo.jpg -o fixed.jpg
 ```
 
 ### `meta strip <INPUT...>`
-Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG.
+Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG. On a JPEG it keeps the two segments a
+decoder needs to read the image, JFIF and Adobe's colour-transform marker, so the stripped file decodes to the
+same pixels.
 ```sh
 crustyimg meta strip photo.jpg -o clean.jpg
 crustyimg meta strip *.jpg --out-dir clean/
@@ -296,21 +307,48 @@ and a closing `watermark skipped on K of N images`, at exit `0`.
 
 ## Recipes & batch
 
-### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--save-recipe FILE]`
-Chain an ordered op list on a **single** image in one decode → ops → encode pass. Every
-`edit` invocation **bakes EXIF orientation first** (SPEC-110) — `edit --invert` and
+### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [--save-recipe FILE]`
+Chain an ordered op list on one image or a batch (`--out-dir`), each in one decode → ops → encode pass. Every
+`edit` invocation **bakes EXIF orientation first** — `edit --invert` and
 `edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
 baking already happens unconditionally, so passing the flag changes nothing about the
 output; it stays because the CLI surface is frozen (STAGE-030) and it must keep exiting
-0. Ops apply in a fixed canonical order regardless of flag order (`auto-orient` →
-`resize` → `invert`), so the result is deterministic. At least one op flag is required
-(`--auto-orient` alone still satisfies this). `--save-recipe FILE` serializes the chain
-to a TOML recipe. The CLI-level orientation bake itself is not recorded as a step, so a
-recipe replayed via `apply` no longer matches its own `edit` invocation: `edit`
-bakes, the replay doesn't. This divergence is introduced by SPEC-110 (before it, `edit`
-never baked either); flagged, not fixed — lands in SPEC-111.
+0. Op flags (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`) run **in the order you
+type them**, like a recipe's steps: `--rotate 90 --crop 1200x800+0+100` turns the image, then
+crops what it shows, while `--crop … --rotate 90` crops first. Orientation is always baked
+first, wherever `--auto-orient` is typed. Each op flag may be given once (a repeat exits 2);
+a recipe is the route for repeats. At least one op flag is required (`--auto-orient` alone
+still satisfies this).
+
+- `--crop WxH+X+Y` crops to a pixel rectangle; the pixels are those of the image at that point in
+  the command (after an earlier `--resize-max` or `--rotate`). A rectangle past the edge of that
+  image exits 1, naming the flag and the image's size. `--crop W:H` crops to the largest `W:H`
+  aspect that fits, placed by `--crop-gravity` (one of the nine names; default `center`;
+  aspect form only).
+- `--rotate DEGREES` turns clockwise by a multiple of 90 from -360 to 360 (negative turns
+  counter-clockwise). `--flip horizontal|vertical` mirrors.
+- `--pad N` adds N pixels on every side, in pixels of the image at that point in the command; N
+  may be at most that image's long edge, and a wider N or a canvas past 50000 px a side (or
+  134217728 px in all) exits 1, naming the flag and the image's size. `--pad W:H` grows the
+  canvas to that aspect, placed by `--pad-gravity` (aspect form only). `--pad-color` is required:
+  `transparent` or hex with any alpha. A fill alpha the output format can't store (any below `ff`
+  into JPEG; `01`-`fe` into GIF) is refused before anything is written: exit 4 for one input or
+  for a batch whose format `--format` or the name template fixes; in a batch that keeps each
+  input's format, that input fails and the run exits 6.
+- `--trim` removes the outer rows and columns that match the top-left pixel, or `--trim-color`,
+  within `--trim-tolerance` (8-bit steps, default 0). An image that matches all over exits 1; in a
+  batch that input fails, the others are written, exit 6.
+
+`--save-recipe FILE` serializes the steps that ran to a TOML recipe: it starts with `auto-orient`
+and lists the steps in the order they ran. A pixel `--crop` is saved as fractions of the image the
+step received (`x`, `y`, `width`, `height`), and a border `--pad N` as `border`, N over that
+image's long edge; either needs one input image when `--save-recipe` is given (a directory or
+glob naming several exits 2; use an aspect `--crop W:H` or `--pad W:H`, or edit each image on its
+own). A failed run writes no recipe. An existing FILE is replaced only with `-y`; without it
+`edit` exits `5` before writing anything.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
+crustyimg edit photo.jpg --rotate 90 --crop 1200x800+0+100 -o out.jpg
 crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
 ```
 
@@ -339,8 +377,28 @@ through the same parallel per-input path as `apply`: per-output failures are sum
 and exit `6`; a malformed manifest exits `2`; a missing manifest or recipe exits `3`.
 
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
-owns its output tree and must be re-runnable (DEC-057). It only ever writes inside each
-target's `out` directory.
+owns its output tree and must be re-runnable. It never overwrites a file the build reads.
+
+Before anything is written, each target's `out` is resolved inside the build tree (the working
+directory), with `..` applied and links followed. The build is refused with exit `2`, and writes
+nothing, when:
+
+- two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
+  link to `dist`). Letter case is ignored on every OS as `str::to_lowercase` folds it, so `a.png` and
+  `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. The check compares
+  outputs with the files the build reads, never two outputs with each other by file identity, so two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build;
+- an output would replace a file the build reads: a source of any target, a recipe file, a file a
+  recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
+  cannot be another target's source. An output that already exists and is the same file as one of
+  these is refused too, whatever its name (a hard link; on a Mac, `ß` for `SS` or NFC for NFD);
+- a target's source is a glob or a folder that would list one of its outputs on the next build
+  (`source = "src/*.png"`, `out = "src"`, `name = "{stem}_w.{ext}"`), which would feed the output back in;
+- an output would land in `.crustyimg/`;
+- an `out` resolves outside the build tree through a link. A link to a folder inside the tree is fine;
+  to publish outside the tree, build inside it and copy.
+
+When a name ends in `{ext}` and the format is not pinned, every extension the build can write is checked.
 
 `build` takes no `-o`/`--output`, `--out-dir`, `--name-template` or `--format`: each
 target's `out` and `name` say where it writes, and the name's extension or the recipe's
@@ -370,9 +428,9 @@ crustyimg build --watch         # rebuild on every change; Ctrl-C to stop
 `build --watch` runs the build, then re-runs it whenever a source, a recipe, or the
 manifest changes, or a file a recipe names (a watermark's image or font). A folder that
 does not exist yet is picked up at the next rebuild. Edits are debounced (an editor's save
-burst is one rebuild), and the build's own outputs, `.crustyimg/`, and the
-lockfile are ignored — so a rebuild never
-triggers itself. The cache makes each re-run incremental. A failing cycle is reported and
+burst is one rebuild), and the build's own outputs (wherever `out` resolves, links included), `.crustyimg/`, and the lockfile
+are ignored — so a rebuild never triggers itself. A change to a file the build reads still triggers a
+rebuild, even inside an `out` folder. The cache makes each re-run incremental. A failing cycle is reported and
 the loop keeps watching; `Ctrl-C` stops it. A `--watch` cycle does **not** rewrite the
 lockfile, and `--watch` cannot be combined with `--check`/`--frozen`/`--locked` (a watch
 loop refreshes outputs; those verify against a pin).
@@ -406,21 +464,27 @@ is written, and every input is rebuilt.
 #### The lockfile (`--check` / `--frozen`)
 
 Every build writes **`crustyimg.build.lock`** next to the manifest — commit it. It records
-one entry per output: the file it wrote, the source and recipe that produced it, the
+one entry per output: the file it wrote (its path from the build root, so `./dist`,
+`a/../dist` and a link to `dist` record where the file really is), the source and recipe that produced it, the
 **cache key** (an identity of the *inputs*), the **hash** of the bytes written, and their
 size — plus one `[env]` block naming the crustyimg version, `arch-os`, and features the
 build ran under. Outputs are sorted by path, so two clean builds on one machine produce a
 byte-identical lockfile and a review diff shows only what actually moved.
 
-`build --check` re-runs the build and compares it against the committed lockfile instead of
-refreshing it. It exits **0** when they agree and **7** on drift, naming each output that
-moved, and it **never modifies the lockfile**. `--frozen` and `--locked` are aliases (there
-is no network to lock out). A missing lockfile under these flags is drift, not an error.
+`build --check` re-runs the build and compares what it produced against the committed lockfile instead
+of refreshing it. It exits **0** when they agree and **7** on drift, naming each output that moved. It
+**never modifies the lockfile**, but it does write: every output is written again and the cache is
+refilled, as in a plain build, and it compares the bytes this run produced, not the files already on
+disk. A build refused before it starts (exit `2`) writes nothing under `--check` either. `--frozen` and
+`--locked` are aliases (there is no network to lock out). A missing lockfile under these flags is drift,
+not an error.
 
 ```sh
 crustyimg build --check           # the CI gate: exit 7 if the build drifted
 crustyimg build --check --strict  # also fail on cross-environment byte differences
 ```
+
+`--strict` without `--check` is refused (exit `2`).
 
 What counts as drift is the honest part. The **key** is a function of the inputs alone, so
 it reproduces on any machine: if a source, recipe, quality, or the tool version changed, the
@@ -441,7 +505,7 @@ A plain `crustyimg build` owns the file and simply regenerates it.
 ## Audit surface (`--json` / `--timing`)
 
 Machine-readable output for "how much smaller, how fast, at what quality" — the
-surface CI and the benchmark harness consume (SPEC-088, DEC-074). Two schemas,
+surface CI and the benchmark harness consume. Two schemas,
 because they answer two different questions:
 
 | Command | Flag | Schema | Answers |

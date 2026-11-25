@@ -99,8 +99,8 @@ ideas:
     title: "A wasm `validate(recipe_toml)` export returning structured errors"
     status: homed
     source: "docs/roadmap.md Wave 6"
-    home: "PROJ-011 / STAGE-054"
-    likely_home: PROJ-011
+    home: "PROJ-011 / STAGE-054, handed to PROJ-017 on 2026-11-05 (see PROJ-017's brief)"
+    likely_home: PROJ-017
     gate: null
 
   # ── Proposed: evidence or a consumer, waiting for a project ─────────────
@@ -112,6 +112,15 @@ ideas:
     likely_home: PROJ-014
     gate: "PROJ-014 framed; the ICO fix in STAGE-048 first"
     notes: "Numbered PROJ-014 by maintainer ruling (2026-10-25), not PROJ-005 as the roadmap still says in places."
+
+  - id: responsive-name-template
+    title: "A name template for `responsive`: a required `{w}` token, names the srcset snippet uses"
+    status: proposed
+    source: "SPEC-149 design (2026-11-06): `responsive` now refuses --name-template and --format (exit 2)"
+    home: null
+    likely_home: PROJ-014
+    gate: "Template-token validation on every verb (STAGE-063 finding A), and a ruling on a literal extension against DEC-105 when responsive writes several formats"
+    notes: "Names are fixed `{stem}-{w}w.{ext}` today. Sits beside the `{hash}` token in manifest-placeholders-favicon."
 
   - id: og-card-preset
     title: "A 1200x630 og-card fit/crop preset"
@@ -203,6 +212,96 @@ ideas:
     gate: "That stage must re-measure native-vs-wasm resize parity with `just ddphotos-parity` and record the new maximum against DEC-110's K. If native resize pixels move, it re-blesses SPEC-141's native goldens. If the difference goes to zero, supersede DEC-110 with an exact rule."
     notes: "Today native and wasm differ by 1/255 on 1-2 pixels after a resize at the page's sizes (1200, 1080, 800), deterministically. Probable seat: f32 powf for the sRGB curve, or fast_image_resize's per-arch SIMD convolution (a prior, not proven). Not fixed now because the working-type change rewrites that path anyway. UPDATE 2026-10-30, SPEC-141 verify (PR #233): native resampled pixels also differ ACROSS the three CI targets (12 of 14 corpus recipes; mostly the 16-bit rows), so SPEC-141 pins per-target goldens. CPU dispatch is ruled out (fast_image_resize 6.0.0 F32x4 has no NEON path, driven equal on an M4 Pro; SSE4.1 and AVX2 share one form). The prior is the platform powf in srgb_to_linear / linear_to_srgb: the platform's and the libm crate's powf disagree on 6,261 of 65,536 16-bit inputs and 23 of 256 8-bit entries, and wasm uses the libm crate. SPEC-142's build measured K = 1 on both aarch64 and x86_64 with identical wasm hashes, which fits. Remedy: route the transfer functions through libm::powf (libm 0.2.16 is already in Cargo.lock), a src change that re-blesses SPEC-141's goldens once on all three targets and supersedes DEC-110 if K goes to 0. Cheaper stopgap: pin the runner images in ci.yml. Until then a one-target red with no code change is libm drift after a runner-image update. MEASURED 2026-10-30, SPEC-142 verify (PR #234): with libm::powf swapped into native's srgb_to_linear and linear_to_srgb on aarch64 (a scratch edit), all 16 parity rows came out px=0 max=0 and byte-equal, and wasm did not move. Both sites matter: the decode table alone fixed 1 of the 4 rows. Not yet driven: x86's F32x4 convolution against wasm's."
 
+  - id: status-tooling-many-active-projects
+    title: "`just status`, `backlog` and `roadmap` show every active project, not only the highest-numbered"
+    status: proposed
+    source: "2026-11-13 orchestrator session, after STAGE-058 shipped under a still-`proposed` PROJ-017"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "scripts/_lib.sh get_active_project() returns ONE project: the highest-numbered brief with `status: active`. PROJ-017 shipped STAGE-058 and has STAGE-060 active while PROJ-011 (STAGE-054, STAGE-063 active) is still open, so marking PROJ-017 active would hide PROJ-011 from the default views. Ruled 2026-11-13: leave PROJ-017 `proposed` for now and change the script later. Fix: return every active project and make status/backlog/roadmap loop over them (stages already support several active at once, per get_active_stage_files). When it lands, set PROJ-017 to `active`. The upstream template has the same single-project limit (lowest-numbered wins there); feedback filed in spec-driven-template feedback/2026-11-13-crustyimg-many-active-projects.md."
+
+  - id: ci-classifier-unquoted-paths
+    title: "The CI path classifier sees non-ASCII file names quoted, so it runs the gates for them"
+    status: proposed
+    source: "2026-11-22 SPEC-154 verify (PR #266), driven in a scratch repo"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "git quotes a non-ASCII path in `git diff --name-only` (for example \"docs/caf\\303\\251.md\"), so the allow-list classifier sees a path that matches no docs-only root and calls it code. Introduced by SPEC-154's allow-list, but it fails safe: the gates run when they could skip. Fix: `git -c core.quotePath=false diff --name-only` in ci.yml's `changes` job, plus a self-test row with a non-ASCII docs path. Low value until a docs file with a non-ASCII name exists."
+
+  - id: ci-classifier-include-floor-drift
+    title: "The classifier's INCLUDE_FLOOR only guards against losing includes, and lags as includes are added"
+    status: proposed
+    source: "2026-11-22 SPEC-154 verify (PR #266)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "scripts/ci-code-paths.sh's self-test fails when the include scan finds fewer than INCLUDE_FLOOR (35 at SPEC-154) distinct include_str!/include_bytes! targets. It counts targets, not sites, and nothing raises it when includes are added, so a scan that silently loses newly added includes stays green until the count falls below the old floor. Options: derive the floor from a cheaper independent count (for example a plain grep -c of include sites) and require equality, or have the self-test print the count so a reviewer sees it move."
+
+  - id: optimize-note-on-a-failed-write
+    title: "`optimize` prints \"kept the source unchanged\" before a write that then fails"
+    status: proposed
+    source: "2026-11-23 SPEC-155 verify (PR #268)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Under a write limit, `optimize -o` prints `note: kept the … source unchanged` and then exits 5 with `could not write output`. The note means no smaller encoding was found, but next to a failed write it reads as if a file was kept. Pre-existing; the message order and wording, not the write, are at fault. Fix: print the note only after the write succeeds, or word it as `no smaller encoding found`."
+
+  - id: decode-unknown-adobe-transform
+    title: "crustyimg refuses a JPEG whose Adobe APP14 transform is out of range; libjpeg decodes it"
+    status: proposed
+    source: "2026-11-23 SPEC-156 verify (PR #269)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "A 12-byte Adobe APP14 with transform 5: djpeg warns `Unknown Adobe color transform code 5`, assumes YCCK for four components and renders it; zune-jpeg refuses the file (`Unknown Adobe colorspace 5`). Upstream decoder behaviour, unchanged by SPEC-156 (`meta strip` keeps the segment as-is, which is right). Low priority: no real-world file seen; report upstream if one turns up."
+
+  - id: build-output-shadows-bundled-recipe
+    title: "A `build` output named `web`, `gallery` or `product` shadows the bundled recipe of that name"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "An output file whose path matches a target's `recipe = \"web\"` (or `gallery`, `product`) is read as a recipe file on the next build, which then exits 3. Pre-existing on `main`. Fix: resolve a bundled recipe name before a same-named file, or refuse an output that a recipe name would resolve to."
+
+  - id: build-template-separator-leaves-out-dir
+    title: "A `build` template name with a separator exits 6 but leaves the created `out` folder behind"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "`name = \"src/a.{ext}\"`: `safe_join` refuses it at write time (exit 6), after `create_dir_all` made the `out` folder. Pre-existing. Fix: refuse a template name with a separator at plan time, before any folder is created."
+
+  - id: build-create-dir-left-on-failure
+    title: "`build` leaves an empty folder when a step after `create_dir_all` fails"
+    status: proposed
+    source: "2026-11-23 SPEC-157 verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Any write failure after the `out` folder is created leaves it empty on disk. Pre-existing. Low priority; same root as `build-template-separator-leaves-out-dir`."
+
+  - id: build-folder-source-case-on-case-sensitive-fs
+    title: "`build`'s folder-source listing check folds letter case where the glob check does not"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "On a case-sensitive filesystem holding both `SRC/` and `src/`, folder source `SRC` with `out = \"src\"` is refused (exit 2), although listing `SRC/` would never read `src/`; glob `SRC/*.png` with the same `out` builds. New in SPEC-157, consistent with its documented 'case ignored on every OS' rule, and rare. Fix only if someone hits it: compare the folder arm the way the glob arm does."
+
+  - id: build-output-link-to-source-message
+    title: "`build` refuses an output that is a link to a source as an overwrite, without naming the link"
+    status: proposed
+    source: "2026-11-24 SPEC-157 re-verify (PR #270)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "A symlink planted at an output name that points to a source now fails at planning with exit 2 `would overwrite \"dist/a.png\", which target #0 reads as a source`, where it used to be the sink's exit 6. Safer, but the message doesn't say the output is a link. Optional polish: add 'through a link' when the planned path is a symlink."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"
@@ -243,6 +342,7 @@ ideas:
     home: null
     likely_home: null
     gate: "lint-in-wasm"
+    note: "2026-11-05: once recipes carry geometry (PROJ-017, crop in fractions of the image per DEC-112), an MCP server could edit as well as measure: validate a recipe and return structured errors, apply it, and report the output size. Fractions suit an agent that sees the image but can't count its pixels. Agents with a shell already get this through the CLI and the agent skill, so the case for MCP is reach (agents without a shell) and structured results, not crop itself."
 
   - id: lighthouse-named-lint-rules
     title: "Engine-backed lint rules named after Lighthouse audits (`legacy-format` first)"
@@ -333,6 +433,89 @@ ideas:
     home: null
     likely_home: null
     gate: "2.0, demand-gated"
+
+  - id: recipe-errors-name-the-step-everywhere
+    title: "Unknown-op and apply-time recipe errors name the step index, as DEC-102's load-time refusals do"
+    status: idea
+    source: "SPEC-145 frame (2026-11-04), driven on 0.8.2"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      A param refusal reads `recipe step 0 ('resize'): ...`, but an unknown op reads only
+      `error: unknown operation 'crop'` and an apply-time failure only `operation 'resize' failed:
+      ...`, so a recipe with two steps of the same op can't say which one failed. Both exit 1.
+      Changing the wording touches every op's apply message, not bytes.
+
+  - id: alpha-dropped-silently-on-encode
+    title: "Writing an image with alpha to JPEG drops the alpha with no warning"
+    status: idea
+    source: "SPEC-159 frame (2026-11-10), driven on main at 9bbdaf1"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      An RGBA PNG through `apply` (`-o out.jpg`, and a batch with `--format jpeg`) exits 0 with
+      nothing on stderr: alpha-0 green came out (0,255,7), alpha-128 blue (0,17,255), both opaque.
+      Every op and verb shares the sink, so it is not geometry. SPEC-159 refuses only alpha a `pad`
+      fill introduces and leaves this on purpose (changing it changes existing exit codes). A stderr
+      warning like JPEG's existing 16-to-8-bit one (`eight_bit_downgrade_warning`) would change no
+      bytes; a refusal would.
+
+  - id: tiff-alpha-extrasamples
+    title: "RGBA TIFF output has no ExtraSamples tag, so libtiff readers show it opaque"
+    status: idea
+    source: "SPEC-159 frame (2026-11-10), driven on main at 9bbdaf1"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      `crustyimg apply -o o.tiff` on an RGBA8 PNG writes 4 samples per pixel, Photometric RGB, and no
+      ExtraSamples tag. crustyimg, macOS `sips` (hasAlpha yes) and ffmpeg (pix_fmt rgba) read the
+      alpha; `tiffinfo` and ImageMagick warn "Sum of Photometric type-related color channels and
+      ExtraSamples doesn't match SamplesPerPixel" and show it opaque. ImageMagick's own RGBA TIFF
+      carries `Extra Samples: 1<unassoc-alpha>`. The encoder is `image`'s; check its current release
+      and upstream before patching around it.
+
+  - id: recipe-output-guard-reports-both-failures
+    title: "The recipe-output guard reports a file-set and a line-count failure together"
+    status: deferred
+    source: "STAGE-058 backlog (found at SPEC-141's ship); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-017
+    gate: "a spec trips the file-set and the line-count checks of `tests/recipe_corpus_output.rs` at once"
+    notes: >
+      `every_golden_line_is_checked_and_no_golden_is_stray` stops at the file-set assertion, so a
+      change that also breaks `GOLDEN_LINES` reports only the first (SPEC-141 mutation M4).
+      Test-only, no product change. STAGE-058 closed without it.
+
+  - id: refusal-summary-names-the-op
+    title: "The batch summary says 'watermark skipped' for any op that refuses through the hook"
+    status: deferred
+    source: "STAGE-058 backlog (found at SPEC-145's verify); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-017
+    gate: "a second op uses `Operation::refusal`"
+    notes: >
+      `report_skipped_images` (`src/cli/common.rs`) and `build.rs` print "watermark skipped on K of
+      N images" for every step that refuses through the refusal hook. Only `watermark` uses the hook,
+      so nothing shipped is mislabelled; `pad` and `trim` both fail at apply instead (driven at
+      SPEC-160's frame). Name the op that refused when a second one adopts the hook.
+
+  - id: warn-tagged-input-without-auto-orient
+    title: "`apply` and `build` warn when a recipe with no `auto-orient` step meets an EXIF-tagged input"
+    status: idea
+    source: "STAGE-058 backlog (found at SPEC-147's frame); moved here 2026-11-11 by the maintainer's ruling at SPEC-160's frame"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      The pixel lane writes no EXIF (DEC-003), so a recipe that doesn't start with `auto-orient`
+      drops the orientation tag without applying it: an `invert` recipe on a 60×40 PNG tagged
+      Orientation 6 wrote the stored pixels with no tag, so a portrait displays sideways, exit 0.
+      Every recipe op does this, not only geometry; `edit --save-recipe` already records
+      `auto-orient`. Undecided: warn, refuse or stay silent, and whether a geometry step alone
+      triggers it. A warning changes no output bytes.
 
   # ── Declined: kept so they are not re-proposed ───────────────────────────
   - id: lightroom-preset-import

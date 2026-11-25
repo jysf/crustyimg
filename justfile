@@ -243,9 +243,10 @@ wasm-build-slim:
 # Runs through plain cargo (NOT `wasm-pack test`) so that `--test wasm_roundtrip`
 # actually scopes the build to the one wasm test target — see .cargo/config.toml for
 # why, and for the `wasm-bindgen-test-runner` shim that executes the .wasm in Node.
-# Needs: cargo install wasm-bindgen-cli --version <the pinned wasm-bindgen version>
+# Needs wasm-bindgen-test-runner at the exact wasm-bindgen version in Cargo.lock
+# (scripts/wasm-ci-check.sh lock-version). CI's wasm-roundtrip job runs this and wasm-test-slim.
 wasm-test:
-    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --version 0.2.126)"; exit 1; }
+    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --locked --version $(scripts/wasm-ci-check.sh lock-version))"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 
@@ -276,8 +277,10 @@ wasm-npm-smoke: wasm-npm-pkg
 # THE PUBLISH, chained so the unguarded path is no longer the shorter one.
 #
 # `npm publish` is outward-facing and effectively irreversible (npm's unpublish window
-# is narrow), and it stays SPEC-076's maintainer-gated decision. That gate is "a human
-# decides to publish" -- NOT "it must be typed as raw npm", which is what it had
+# is narrow). The decision to publish is the `v*` tag push (DEC-111): CI's
+# `publish-npm.yml` runs this recipe after the GitHub Release exists. Run by hand it is
+# the recovery path, not a channel. Either way, the publish must never be shorter than
+# the safe route -- NOT "it must be typed as raw npm", which is what it had
 # degenerated into: the chain stopped at wasm-npm-smoke, so the real publish was
 # `cd pkg && npm publish`, running no build, no size profile and no smoke test, and
 # EASIER TO TYPE than the safe route.

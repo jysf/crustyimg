@@ -629,6 +629,7 @@ dependencies = [
  "indicatif",
  "kamadak-exif",
  "libheif-rs",
+ "log",
  "notify",
  "rayon",
  "re_rav1d",

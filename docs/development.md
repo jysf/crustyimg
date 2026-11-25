@@ -47,6 +47,19 @@ just report-weekly                 # Generate this week's weekly report
 `reports/daily/` and `reports/weekly/` from spec front-matter and the git log. Reports
 are stand-alone artifacts — re-running overwrites, so they're always a current snapshot.
 
+## Which PRs skip the Rust gates
+
+CI skips the Rust build, test, clippy and fmt steps only when every changed file is
+provably docs-only: `scripts/ci-code-paths.sh` lists those paths (`docs/`, `projects/`,
+`decisions/`, root-level Markdown and a few more). Anything else runs the full gates,
+because a file that looks like docs can still be compiled in or read by a test:
+`README.md`, `docs/github-actions.md` and `docs/data-model.md` are listed as exceptions
+for that reason. The script's self-test fails if a build or a test includes a file the
+list calls docs-only with a plain string literal in `include_str!` or `include_bytes!`.
+A file a test reads at run time, or includes any other way, must be added to the
+exception list by hand. A new top-level directory runs the gates until someone adds it
+to the docs-only list.
+
 ## Key discipline in this variant
 
 Because Claude plays every role, context contamination is the biggest risk. Four habits

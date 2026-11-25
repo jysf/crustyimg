@@ -36,8 +36,10 @@ impl Rule for CameraMetadata {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                "image carries identifying camera metadata (Make/Model/serial/timestamp)",
-                Some("meta strip".to_string()),
+                target.meta_message(
+                    "image carries identifying camera metadata (Make/Model/serial/timestamp)",
+                ),
+                target.meta_fix("meta strip"),
             )
         })
     }
@@ -74,7 +76,7 @@ impl Rule for OrientationNotBaked {
 
 /// The file exceeds the per-glob byte budget from config (the format-aware
 /// `--maxkb`). Only fires when a `[[budget]]` `max_bytes` applies to this file.
-/// Fix: `optimize`.
+/// Fix: `optimize --max-size <budget>` (plain `optimize` need not reach the budget).
 pub struct OversizedBytes;
 
 impl Rule for OversizedBytes {
@@ -93,7 +95,7 @@ impl Rule for OversizedBytes {
                 self.id(),
                 self.default_severity(),
                 format!("file is {actual} bytes, over the {budget}-byte budget"),
-                Some("optimize".to_string()),
+                Some(format!("optimize --max-size {budget}")),
             )
         })
     }
@@ -132,7 +134,8 @@ impl Rule for OversizedDimensions {
 // ── color/wrong-colorspace (warn) ───────────────────────────────────────────
 
 /// A needless 16-bit PNG for the web, or a CMYK JPEG (renders wrong / bloated).
-/// Fix: `convert --format`.
+/// Fix: CMYK → `convert --format jpeg`; 16-bit prints no command (crustyimg has no
+/// bit-depth option, and a format change cannot be written under the same name).
 pub struct WrongColorspace;
 
 impl Rule for WrongColorspace {
@@ -150,8 +153,12 @@ impl Rule for WrongColorspace {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                format!("{}-bit channels are needless for the web", info.bit_depth),
-                Some("convert --format".to_string()),
+                format!(
+                    "{}-bit channels are needless for the web; crustyimg cannot reduce bit \
+                     depth, so re-export it at 8 bits per channel",
+                    info.bit_depth
+                ),
+                None,
             ));
         }
         // CMYK JPEG (4-component SOF) — off-web colorspace.
@@ -163,7 +170,7 @@ impl Rule for WrongColorspace {
                 self.id(),
                 self.default_severity(),
                 "CMYK JPEG (not an sRGB web colorspace)",
-                Some("convert --format".to_string()),
+                Some("convert --format jpeg".to_string()),
             ));
         }
         None
@@ -222,8 +229,10 @@ impl Rule for UnexpectedIcc {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                format!("bulky {len}-byte ICC profile; strip it for the web"),
-                Some("meta strip".to_string()),
+                target.meta_message(&format!(
+                    "bulky {len}-byte ICC profile; strip it for the web"
+                )),
+                target.meta_fix("meta strip"),
             )
         })
     }
@@ -566,8 +575,105 @@ mod tests {
 
     #[test]
     fn wrong_colorspace_fires_on_16bit_clean_on_8bit() {
-        assert!(WrongColorspace.check(&target(png16())).is_some());
+        let f = WrongColorspace
+            .check(&target(png16()))
+            .expect("16-bit PNG fires");
+        // No command can reduce bit depth, so the finding prints words only.
+        assert_eq!(f.fix(), None);
+        assert!(f.message().contains("cannot reduce bit depth"));
         assert!(WrongColorspace.check(&target(png8(4))).is_none());
+    }
+
+    /// A CMYK JPEG made by ImageMagick (see `tests/fixtures/lint/README.md`);
+    /// `image` cannot encode CMYK.
+    fn cmyk_jpeg() -> Vec<u8> {
+        include_bytes!("../../tests/fixtures/lint/cmyk_16x16.jpg").to_vec()
+    }
+
+    /// FT-7: the budget and colorspace fragments name their inputs.
+    #[test]
+    fn budget_and_colorspace_fragments_name_their_inputs() {
+        // 123457 is odd, so a `KB`-rounding formatter differs from the budget.
+        let cfg = LintConfig {
+            budgets: vec![Budget {
+                glob: "*".into(),
+                max_bytes: Some(123457),
+                max_intended_width: None,
+            }],
+            ..Default::default()
+        };
+        // Trailing bytes after IEND are ignored by the decoder; they make the
+        // file bigger than the budget.
+        let mut big = png8(4);
+        big.extend(std::iter::repeat_n(0u8, 200_000));
+        let f = OversizedBytes
+            .check(&configured_target(big, &cfg))
+            .expect("over a 123457-byte budget");
+        assert_eq!(f.fix(), Some("optimize --max-size 123457"));
+
+        let f = WrongColorspace
+            .check(&target(cmyk_jpeg()))
+            .expect("CMYK JPEG fires");
+        assert_eq!(f.fix(), Some("convert --format jpeg"));
+        assert!(f.message().contains("CMYK"));
+
+        let f = WrongColorspace
+            .check(&target(png16()))
+            .expect("16-bit PNG fires");
+        assert_eq!(f.fix(), None);
+        assert!(
+            f.message().contains("cannot reduce bit depth"),
+            "message: {}",
+            f.message()
+        );
+    }
+
+    /// FT-6: no rule emits an empty, whitespace or path-bearing fragment. The
+    /// formatter does not filter `Some("")`, so an empty string must fail here.
+    #[test]
+    fn no_rule_emits_an_empty_fix_fragment() {
+        let cfg = LintConfig {
+            budgets: vec![Budget {
+                glob: "*".into(),
+                max_bytes: Some(10),
+                max_intended_width: Some(2),
+            }],
+            ..Default::default()
+        };
+        let findings: Vec<Finding> = vec![
+            CameraMetadata.check(&target(jpeg_with_make())),
+            OrientationNotBaked.check(&target(jpeg_with_orientation(6))),
+            OversizedBytes.check(&configured_target(png8(10), &cfg)),
+            OversizedDimensions.check(&configured_target(png8(10), &cfg)),
+            WrongColorspace.check(&target(png16())),
+            WrongColorspace.check(&target(cmyk_jpeg())),
+            MissingIcc.check(&target(solid_jpeg())),
+            UnexpectedIcc.check(&target(jpeg_with_icc(5000))),
+            AnimatedGif.check(&target(animated_gif())),
+        ]
+        .into_iter()
+        .map(|f| f.expect("every fixture here fires its rule"))
+        .collect();
+        assert_eq!(findings.len(), 9);
+        for f in &findings {
+            if let Some(frag) = f.fix() {
+                assert!(
+                    !frag.trim().is_empty(),
+                    "{}: empty fix fragment {frag:?}",
+                    f.rule()
+                );
+                assert!(
+                    !frag.starts_with("crustyimg"),
+                    "{}: a fragment carries no binary name: {frag:?}",
+                    f.rule()
+                );
+                assert!(
+                    !frag.contains('.') && !frag.contains('/'),
+                    "{}: a fragment carries no file name: {frag:?}",
+                    f.rule()
+                );
+            }
+        }
     }
 
     #[test]

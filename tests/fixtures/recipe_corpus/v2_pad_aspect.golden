@@ -1,0 +1,8 @@
+version = "2"
+name = "corpus-pad-aspect"
+
+[[step]]
+op = "pad"
+aspect = "4:5"
+color = "#1e90ff"
+gravity = "northwest"

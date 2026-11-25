@@ -1,0 +1,6 @@
+# v2_pad_aspect: what this recipe produces on each fixture.
+# Written by `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+# A changed line means an existing recipe's output changed.
+rgb8_2600x1730 pixels dims=2600x3250 colour=Rgb8 depth=8 sha256=a4242653ee9a19278036054bc775baa90fe69e50ebc9e787df9fcd89f24bb69d
+rgba8_1730x2600 pixels dims=2080x2600 colour=Rgba8 depth=8 sha256=921eadf697571965827bfdcbfb99e9d2e22cc64666ef2ba22a112464379f9001
+rgba16_2600x1730 pixels dims=2600x3250 colour=Rgba16 depth=16 sha256=156f558a3a266f2114acba729f126038750adffb822f21ae21406c09c80d02d9

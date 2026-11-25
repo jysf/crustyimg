@@ -1,0 +1,19 @@
+# Pad a white frame, then a #080808 one, then trim black within a tolerance of 8: on a
+# 16-bit image 8 steps is 2056 levels, exactly the second frame's distance from black.
+version = "2"
+name = "corpus-trim-tolerance"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#ffffff"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#080808"
+
+[[step]]
+op = "trim"
+color = "#000000"
+tolerance = 8

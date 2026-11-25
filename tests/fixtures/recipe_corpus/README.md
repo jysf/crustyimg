@@ -57,18 +57,19 @@ needs to run the bundled `optimize` choice). Without `CRUSTYIMG_BLESS` it writes
 ## Adding a recipe
 
 Add the recipe's `<stem>.toml` and `<stem>.golden` here (or a bundled recipe under `recipes/`),
-then raise every literal in the same diff. For a new recipe with no byte row, that is:
+then raise every literal in the same diff. The current values are in the two test files; this
+table says only where each one is and how it moves for a new recipe with no byte row:
 
 | where | literal | change |
 |---|---|---|
-| `recipe_corpus_output.rs` | `RECIPES` | add the stem |
-| `recipe_corpus_output.rs` | `EXPECTED_DIMS` | one entry per recipe: its output size on each of the three fixtures |
-| `recipe_corpus_output.rs` | `[(&str, [&str; 3]); 14]`, the array length of `EXPECTED_DIMS` | 14 → 15 |
-| `recipe_corpus_output.rs` | `ROWS` (48) | +3 per recipe, +3 per new `png` or `webp` byte row |
-| `recipe_corpus_output.rs` | `GOLDEN_LINES` (51) | +3 per recipe, +3 per new byte row, +1 per new bundled recipe |
-| `recipe_corpus_output.rs` | the `42` in `EXPECTED_DIMS.len() * FIXTURES.len()` | +3 per recipe |
-| `recipe_corpus_output.rs` | the module and `ROWS` doc comments ("all 14", "14 recipes x 3 fixtures …") and the `GOLDEN_LINES` doc comment ("42 pixel rows, 3 PNG, 3 WebP and 3 chosen-format lines") | to match |
-| `recipe_round_trip.rs` | `CORPUS`, and the `14` in `pairs.len()` | add the stem; +1 for a corpus recipe |
+| `recipe_corpus_output.rs` | `RECIPES` | add the stem, in sorted order among the corpus stems |
+| `recipe_corpus_output.rs` | `EXPECTED_DIMS` | add one entry: the recipe's output size on each of the three fixtures |
+| `recipe_corpus_output.rs` | the array length in `EXPECTED_DIMS`'s type | +1 per recipe |
+| `recipe_corpus_output.rs` | `ROWS` | +3 per recipe, +3 per new `png` or `webp` byte row |
+| `recipe_corpus_output.rs` | `GOLDEN_LINES` | +3 per recipe, +3 per new byte row, +1 per new bundled recipe |
+| `recipe_corpus_output.rs` | the count in `assert_eq!(EXPECTED_DIMS.len() * FIXTURES.len(), …)` | +3 per recipe |
+| `recipe_corpus_output.rs` | the counts in the module, `ROWS` and `GOLDEN_LINES` doc comments | to match |
+| `recipe_round_trip.rs` | `CORPUS`, and the count and message in `assert_eq!(pairs.len(), …)` | add the stem; +1 for a corpus recipe |
 
 A recipe that adds a byte row or a bundled recipe also needs the code for it: `PNG_RECIPE` and
 `WEBP_RECIPE` name the only two byte rows, `BUNDLED` and the `rows_checked == 3` in the

@@ -388,8 +388,12 @@ fn build_still_honours_its_own_flags() {
         "snapshot did not see the build's writes"
     );
 
-    let strict = run(dir.path(), &["build", "--strict"]);
-    assert_eq!(strict.status.code(), Some(0), "build --strict");
+    // `--strict` only applies with `--check` (SPEC-149); alone it is refused. The
+    // plain build first refreshes the lockfile the `-q 50` run above made stale.
+    let refresh = run(dir.path(), &["build"]);
+    assert_eq!(refresh.status.code(), Some(0), "build");
+    let strict = run(dir.path(), &["build", "--check", "--strict"]);
+    assert_eq!(strict.status.code(), Some(0), "build --check --strict");
     let check = run(dir.path(), &["build", "--check"]);
     assert_eq!(check.status.code(), Some(0), "build --check");
 }

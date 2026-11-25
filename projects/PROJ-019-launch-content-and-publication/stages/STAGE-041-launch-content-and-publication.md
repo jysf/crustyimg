@@ -5,12 +5,12 @@
 
 stage:
   id: STAGE-041                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: on_hold                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
 project:
-  id: PROJ-011
+  id: PROJ-019
 repo:
   id: crustyimg
 
@@ -33,6 +33,12 @@ value_contribution:
     - "Decide the go/no-go. That is the maintainer's call and stays on docs/launch-readiness.md."
 ---
 
+> 📦 **MOVED again, from PROJ-011 to its own project PROJ-019, on 2026-11-11** (maintainer request).
+> It never shared PROJ-011's thesis (see below); PROJ-019 exists so launch content has a home of
+> its own instead of riding along in whichever project is active. Stage id kept, so existing
+> pointers to STAGE-041 still resolve. Status unchanged: still `on_hold`, still parked per the
+> 2026-11-05 note below.
+>
 > ⚠ **MOVED from PROJ-010 to PROJ-011 on 2026-08-23, at the maintainer's request, so it can be
 > continued in the active project. Read this before counting it toward anything.**
 >
@@ -162,6 +168,11 @@ Both measured this week, both the kind a hostile reader finds:
 
 **Neither is a reason to delay the launch.** They are reasons the honest-limits section should be
 written after STAGE-046, not before.
+
+> **Parked 2026-11-05 (orchestrator triage, maintainer-approved).** Publication writing and the
+> pre-publication verification pass are the maintainer's work, nothing else waits on them, and
+> they were never framed. Reopen when the maintainer is ready to publish; re-derive every number
+> then, and re-run the install-path checks at the then-current release.
 
 ## Spec Backlog
 

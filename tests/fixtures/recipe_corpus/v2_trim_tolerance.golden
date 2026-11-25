@@ -1,0 +1,17 @@
+version = "2"
+name = "corpus-trim-tolerance"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#ffffff"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#080808"
+
+[[step]]
+op = "trim"
+color = "#000000"
+tolerance = 8

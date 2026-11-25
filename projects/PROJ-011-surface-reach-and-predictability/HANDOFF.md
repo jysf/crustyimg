@@ -66,6 +66,13 @@ After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md`
    it, it writes those lines in the same PR; if not, it files a STAGE-050 backlog item. SPEC-132
    fixed a Linux `--watch` loop in released 0.7.x and recorded it only as a deviation, which cost
    a punch-list round.
+7. **A verify's optional cleanups go into one punch list, and need no re-verify unless a claim
+   changed** (from SPEC-145's ship). SPEC-145's verify approved with four optional cleanups, and
+   fixing them took two punch lists and two re-verifies: about $5, against a $9.37 build. If every
+   fix is wording, a test bound tightened within what verify measured, or an added assert, the
+   orchestrator reads the punch list's diff and CI itself and marks the PR ready. A re-verify runs
+   only when the punch list changes what a doc, DEC or test **claims** to be true, because a new
+   claim is unproven (trap 17).
 
 ---
 
@@ -87,8 +94,9 @@ How the release went, for next time:
 - `just wt <branch>` for a branch that exists only on the remote creates a *new* branch from
   `main`. A fix prompt for a maintainer-opened PR must fetch and reset to `origin/<branch>`.
 - npm returned **404 on PUT** for a logged-in owner: the saved token could read but not
-  publish. `npm login`, then re-run. Publish npm from a detached worktree at the tag
-  (`git worktree add ../crustyimg-vX.Y.Z vX.Y.Z`), so a dirty main checkout doesn't block it.
+  publish. npm is now published by CI on the tag (SPEC-144, DEC-111). The hand route
+  (`npm login`, then `just wasm-npm-publish` from a detached worktree at the tag) is recovery
+  only; see RELEASING.md step 8.
 
 ### What is open now
 - **STAGE-054:** 1 shipped / 0 active / **16 pending**. These are the 0.8.1 candidates, including
@@ -114,7 +122,7 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
   needs no threshold at all.
 - **The `--name-template` pin ruling** — warn / honour-the-template / document-and-keep. Same family
   as the `-o`-extension pin ruling, which moved to PROJ-013 STAGE-037. Worth ruling together.
-- **STAGE-041's real status.** The repo has understated it since 2026-08-16. **Do not re-plan it
+- **STAGE-041's real status** (moved to PROJ-019 on 2026-11-11). The repo has understated it since 2026-08-16. **Do not re-plan it
   against what the repo says.**
 - **`mp4-atom` DEC** — blocks PROJ-012 from being specced at all.
 - **The two GitHub Action releases are still DRAFTS.** `v1.0.1` on `jysf/setup-crustyimg` and
@@ -224,6 +232,21 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     exited 1. **The design lists the command crashing (and printing junk) as mutation rows**, and a
     summary count names each failure kind it can fail on. **Before moving code, grep its downstream
     readers** (here the test bed's `check.py`, which read `GO_ADVANCE` from `edit.js`).
+16. **⚡ AN ENVIRONMENT VARIABLE SET ON A STEP APPLIES TO EVERY COMMAND IN THE STEP.** SPEC-144's
+    design set `npm_config_dry_run=true` on the PR dry-run step to make `npm publish` safe. The same
+    step's smoke test runs `npm pack`, which then wrote no tarball, so the step would have failed in
+    CI. The build replaced it with an `npm` wrapper that fakes only `publish`. **A design that sets
+    a step-level variable names every command in that step, and runs the whole step with the
+    variable set before writing it into a call.**
+17. **⚡ A BOUND WORKED OUT ON PAPER IS A CLAIM UNTIL ITS MAXIMISING INPUT IS DRIVEN.** SPEC-145's
+    verify called 0.4 px the "analytic maximum" of crop's drift between two image sizes. The
+    orchestrator's punch-list prompt passed it on as settled, and the punch list wrote it into
+    DEC-112. Re-verify found 0.6 at `f64` near-ties (`width = 0.009583333333333333`: 12 px at
+    1200, 57 px at 6000), and a seeded random sweep never lands that close to a tie. That cost a
+    second punch list and re-verify. **A prompt or DEC that carries a derived bound, maximum or
+    "can't happen" says whether it was driven, and names the input that maximises it** (for a
+    rounding bound, a `nextafter` search around each tie). An undriven bound is written as "measured
+    over this sweep", never as the maximum.
 
 ## What is working, and worth keeping
 

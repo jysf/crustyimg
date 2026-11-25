@@ -13,10 +13,55 @@ use std::process::Command;
 use tempfile::TempDir;
 
 mod common;
-use common::{jpeg_with_gps, solid_png};
+use common::{gradient_jpeg, solid_png};
 
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
+
+/// A JPEG whose GPS IFD holds a real position (lat + lon with refs), hand-built.
+/// The shared `common::jpeg_with_gps` carries only a `GPSLatitudeRef`, which is
+/// not a location, so the exit-7 check below needs a coordinate of its own.
+fn jpeg_with_gps_coordinates(w: u32, h: u32) -> Vec<u8> {
+    let base = gradient_jpeg(w, h);
+    let rat = |v: &[(u32, u32)]| -> Vec<u8> {
+        v.iter()
+            .flat_map(|(n, d)| n.to_le_bytes().into_iter().chain(d.to_le_bytes()))
+            .collect()
+    };
+    // IFD0 (1 entry) ends at 26; the GPS IFD (4 entries) is 2 + 48 + 4 = 54 bytes,
+    // so its data area starts at 80. Latitude takes 24 bytes, longitude follows.
+    let (lat_off, lon_off) = (80u32, 104u32);
+    let mut tiff: Vec<u8> = vec![0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+    tiff.extend_from_slice(&[0x01, 0x00, 0x25, 0x88, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00]);
+    tiff.extend_from_slice(&26u32.to_le_bytes());
+    tiff.extend_from_slice(&[0, 0, 0, 0]);
+    tiff.extend_from_slice(&4u16.to_le_bytes());
+    for (tag, ty, count, value) in [
+        (1u16, 2u16, 2u32, [b'N', 0, 0, 0]),
+        (2, 5, 3, lat_off.to_le_bytes()),
+        (3, 2, 2, [b'E', 0, 0, 0]),
+        (4, 5, 3, lon_off.to_le_bytes()),
+    ] {
+        tiff.extend_from_slice(&tag.to_le_bytes());
+        tiff.extend_from_slice(&ty.to_le_bytes());
+        tiff.extend_from_slice(&count.to_le_bytes());
+        tiff.extend_from_slice(&value);
+    }
+    tiff.extend_from_slice(&[0, 0, 0, 0]);
+    assert_eq!(tiff.len(), 80, "GPS IFD layout");
+    tiff.extend_from_slice(&rat(&[(50, 1), (29, 1), (1113, 25)]));
+    tiff.extend_from_slice(&rat(&[(30, 1), (31, 1), (0, 1)]));
+
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(&tiff);
+    let mut out = Vec::new();
+    out.extend_from_slice(&base[0..2]);
+    out.extend_from_slice(&[0xFF, 0xE1]);
+    out.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]);
+    out
+}
 
 fn read(rel: &str) -> String {
     std::fs::read_to_string(Path::new(ROOT).join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"))
@@ -73,7 +118,11 @@ fn lint_gate_exit_codes_over_fixture_trees() {
     assert_eq!(clean_code, 0, "clean tree → exit 0");
 
     let leaky = TempDir::new().unwrap();
-    std::fs::write(leaky.path().join("leak.jpg"), jpeg_with_gps(16, 16)).unwrap();
+    std::fs::write(
+        leaky.path().join("leak.jpg"),
+        jpeg_with_gps_coordinates(16, 16),
+    )
+    .unwrap();
     let leaky_code = Command::new(BIN)
         .arg("lint")
         .arg(leaky.path())

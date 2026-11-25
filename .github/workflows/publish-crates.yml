@@ -1,13 +1,84 @@
-name: Publish to crates.io
+name: publish-crates
+# Called by release.yml (custom-publish-crates) after `host`, on a v* tag push: crates.io
+# publishes only once every binary and the GitHub Release exist (DEC-111). On a PR it
+# runs the release-pipeline checks and a dry run instead, and never publishes.
+#
+# Least privilege: crates.io still authenticates with CARGO_REGISTRY_TOKEN, so no job
+# here holds id-token. Its trusted publishing, when it lands, adds it to `publish` only.
 on:
-  push:
-    tags: ['**[0-9]+.[0-9]+.[0-9]+*']
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/workflows/publish-crates.yml"
+      - ".github/workflows/publish-npm.yml"
+      - "dist-workspace.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/release-publish-guard.sh"
+      - "scripts/check-release-pipeline.sh"
+
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  guard:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.guard.outputs.action }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: guard
+        name: Tag, version, clean tree, and is it already on crates.io?
+        run: scripts/release-publish-guard.sh crates "$GITHUB_REF_NAME"
+      - name: The guard's verdict is publish or skip
+        env:
+          ACTION: ${{ steps.guard.outputs.action }}
+        run: |
+          case "$ACTION" in
+            publish|skip) echo "guard verdict: $ACTION" ;;
+            *) echo "::error::release-publish-guard.sh wrote action='$ACTION', expected publish or skip"; exit 1 ;;
+          esac
+
+  publish:
+    needs: guard
+    if: github.event_name == 'push' && github.ref_type == 'tag' && needs.guard.outputs.action == 'publish'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --locked
+      - name: cargo publish
+        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dist 0.32.0
+        shell: bash
+        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh"
+      - name: Release pipeline structure
+        run: scripts/check-release-pipeline.sh
+      - name: Publish guard self-test
+        run: scripts/release-publish-guard.sh --self-test
+      - name: cargo publish --dry-run
+        run: cargo publish --dry-run --locked

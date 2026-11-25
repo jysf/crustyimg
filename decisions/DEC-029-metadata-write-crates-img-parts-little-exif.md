@@ -67,6 +67,8 @@ the riskiest assumption in the MVP (DEC-003 is 0.8 confidence; question
   `encoder().write_to(..)`: removed APP1(EXIF/XMP)/APP2(ICC)/COM; **decoded pixels
   byte-identical** to the original (the compressed scan is carried verbatim — no
   re-encode).
+  > Note (2026-11-23, SPEC-156): "decoded pixels byte-identical" held because the probe JPEG had no
+  > Adobe APP14. `strip` now keeps that segment; see DEC-003's SPEC-156 amendment.
 - `little_exif` `Metadata::new_from_vec` → `get_ifd_mut(ExifTagGroup::GPS, 0)` +
   `remove_tag(..)` → `write_to_vec`: GPS tags gone, **Orientation + Copyright
   preserved**, **decoded pixels byte-identical**.

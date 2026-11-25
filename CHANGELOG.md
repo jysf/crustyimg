@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A recipe can crop.** `op = "crop"` takes a rectangle (`x`, `y`, `width`, `height`) in
+  fractions of the image, or an `aspect` such as `"16:9"` with a `gravity`. The same recipe
+  crops the same region at any image size, so a crop made on a downscaled preview replays on the
+  full-size original. 0.8.2 and earlier refuse it with `unknown operation 'crop'`.
+- **A recipe can rotate and flip.** `op = "rotate"` with `angle` a multiple of 90 (positive is
+  clockwise) and `op = "flip"` with `axis = "horizontal"` or `"vertical"`, exact in pixels at the
+  input's colour type. 0.8.2 and earlier refuse them with `unknown operation`.
+- **A recipe can pad.** `op = "pad"` with `aspect` (and `gravity`) or `border`, and a required
+  `color`, hex with any alpha or `transparent`; the input's pixels are unchanged and its bit depth
+  kept; a grey image with a colour fill becomes RGB, and a fill with alpha adds an alpha channel.
+  A fill alpha JPEG or GIF can't store is refused for that output: exit 4, nothing written, for one input or a batch with one format; when each input keeps its own format, that input fails and the batch exits 6. 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
+- **A recipe can trim.** `op = "trim"` removes a uniform border, against a stated `color` or the
+  top-left pixel (`color` may be `transparent`), within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
+  type and bit depth kept. 0.8.2 and earlier refuse it with `unknown operation 'trim'`.
+- **`edit --crop`.** `--crop WxH+X+Y` crops to a pixel rectangle (pixels of the image at that point
+  in the command), and `--crop W:H` to the largest such aspect that fits, placed by
+  `--crop-gravity`. `--save-recipe` saves a pixel crop as fractions of the image it ran on, so it
+  needs one input image. A rectangle past the edge of the image the crop receives exits 1.
+- **`edit --rotate`.** `--rotate DEGREES` turns the image by a multiple of 90, clockwise
+  (negative is counter-clockwise), and `--save-recipe` saves it as a `rotate` step.
+- **`edit --flip`.** `--flip horizontal` or `--flip vertical` mirrors the image, and
+  `--save-recipe` saves it as a `flip` step.
+- **`edit --pad`.** `--pad N` adds N pixels (of the image at that point in the command) on every
+  side, and `--pad W:H` grows the canvas to that aspect, placed by `--pad-gravity`; `--pad-color`
+  (hex with any alpha, or `transparent`) is required. `--save-recipe` saves `--pad N` as a fraction
+  of the image's long edge, so it needs one input image. N wider than that long edge, or a canvas
+  past the size caps, exits 1. A fill alpha JPEG or GIF can't store is refused: exit 4, nothing
+  written, for one input or a batch whose format `--format` or the name template fixes; when each
+  input keeps its own format, that input fails and the batch exits 6.
+- **`edit --trim`.** `--trim` removes the border that matches the top-left pixel, or `--trim-color`,
+  within `--trim-tolerance` (8-bit steps); `--save-recipe` saves a `trim` step with only the keys
+  you gave. An image that matches all over exits 1; in a batch that input fails and the run exits 6.
+
+### Changed
+
+- **`-y` into a directory that can't take new files is refused.** It exits 5 (6 for a batch,
+  after the other inputs are written) with
+  `could not write output <file>: cannot create a new file in <dir>: …`. 0.8.2 and earlier rewrote
+  the file in place, which is the write that could destroy it.
+- **`edit --save-recipe` needs `-y` to replace an existing recipe.** Without it `edit` exits 5 with
+  `output file already exists (use --yes to overwrite): <file>` before writing anything. 0.8.2 and
+  earlier replaced the recipe silently.
+- **`edit` runs its op flags in the order you type them.** `edit --invert --resize-max N` now
+  inverts, then resizes (0.8.2 resized first whatever the order), so its output changes;
+  `--resize-max N --invert` and every other invocation of 0.8.2's flags are unchanged. Each op
+  flag may be given once.
+- **A hex colour with a sign in it is refused.** `+f+f+f` used to load as `#0f0f0f`, and
+  `+f+f+f+f` as a translucent `#0f0f0f0f`. A recipe's `color` (`pad`, `trim`, `watermark`) with a
+  sign now fails to load (`apply` and `build` exit 1), and `watermark --color` exits 2, with the
+  colour message.
+- `build` refuses an `out` that resolves outside the project through a link (exit 2). Build inside the
+  project and copy the outputs.
+- `build` refuses one target's output being another target's source (exit 2). Before, this failed on a clean
+  tree and silently overwrote the source on a warm one.
+- `build` ignores letter case when it checks that outputs are distinct, on every OS: `a.png` and `A.png`
+  written to one folder are refused on Linux too. Only what `str::to_lowercase` folds counts as one name
+  (`ß` and `SS` do not). The check compares outputs with the files the build reads, never two outputs with
+  each other by file identity: an output that is already a file the build reads is caught that way, but two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build.
+- `crustyimg.build.lock` records each output's path from the build root. A lockfile written with an `out`
+  spelled through `..`, a link, or a case that differs from the folder on disk reports path drift once
+  under `build --check`; run `crustyimg build` once to refresh it.
+
+### Fixed
+
+- **A failed write no longer leaves a short or empty file.** Every file crustyimg writes (image
+  outputs on every verb, `build` outputs, `meta` writing in place, `edit --save-recipe` and the build
+  lockfile) now goes to a new file beside the destination and is renamed over it only when every
+  byte is written. A write that fails (a full disk, a file-size limit) exits 5 (6 for a batch, after
+  the other inputs are written), names the file and the cause, and leaves the file that was there as
+  it was. 0.8.2 and earlier exited 0 over a truncated output under 8 KiB, and destroyed the old file
+  on a larger one. `-y` now makes a new file: it keeps the old file's permissions, but not its owner,
+  ACLs, extended attributes (Finder tags on macOS) or hard links, and replacing a file needs room for
+  both at once.
+- **A colour with a non-ASCII character is refused, not a crash.** `color = "aéaaa"` in a recipe
+  and `--color "aéaaa"` on `watermark` now fail with the colour message instead of panicking
+  (`pad`, `watermark`).
+- **`meta strip` keeps a JPEG's colours.** It removed Adobe's APP14 segment along with the
+  metadata, and that segment tells a decoder how the scan's colours are coded: an Adobe CMYK
+  JPEG came back with orange turned green, and some RGB JPEGs changed colour too. Strip now keeps
+  that segment (and JFIF, as before), so the stripped file decodes to the same pixels; it is
+  16 bytes larger than before for a typical file. Any other APP14 is still removed.
+- `build` no longer overwrites a file it reads or writes two outputs to one file. An `out` that pointed at a
+  source folder (`out = "src"`), at the recipe or a watermark file by name, or that reached another
+  target's `out` through `..` or a link replaced that file or recorded one file twice in
+  `crustyimg.build.lock`, and exited 0. Each target's `out` is now resolved before anything is written, and
+  such a build is refused with exit 2. So is a source that would list its own output on the next build:
+  `source = "src/*.png"` or `"src"` with `out = "src"` and `name = "{stem}_w.{ext}"` built once and then
+  exited 2 on every later run; it is now refused on the first.
+- `build --watch` no longer rebuilds in a loop when `out` is a link into a watched source folder, and no
+  longer misses an edit to a source that sits inside an `out` folder.
+
+### Breaking
+
+- **Library only: `ParamKind::UInt` has a `max` field.** Code that builds
+  `ParamKind::UInt { min }` adds `max: None`. The CLI is unchanged by it.
+- **Library only: `IntroducedAlpha` has a `flag` field.** Code that builds one adds `flag: None`.
+  The CLI is unchanged by it.
+
 ## [0.8.2] - 2026-10-31
 
 ### Breaking

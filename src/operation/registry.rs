@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark, RESIZE_PARAMS,
-    WATERMARK_PARAMS,
+    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Pad, Resize, Rotate,
+    Trim, Watermark, CROP_PARAMS, FLIP_PARAMS, PAD_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS,
+    TRIM_PARAMS, WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -84,10 +85,13 @@ pub enum ParamKind {
     /// it into bytes ([`OperationParams::set_resolved_bytes`]) before the
     /// constructor runs.
     Asset,
-    /// A TOML integer in `min..=u32::MAX`. A float is refused, not truncated.
+    /// A TOML integer in `min..=max` (`max` defaults to `u32::MAX`). A float is
+    /// refused, not truncated.
     UInt {
         /// The smallest accepted value.
         min: u32,
+        /// The largest accepted value, if below `u32::MAX`.
+        max: Option<u32>,
     },
     /// A TOML integer or float, always finite (and finite as an `f32`, the
     /// width ops read it at), above `min` (or at it, when `min_inclusive`) and
@@ -117,7 +121,11 @@ impl ParamKind {
             ParamKind::Text => "a string".to_owned(),
             ParamKind::OneOf(values) => format!("one of: {}", values.join(", ")),
             ParamKind::Asset => "a string naming a file".to_owned(),
-            ParamKind::UInt { min } => format!("an integer >= {min}"),
+            ParamKind::UInt { min, max: None } => format!("an integer >= {min}"),
+            ParamKind::UInt {
+                min,
+                max: Some(max),
+            } => format!("an integer in {min}..={max}"),
             ParamKind::Number {
                 min,
                 min_inclusive,
@@ -145,10 +153,11 @@ impl ParamKind {
                     Err(format!("{s:?}"))
                 }
             }
-            (ParamKind::UInt { min }, Value::Integer(i)) => {
+            (ParamKind::UInt { min, max }, Value::Integer(i)) => {
                 // TOML integers are 64-bit: refuse negatives and anything past
-                // u32::MAX rather than wrapping or dropping them.
-                if *i >= i64::from(*min) && *i <= i64::from(u32::MAX) {
+                // the cap (u32::MAX unless the key sets a lower one) rather than
+                // wrapping or dropping them.
+                if *i >= i64::from(*min) && *i <= i64::from(max.unwrap_or(u32::MAX)) {
                     Ok(())
                 } else {
                     Err(i.to_string())
@@ -165,7 +174,7 @@ impl ParamKind {
                 let (n, shown) = match value {
                     Value::Integer(i) => (*i as f64, i.to_string()),
                     Value::Float(f) => (*f, float_text(*f)),
-                    _ => unreachable!("matched Integer | Float above"),
+                    other => return Err(describe_value(other)),
                 };
                 // The ops read the value as an f32, so the range applies to what
                 // they will see: `1e-50` is above 0 as an f64 but reads as 0.0.
@@ -188,13 +197,23 @@ impl ParamKind {
 }
 
 /// A float as a recipe author would write it: `nan`, `inf`, `1.5`, `100.0`.
-fn float_text(f: f64) -> String {
+pub(crate) fn float_text(f: f64) -> String {
     if f.is_nan() {
         "nan".to_owned()
     } else if f.is_infinite() {
         if f > 0.0 { "inf" } else { "-inf" }.to_owned()
     } else {
         format!("{f:?}")
+    }
+}
+
+/// A numeric key as the recipe author wrote it: an integer as an integer, a
+/// float as a float.
+pub(crate) fn written(params: &OperationParams, key: &str) -> String {
+    match params.iter().find(|(k, _)| *k == key).map(|(_, v)| v) {
+        Some(toml::Value::Integer(i)) => i.to_string(),
+        Some(toml::Value::Float(f)) => float_text(*f),
+        _ => String::new(),
     }
 }
 
@@ -263,7 +282,8 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, `flip`,
+/// `pad` and `trim`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -289,8 +309,8 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"` and
-    /// `"watermark"`.
+    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"`,
+    /// `"crop"`, `"rotate"`, `"flip"`, `"pad"` and `"trim"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -306,6 +326,15 @@ impl OperationRegistry {
             |p| Watermark::from_params(p).map(|w| Box::new(w) as Box<dyn Operation>),
             WATERMARK_PARAMS,
         );
+        reg.register_with_params("crop", |p| Ok(Box::new(Crop::from_params(p)?)), CROP_PARAMS);
+        reg.register_with_params(
+            "rotate",
+            |p| Ok(Box::new(Rotate::from_params(p)?)),
+            ROTATE_PARAMS,
+        );
+        reg.register_with_params("flip", |p| Ok(Box::new(Flip::from_params(p)?)), FLIP_PARAMS);
+        reg.register_with_params("pad", |p| Ok(Box::new(Pad::from_params(p)?)), PAD_PARAMS);
+        reg.register_with_params("trim", |p| Ok(Box::new(Trim::from_params(p)?)), TRIM_PARAMS);
         reg
     }
 
@@ -502,6 +531,120 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_crop() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("crop"), "expected 'crop' to be registered");
+    }
+
+    #[test]
+    fn with_builtins_contains_pad() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("pad"), "expected 'pad' to be registered");
+        let specs = reg.param_specs("pad").expect("pad schema");
+        let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
+        assert_eq!(keys, ["aspect", "gravity", "border", "color"]);
+        let kinds: Vec<ParamKind> = specs.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::Number {
+                    min: 0.0,
+                    min_inclusive: false,
+                    max: Some(1.0),
+                },
+                ParamKind::Text,
+            ]
+        );
+    }
+
+    #[test]
+    fn with_builtins_contains_trim() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("trim"), "expected 'trim' to be registered");
+        let specs = reg.param_specs("trim").expect("trim schema");
+        let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
+        assert_eq!(keys, ["color", "tolerance"]);
+        let kinds: Vec<ParamKind> = specs.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                ParamKind::Text,
+                ParamKind::UInt {
+                    min: 0,
+                    max: Some(255)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn uint_max_is_in_the_expectation() {
+        assert_eq!(
+            ParamKind::UInt {
+                min: 0,
+                max: Some(255)
+            }
+            .expectation(),
+            "an integer in 0..=255"
+        );
+        assert_eq!(
+            ParamKind::UInt { min: 1, max: None }.expectation(),
+            "an integer >= 1"
+        );
+
+        // The existing rows keep their messages through the registry.
+        let reg = OperationRegistry::with_builtins();
+        let params = |pairs: &[(&str, toml::Value)]| {
+            OperationParams::from_map(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let err = reg
+            .build(
+                "resize",
+                &params(&[
+                    ("mode", toml::Value::String("exact".into())),
+                    ("width", toml::Value::Integer(0)),
+                    ("height", toml::Value::Integer(10)),
+                ]),
+            )
+            .err()
+            .expect("width = 0 is refused");
+        assert!(
+            err.to_string()
+                .ends_with("'width' must be an integer >= 1, got 0"),
+            "{err}"
+        );
+        let err = reg
+            .build(
+                "watermark",
+                &params(&[
+                    ("text", toml::Value::String("hi".into())),
+                    ("margin", toml::Value::Integer(-1)),
+                ]),
+            )
+            .err()
+            .expect("margin = -1 is refused");
+        assert!(
+            err.to_string()
+                .ends_with("'margin' must be an integer >= 0, got -1"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn with_builtins_contains_rotate_and_flip() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("rotate"), "expected 'rotate' to be registered");
+        assert!(reg.contains("flip"), "expected 'flip' to be registered");
+    }
+
+    #[test]
     fn build_unknown_returns_typed_error() {
         let reg = OperationRegistry::with_builtins();
         let result = reg.build("bogus", &OperationParams::empty());
@@ -635,6 +778,86 @@ mod tests {
                 "tile"
             ]
         );
+        assert_eq!(
+            keys("crop"),
+            ["x", "y", "width", "height", "aspect", "gravity"]
+        );
+        let crop_kinds: Vec<ParamKind> = reg
+            .param_specs("crop")
+            .expect("crop schema")
+            .iter()
+            .map(|s| s.kind)
+            .collect();
+        let fraction = |min_inclusive| ParamKind::Number {
+            min: 0.0,
+            min_inclusive,
+            max: Some(1.0),
+        };
+        assert_eq!(
+            crop_kinds,
+            [
+                fraction(true),
+                fraction(true),
+                fraction(false),
+                fraction(false),
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+            ]
+        );
+        assert_eq!(keys("rotate"), ["angle"]);
+        assert_eq!(keys("flip"), ["axis"]);
+        assert_eq!(keys("pad"), ["aspect", "gravity", "border", "color"]);
+        assert_eq!(keys("trim"), ["color", "tolerance"]);
+        let kinds = |name: &str| -> Vec<ParamKind> {
+            reg.param_specs(name)
+                .expect("schema")
+                .iter()
+                .map(|s| s.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds("rotate"),
+            [ParamKind::Number {
+                min: -360.0,
+                min_inclusive: true,
+                max: Some(360.0),
+            }]
+        );
+        assert_eq!(
+            kinds("flip"),
+            [ParamKind::OneOf(&["horizontal", "vertical"])]
+        );
+        assert_eq!(
+            kinds("pad"),
+            [
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::Number {
+                    min: 0.0,
+                    min_inclusive: false,
+                    max: Some(1.0),
+                },
+                ParamKind::Text,
+            ]
+        );
+        assert_eq!(
+            kinds("trim"),
+            [
+                ParamKind::Text,
+                ParamKind::UInt {
+                    min: 0,
+                    max: Some(255)
+                },
+            ]
+        );
+        assert_eq!(
+            kinds("resize")[1..3],
+            [
+                ParamKind::UInt { min: 1, max: None },
+                ParamKind::UInt { min: 1, max: None },
+            ]
+        );
+        assert_eq!(kinds("watermark")[8], ParamKind::UInt { min: 0, max: None });
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
         }
@@ -672,7 +895,7 @@ mod tests {
     fn one_of_values_are_accepted_by_their_constructors() {
         let reg = OperationRegistry::with_builtins();
         let mut checked = 0;
-        for op in ["resize", "watermark"] {
+        for op in ["resize", "watermark", "crop", "flip", "pad"] {
             for spec in reg.param_specs(op).expect("schema") {
                 let ParamKind::OneOf(values) = spec.kind else {
                     continue;
@@ -694,6 +917,15 @@ mod tests {
                             m.insert("width".to_owned(), toml::Value::Integer(8));
                             m.insert("height".to_owned(), toml::Value::Integer(8));
                         }
+                        ("crop", _) => {
+                            m.insert("aspect".to_owned(), toml::Value::String("16:9".into()));
+                        }
+                        ("pad", _) => {
+                            m.insert("aspect".to_owned(), toml::Value::String("1:1".into()));
+                            m.insert("color".to_owned(), toml::Value::String("#000000".into()));
+                        }
+                        // `axis` is the whole step.
+                        ("flip", _) => {}
                         _ => {
                             m.insert("text".to_owned(), toml::Value::String("hi".into()));
                         }
@@ -706,7 +938,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 6 + 9, "6 resize modes + 9 gravities");
+        assert_eq!(
+            checked,
+            6 + 9 + 9 + 2 + 9,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities + 2 flip axes + 9 pad gravities"
+        );
     }
 
     #[test]

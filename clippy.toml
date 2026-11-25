@@ -1,0 +1,5 @@
+# Tests may unwrap, expect and panic: a failing assertion is the point there.
+# Library and binary code may not (see the deny list at the top of src/lib.rs).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

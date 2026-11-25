@@ -36,4 +36,21 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
   ready at `5d20736` (CI green). Until the test-bed fix runs, its automated stage crashes on `GO_ADVANCE`.
 - [x] **ship** (`prompts/SPEC-142-ship.md`, 2026-11-01, Sonnet, ~$1.9). PR #234 merged 2026-11-01 as `c8aa9c03c9f49d34b3633d36f3e2f0af9f46e418`.
   Reflected and archived. Total spec cost ~$36.8 across 10 sessions (cost entries re-measured from transcripts at ship).
-  One follow-up filed in STAGE-060 (label the harness's P5 checks); HANDOFF trap proposed, not applied.
+  One follow-up filed in STAGE-060 (label the harness's P5 checks); HANDOFF trap proposed; the orchestrator applied it as trap 15 (`06f8d50`).
+- [x] **test-bed fix** (`prompts/testbed-recipe-js.md`, 2026-11-04, Sonnet, ~$0.58). Test bed commit `6e8ca04`
+  (`scripts/check.py` only): the font table is read from whichever installed editor file defines it, and every
+  editor file is requested. Green before #234 (`53954d4`, reads `edit.js`, 51 pass) and after (`main` `8cb5f5a`,
+  reads `recipe.js`, 55 pass; `/edit/recipe.js` 200 `text/javascript` on dev and static). Both negative controls
+  raised their errors. `just retest main`: browser 40/0 on dev and static, automated stage completes; apache
+  skipped (Docker off). Found: `editor.sh` never clears the installed `edit/` folder, so a stale `recipe.js`
+  survives an install of an older ref.
+- [x] **test-bed editor clean** (`prompts/testbed-editor-clean.md`, 2026-11-04, Sonnet, ~$0.47). Test bed commit
+  `6486b94` (`scripts/editor.sh` only, +9): it removes `$CONFIG/static/edit` after the `albums.yaml` check and
+  before the install, as the page's README says. The built site needed nothing: SvelteKit's adapter empties the
+  build dir and `bin/export.sh` uses `rsync --delete`. Installing `main`, planting `zz-stale.js`, then `53954d4` left
+  exactly `53954d4`'s files plus `vendor/`; `just check` 51 pass from `edit.js`, then 55 pass back on `main`
+  (`/edit/recipe.js` 200 `text/javascript` on dev and static). `just retest main` (`34bdc1b`): browser 40/0 on dev
+  and static, automated stage completes; apache skipped (Docker off). The prompt's `/static/edit` suffix guard can
+  never fail (the path is built from `$CONFIG`), so it only catches an empty `CONFIG`; the `albums.yaml` check
+  before it is the guard that matters. The session read the prompt from this worktree because the main checkout
+  was at `e8a7cc3`, before the prompt landed.
