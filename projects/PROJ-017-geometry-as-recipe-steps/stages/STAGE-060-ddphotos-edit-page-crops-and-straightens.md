@@ -85,7 +85,7 @@ In build order.
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
   differ by one pixel of crop and require red.
-- [ ] **SPEC-163** (framed 2026-11-25) — [M] **`crop`'s aspect can follow each image's orientation.** Filed by the
+- [ ] **SPEC-163** (designed 2026-11-25) — [M] **`crop`'s aspect can follow each image's orientation.** Filed by the
   orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
   tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
   photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
