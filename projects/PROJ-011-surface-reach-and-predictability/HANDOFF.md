@@ -201,6 +201,11 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     (`--show-output` on a dedicated step). **A row that may skip locally fails when an
     environment variable says its coverage is required**, and CI sets that variable on the step
     that must prove it ran (`CRUSTYIMG_REQUIRE_SYSTEM_FONT`).
+    **Every build or punch-list prompt whose tests probe the host** (a filesystem's behaviour, a
+    font, a tool on `PATH`) **carries this rule in its own text.** The rule was here and SPEC-157
+    still missed it: FT-35 and FT-36 skipped with an `eprintln!` when the temp folder's filesystem
+    did not merge two names, so the macOS CI log could not show they ran. Punch list 2 made them
+    fail when `CI` is set.
 12. **⚡ A MUTATION ROW NAMES WHERE IT IS APPLIED, AND EVERY TEST EXPECTED RED, ON BOTH PATHS.**
     SPEC-138's row "move the guard after the manifest loads" could be applied two ways. The build
     moved it into `run_build` only, which is off the watch path, and FT-11 and FT-12 went red. Verify
@@ -247,6 +252,14 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     "can't happen" says whether it was driven, and names the input that maximises it** (for a
     rounding bound, a `nextafter` search around each tie). An undriven bound is written as "measured
     over this sweep", never as the maximum.
+18. **⚡ A TEST THAT GUARDS A COPIED LIST PROBES A LITERAL LIST, AND A MUTANT ON EACH SIDE TURNS IT
+    RED.** SPEC-157's FT-52 guards `READABLE_EXTENSIONS`, a copy of the source filter's list, and
+    two sessions wrote it as half a guard. The punch list's version wrote files only for the copy's
+    own entries, so removing `nef` from the copy stayed green. Punch list 2's first draft probed a
+    literal list but still missed an added `xyz`. **The test probes a literal list written in the
+    test, plus the copy's own entries, and asserts the original's verdict equals the copy's for
+    each.** The prompt names one mutant that removes an entry and one that adds one, and both must
+    turn it red.
 
 ## What is working, and worth keeping
 
