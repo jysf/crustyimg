@@ -91,6 +91,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: clippy
       - uses: taiki-e/install-action@just
       - uses: taiki-e/install-action@wasm-pack # as pages.yml; wasm-pack fetches wasm-bindgen from Cargo.lock
       - uses: actions/setup-python@v5
@@ -101,6 +102,10 @@ jobs:
           key: ddphotos-parity
       - name: Parity harness
         run: just ddphotos-parity
+      # Native clippy never compiles the wasm-only code, so lint it here.
+      - name: Clippy (wasm32 library)
+        if: ${{ !cancelled() }} # still lint when the parity step fails
+        run: just wasm-clippy
       # The wasm round-trip tests (tests/wasm_roundtrip.rs) run in the next job, wasm-roundtrip.
 
   # The #[wasm_bindgen_test] round-trip (tests/wasm_roundtrip.rs) in Node, on both wasm

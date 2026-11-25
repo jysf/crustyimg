@@ -148,13 +148,6 @@ pub fn has_manifest(bytes: &[u8]) -> bool {
     }
 }
 
-/// The stderr warning the CLI prints when `set`/`clean`/`copy` drop a C2PA
-/// manifest that their edit would otherwise have invalidated — centralized so
-/// all three print identical wording and the test suite asserts on one
-/// string.
-pub(crate) const MANIFEST_DROPPED_WARNING: &str =
-    "dropped the file's Content Credentials (C2PA) manifest — this edit would have invalidated its signature";
-
 /// JPEG APP14 (`0xEE`) — the marker Adobe's colour-transform segment is
 /// written under.
 const JPEG_ADOBE_MARKER: u8 = 0xEE;
