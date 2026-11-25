@@ -17,8 +17,13 @@ tables.**
    - **PR #270 is merged.** Run `gh pr view 270 --json state,mergeCommit,mergedAt,headRefOid`.
      - The orchestrator approved it at head `afbee0c`, after punch list 2. Record the merge SHA, the
        date and the head that merged.
-     - If the head that merged isn't `afbee0c`, list the extra commits
-       (`git log --oneline afbee0c..<head>`) and stop if any of them is more than a merge from `main`.
+     - It merged on 2026-11-25 as `3309cce`, with head `3dd1b48`, not `afbee0c`. The orchestrator
+       checked the difference: `3dd1b48` is the maintainer's merge of `main` (`7e213b2`) into the
+       branch, and `git show --remerge-diff 3dd1b48` is empty, so nothing was resolved by hand. Confirm
+       both: `git log --first-parent --no-merges --oneline afbee0c..3dd1b48` lists nothing, and the
+       remerge diff is still empty. Plain `git log afbee0c..3dd1b48` also lists `main`'s own docs
+       commits, which came in through that merge; they are not PR commits. Stop only if either check
+       disagrees.
    - **The timeline**
      (`projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-157-build-destinations-have-one-identity-timeline.md`)
      has build, verify, punch list, re-verify and punch list 2 all `[x]`. The orchestrator ticks punch
