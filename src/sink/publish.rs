@@ -195,7 +195,9 @@ pub(crate) fn publish(path: &Path, bytes: &[u8], fs: &dyn StageFs) -> Result<(),
         }
     }
     fs.flush(&mut file).map_err(PublishError::Write)?;
-    // Close before the rename: Windows refuses to rename an open file.
+    // Close before the rename: Windows refuses to rename an open file. On wasm32
+    // `File` is a stub with nothing to close, so clippy sees a pointless drop there.
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::drop_non_drop))]
     drop(file);
 
     fs.rename(&staged.path, path).map_err(PublishError::Write)?;
