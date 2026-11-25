@@ -11,8 +11,9 @@ Cycle prompts live in `prompts/SPEC-163-<cycle>.md`.
   crops a portrait 800×1200 to 800×533 and pads it to 1800×1200; the step sees the stored buffer unless
   `auto-orient` runs first. Rule: larger side along the buffer's larger side, strictly wider = landscape, square
   as written, `1:1` a no-op; 1000×1001 flips a 1000×667 crop to 667×1001. wasm needs no change.
-- [ ] **rulings** (maintainer) — key name/values, the square rule, `edit` flags in or out, DEC-112 amendment vs DEC-118.
-- [ ] **design** — `prompts/SPEC-163-design.md`
+- [x] **rulings** (2026-11-25, maintainer) — all four recommendations accepted: `orientation = "match"`; a square takes the
+  aspect as written and `1:1` is a no-op; `--crop-orientation` and `--pad-orientation` in this spec ([M]); amend DEC-112 (rule 8).
+- [ ] **design** — `prompts/SPEC-163-design.md` (Opus)
 - [ ] **build**
 - [ ] **verify**
 - [ ] **ship**

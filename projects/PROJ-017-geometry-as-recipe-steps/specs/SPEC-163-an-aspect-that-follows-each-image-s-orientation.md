@@ -386,6 +386,18 @@ Out, and where it lives:
    ([M]); "recipe-only for now" keeps it [S].
 4. **The DEC.** Recommend an amendment to DEC-112 (rule 8); a standalone record would be DEC-118.
 
+### Maintainer rulings (2026-11-25)
+
+The maintainer accepted all four recommendations:
+1. **The key:** `orientation = "match"`, one value. Leaving it out means off, and off has no other
+   spelling. `--save-recipe` writes the key only when its flag was typed.
+2. **A square image** takes the aspect as written (3:2 stays 3:2). `1:1` with the key is accepted
+   and changes nothing. Strictly wider is landscape, with no tolerance.
+3. **`edit` flags are in this spec:** `--crop-orientation match` and `--pad-orientation match`, built
+   like the gravity flags. The spec stays [M].
+4. **The DEC:** amend DEC-112 with a rule 8, "Aspects can follow the image". Design writes the
+   amendment's exact text; ship applies it after the merge.
+
 ### Findings outside this spec
 
 None filed. (Load errors number steps from 0, `recipe step 0 ('crop')`, which is existing and
