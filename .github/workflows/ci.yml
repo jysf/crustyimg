@@ -25,7 +25,7 @@ jobs:
   # counts as code. A docs-shaped file that a build or a test reads (README.md,
   # for one) is listed as an exception and runs the gates too. A docs-only change
   # skips about 15 minutes of compute across the three-OS matrix and the
-  # avif/webp-lossy/heic/lean/msrv jobs.
+  # webp-lossy/heic/lean/msrv jobs.
   #
   # The three `check` jobs are the REQUIRED status checks, so they always run and
   # always report -- they just skip their expensive steps when no code changed.
@@ -195,6 +195,17 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # Restores the dependency build from this pull request's last run, or from
+      # main's. The AVIF probe's folder under target/tmp happens to survive the
+      # action's cleanup, which does not promise to keep it; the probe then
+      # rebuilds only crustyimg itself. The key includes the runner's OS and
+      # architecture, so each leg keeps its own entry. Skipped when no code
+      # changed, like the steps after it.
+      - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
+        with:
+          key: check
+
       - name: Build
         if: needs.changes.outputs.code == 'true'
         run: cargo build --verbose
@@ -237,34 +248,6 @@ jobs:
         with:
           command: check advisories bans sources licenses
 
-  avif:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    name: avif feature (build / test / clippy)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain (clippy)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      # AVIF output (SPEC-018, DEC-020) is a DEFAULT feature as of SPEC-102/
-      # DEC-081, so the `check` job above already exercises it — this job now
-      # pins the explicit flag as a belt-and-suspenders check that `--features
-      # avif` alone (without the other defaults) still builds/tests/lints clean.
-      # Pure-Rust via ravif/rav1e — no nasm / system libs needed. Single runner.
-      - name: Build (--features avif)
-        run: cargo build --features avif --verbose
-
-      - name: Test (--features avif)
-        run: cargo test --features avif --verbose
-
-      - name: Clippy (--features avif, warnings as errors)
-        run: cargo clippy --all-targets --features avif -- -D warnings
-
   webp-lossy:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -286,8 +269,12 @@ jobs:
       - name: Build (--features webp-lossy)
         run: cargo build --features webp-lossy --verbose
 
+      # The AVIF thread-count probe (avif_tile_pin) builds a second crustyimg and
+      # takes minutes. It checks that the encoder's tile count ignores the core
+      # count, which does not depend on the webp-lossy feature, and the `check` legs
+      # above already run it. Skip it here rather than build the probe again.
       - name: Test (--features webp-lossy)
-        run: cargo test --features webp-lossy --verbose
+        run: cargo test --features webp-lossy --verbose -- --skip avif_output_is_identical_across_ambient_core_counts
 
       - name: Clippy (--features webp-lossy, warnings as errors)
         run: cargo clippy --all-targets --features webp-lossy -- -D warnings
@@ -334,8 +321,12 @@ jobs:
       - name: Build (--features heic)
         run: cargo build --features heic --verbose
 
+      # The AVIF thread-count probe (avif_tile_pin) builds a second crustyimg and
+      # takes minutes. It checks that the encoder's tile count ignores the core
+      # count, which does not depend on the heic feature, and the `check` legs
+      # above already run it. Skip it here rather than build the probe again.
       - name: Test (--features heic)
-        run: cargo test --features heic --verbose
+        run: cargo test --features heic --verbose -- --skip avif_output_is_identical_across_ambient_core_counts
 
       - name: Clippy (--features heic, warnings as errors)
         run: cargo clippy --all-targets --features heic -- -D warnings
