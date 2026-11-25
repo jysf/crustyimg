@@ -126,14 +126,17 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   `skills/crustyimg/SKILL.md:148` list what is removed but not that it can change how a viewer shows the image (ICC
   is the same class, owned by the DEC-003 entry folded into SPEC-150). Decide: a docs warning that points at
   `auto-orient` first, or have strip refuse/warn on a non-identity orientation.
-- [ ] **SPEC-157** (designed 2026-11-22) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
-  A target with `source = "src/photo.png"` and `out = "src"` replaced the source and exited 0; targets writing
-  `dist/result.png` and `alias/../dist/result.png` produced one file and a lockfile with two records. The
-  collision key compares path spellings (`output_collision_key`, `check_output_injective`), and the late check
-  compares the same strings after the files are written. Resolve destinations once, use that identity for
-  planning, the sink and the lockfile, and reject a destination that overlaps any declared source, across
-  targets, before writing. Also rule on symlinked output directories (DEC-061 accepts them; the review wrote
-  outside the tree through one). Needs a design cycle and a DEC.
+- [x] **SPEC-157** (merged 2026-11-25, PR #270) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
+  Each target's `out` is now resolved once at planning (links followed, `..` applied as the kernel applies it,
+  on-disk case taken) and that identity drives the collision check, the overlap check, the sink, the lockfile and
+  the `--watch` exclusion. `out = "src"` and `alias/../dist` are refused with exit 2 before anything is written, as
+  is an `out` that resolves outside the tree through a link, one target's output being another target's source, and
+  a glob or folder source that would list its own output on the next build. An existing output that is the same
+  file as one the build reads (device and inode, Unix) is refused whatever its name. Verify's two claims (the
+  `ß`/`SS` and NFC/NFD overwrite on APFS, and the glob source that built once then refused every later build) and
+  two asserts were fixed at the punch list; re-verify found no claims and two asserts, fixed at punch list 2.
+  DEC-117 written, DEC-061's symlinked-out-dir residual closed. Still open, filed above: two outputs whose names
+  only a Mac's filesystem merges (the NFC/NFD and `ß`/`SS` entry, with `--check` passing over it).
 - [ ] **SPEC-158** (reserved 2026-11-10) — [S–M] **`build` integrity: a lockfile its own verifier refuses, and a hash of one read with an encode of another (review P2 x2).**
   A 22,000-image build wrote a 5.2 MB lockfile that `build --check` then refused (`LOCK_MAX_BYTES` is 4 MiB and is
   enforced only on read, `src/build/lock.rs`). Give writer and reader one contract, or refuse before publishing.
@@ -242,7 +245,7 @@ when SPEC-154 is framed. A frame may re-size, split or merge them.
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 6 shipped / 0 active / **18 pending** — 2026-11-24 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 6 ticked, 18 open; the orchestrator added SPEC-162's entry).
+**Count:** 7 shipped / 0 active / **17 pending** — 2026-11-25 (re-derived by grep counts of the backlog checkboxes above `### Items carried`: 24 in total, 7 ticked, 17 open; SPEC-157 shipped).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

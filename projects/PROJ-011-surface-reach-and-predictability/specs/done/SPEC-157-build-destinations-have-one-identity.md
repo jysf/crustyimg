@@ -7,7 +7,7 @@
 task:
   id: SPEC-157
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -61,124 +61,134 @@ cost:
       date: 2026-11-22
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 7131617
+      tokens_total: 7879654
       tokens_breakdown:
-        input: 104
-        cache_creation: 153369
-        cache_read: 6939542
-        output: 38602
-      estimated_usd: 5.39
+        input: 112
+        cache_creation: 155771
+        cache_read: 7680458
+        output: 43313
+      estimated_usd: 5.90
       note: >
-        Measured from the session JSONL, found by content ("SPEC-157 — FRAME prompt"), deduped by
-        message.id (52 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        push, before this cost commit's own turns.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (56 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Was $5.39.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
     - cycle: design
       date: 2026-11-22
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 19146877
+      tokens_total: 20030707
       tokens_breakdown:
-        input: 188
-        cache_creation: 259277
-        cache_read: 18773662
-        output: 113750
-      estimated_usd: 13.85
+        input: 194
+        cache_creation: 261444
+        cache_read: 19647275
+        output: 121794
+      estimated_usd: 14.50
       note: >
-        Measured from the session JSONL, found by content ("SPEC-157 — DESIGN prompt"), deduped by
-        message.id (94 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        second push, before this cost commit's own turns. Most of the wall time was 16 full
-        `cargo test --no-fail-fast` runs for the mutation table (local CPU, not tokens).
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (97 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Most of the wall time was 16 full `cargo test --no-fail-fast` runs for the mutation table (local CPU, not tokens). Was $13.85.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
     - cycle: build
       date: 2026-11-23
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 13458758
+      tokens_total: 15509957
       tokens_breakdown:
-        input: 150
-        cache_creation: 218799
-        cache_read: 13168879
-        output: 70930
-      estimated_usd: 5.84
+        input: 168
+        cache_creation: 227548
+        cache_read: 15204005
+        output: 78236
+      estimated_usd: 6.59
       note: >
-        Measured from the session JSONL, found by content ("SPEC-157 — BUILD prompt"), deduped by
-        message.id (70 messages; max output_tokens per id), 0 subagent transcripts. Measured before
-        the final advance-cycle commit's own turns. Wall time was mostly 17 full
-        `cargo test --no-fail-fast` mutation runs (local CPU, not tokens).
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
-        (x0.10), $15 output.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (78 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Wall time was mostly 17 full `cargo test --no-fail-fast` mutation runs (local CPU, not tokens). Was $5.84.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
     - cycle: verify
       date: 2026-11-23
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 14331153
+      tokens_total: 14498026
       tokens_breakdown:
-        input: 186
-        cache_creation: 429830
-        cache_read: 13797124
-        output: 104013
-      estimated_usd: 12.19
+        input: 190
+        cache_creation: 431027
+        cache_read: 13958624
+        output: 108185
+      estimated_usd: 12.38
       note: >
-        Figures handed over by the orchestrator in the punch-list prompt, not re-measured here.
-        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
-        (x0.10), $25 output.
+        Measured from the session JSONL, found by the prompt's title or file name, two sessions (the verify and its continuation), deduped by
+        message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Was $12.19.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
     - cycle: punchlist
-      date: 2026-11-23
+      date: 2026-11-24
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 9223618
+      tokens_total: 11885736
       tokens_breakdown:
-        input: 146
-        cache_creation: 157061
-        cache_read: 9013842
-        output: 52569
-      estimated_usd: 4.08
+        input: 178
+        cache_creation: 169399
+        cache_read: 11652995
+        output: 63164
+      estimated_usd: 5.08
       note: >
-        Measured from the session JSONL, found by content ("SPEC-157 — PUNCH LIST prompt"), deduped by
-        message.id, max output_tokens per id. Measured before the final spec commit and the CI wait, so
-        the true total is slightly higher. Wall time was mostly cold builds: one mutation series run
-        twice (the first run shared a target dir with a second copy of the script and was discarded),
-        three fresh-target matrix legs and `just wasm-check`.
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
-        (x0.10), $15 output.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (80 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Wall time was mostly cold builds and a mutation series run twice. Was $4.08.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
     - cycle: reverify
       date: 2026-11-24
-      model: claude-opus-4
+      model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 4026988
+      tokens_total: 4172819
       tokens_breakdown:
-        input: 76
-        cache_creation: 110280
-        cache_read: 3884821
-        output: 31811
-      estimated_usd: 3.43
+        input: 78
+        cache_creation: 116201
+        cache_read: 4020811
+        output: 35729
+      estimated_usd: 3.63
       note: >
-        Figures handed over by the orchestrator in the punch-list-2 prompt, measured before the
-        session's final message. Opus rates.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (38 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Was $3.43.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
     - cycle: punchlist-2
       date: 2026-11-24
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2606978
+      tokens_total: 3671801
       tokens_breakdown:
-        input: 64
-        cache_creation: 75161
-        cache_read: 2513852
-        output: 17901
-      estimated_usd: 1.30
+        input: 86
+        cache_creation: 85723
+        cache_read: 3562815
+        output: 23177
+      estimated_usd: 1.74
       note: >
-        Measured from the session JSONL, found by content ("SPEC-157 — PUNCH LIST 2 prompt"), deduped
-        by message.id, max output_tokens per id. Measured before the final spec commit and the CI
-        wait, so the true total is slightly higher.
-        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
-        (x0.10), $15 output.
+        Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
+        message.id (41 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
+        Was $1.30.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+    - cycle: ship
+      date: 2026-11-25
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2550998
+      tokens_breakdown:
+        input: 60
+        cache_creation: 127613
+        cache_read: 2405427
+        output: 17898
+      estimated_usd: 1.47
+      note: >
+        Measured from the session JSONL, found by the prompt's title or file name, two sessions (the first attempt stopped at step 0 and was redone in a fresh worktree), deduped by
+        message.id (30 messages; max output_tokens per id), 0 subagent transcripts. Measured after the final push, before this cost commit's own turns.
+        Was none.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 80199698
+    estimated_usd: 51.29
+    session_count: 8
 ---
 
 # SPEC-157: build destinations have one identity
@@ -1344,6 +1354,9 @@ Starting point: PR #270 head `8a7b03c`, unmoved.
   (1382) and `--features webp-lossy` (1452). The default and no-default legs ran before the fmt-only
   whitespace change to the test's array.
 
+- **`main`'s CI at the merge** (`3309cce`, read at ship): 17 check runs, 17 success, none failed or still running (all three OS legs, lean, msrv, avif, webp-lossy,
+  both heic legs, wasm round-trip, ddphotos parity, browser smoke, cargo-deny, front-matter, cost-capture, Pages).
+
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
@@ -1368,10 +1381,43 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Design drove the right class and still missed both claims, and each one is a cell of the §15 coverage
+   map that the rule as written does not name. (a) The `ß`/`SS` and NFC/NFD overwrite is the shapes × reads
+   cell "another spelling of the same file" against the clause "a destination may not be a file the build
+   reads". §15's shape list is missing, symlink, dangling, directory, read-only; case and links were driven,
+   spelling variants were not on it. Design did find NFC/NFD, but only as an output-to-output collision, and
+   filed it as a dependency question (Unicode tables). The half that needs no tables, a same-file check by
+   device and inode on a destination that already exists, was in reach at design and came out of the
+   maintainer's ruling at the punch list. (b) The glob source that lists its own output is the "between steps"
+   cell with the observer being the next build, not a killed process. §15's examples are create, chmod, write,
+   rename inside one run; "what the next run sees" is not named, though frame drove the `--watch` version of the
+   same loop. So the §15 rule would have caught (a) only if the shape list had carried spelling variants, and
+   (b) only if "between steps" had carried "between runs". Cost: re-measured, verify is $12.38, 1.9x the
+   build ($6.59), and the three sessions after it (punch list $5.08, re-verify $3.63, punch list 2 $1.74)
+   add $10.45. Against build plus both punch lists ($13.41) verify is slightly less, not more, so the profile
+   is the map doing its job late. Applied at design it would have cost design some of the 16 mutation runs it
+   already spent, and the second punch list and the re-verify exist because verify found these after the code
+   was written. The drift guard FT-52 was half a guard twice. The punch list's version probed the copy against
+   the real filter, so an extension removed from the copy was never asked about; punch list 2's first draft
+   added a literal list and `OUTPUT_EXTENSIONS` and still missed the `xyz` mutant, because nothing probed an
+   extension that exists only in the copy. A guard for a copied list must probe the union of both lists plus a
+   literal; the session caught the second gap only by running the mutants.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposals only, none applied. (a) "A test that guards a copied list probes a literal list and the
+   copy's own members, and is checked with a mutant on each side (remove one, add one)": AGENTS §15-16,
+   HANDOFF and the SPEC-155/156 reflections do not say it; not covered. (b) "A test that skips on an
+   environment condition fails instead under `CI`": HANDOFF trap 11 states it (a row that may skip locally
+   fails where coverage is required); covered. The gap was application: FT-35/36 shipped with a printed skip
+   and re-verify found it, so the build and punch-list prompts need to carry trap 11 for any test with a
+   filesystem probe; that is a prompt line, not a rule change. (c) "A refusal added at a punch list needs a
+   matching 'must not refuse' row": not in AGENTS or HANDOFF; partly covered, since §15's coverage map says
+   each cell gets a row but not that a new refusal adds the opposite cell; the punch list did add FT-40 and
+   re-verify drove the rest by hand. Two further proposals from the coverage map: add "another spelling of
+   the same file (case, normalization, hard link)" to §15's shape list for any path a change writes, and add
+   "the next run's view of this run's output" to its "between steps" list.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. STAGE-063's NFC/NFD and `ß`/`SS` entry holds the output-to-output residual and `--check`
+   passing over it, and five `guidance/ideas.yaml` entries came from verify and re-verify; the evidence names
+   no gap those miss. This ship also wrote DEC-117 and amended DEC-061, as the spec assigned to ship.

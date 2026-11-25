@@ -44,4 +44,8 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   literal list (nef, webp, xyz mutants each red); FT-35/36 fail instead of skip under `CI` (macOS log shows
   both ran); residual reworded to "on any build"; comment and FT-37 text fixed. The only non-test
   `src/` change is the comment. **Approved for merge by the orchestrator.**
-- [ ] **ship** — `prompts/SPEC-157-ship.md` (Sonnet), after the maintainer merges #270.
+- [x] **merge** (2026-11-25, maintainer) — PR #270 as 3309cce, head 3dd1b48 (the maintainer's merge of `main`
+  at `7e213b2` into the approved head `afbee0c`; `git log --first-parent --no-merges afbee0c..3dd1b48` lists nothing and
+  `git show --remerge-diff 3dd1b48` is empty).
+- [x] **ship** (2026-11-25, Sonnet) — PR #270 merged as 3309cce. Reflected; DEC-117 written and DEC-061 amended;
+  archived. Total cost across all eight sessions: $51.29 (re-measured; the ship entry is measured after the push).
