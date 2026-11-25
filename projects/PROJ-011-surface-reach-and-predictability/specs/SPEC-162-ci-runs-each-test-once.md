@@ -58,10 +58,25 @@ cost:
         Measured from the session JSONL (found by the prompt's title), deduped by message.id, max output_tokens
         per id, no subagent transcripts. Taken before the last few edits, so it slightly undercounts.
         Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok.
+    - cycle: punchlist
+      date: 2026-11-25
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2872305
+      tokens_breakdown:
+        input: 70
+        cache_creation: 84726
+        cache_read: 2774560
+        output: 12949
+      estimated_usd: 1.34
+      note: >
+        Measured from the session JSONL (found by the prompt's title), deduped by message.id, max output_tokens
+        per id, no subagent transcripts. Taken just before the last push, so it slightly undercounts.
+        Rates: Sonnet $3 input, $3.75 cache_creation, $0.30 cache_read, $15 output per MTok.
   totals:
-    tokens_total: 4954980
-    estimated_usd: 2.17
-    session_count: 1
+    tokens_total: 7827285
+    estimated_usd: 3.51
+    session_count: 2
 ---
 
 # SPEC-162: CI runs each test once
@@ -133,13 +148,12 @@ CI runs each check once, with the same coverage:
   - In `check`, `Swatinem/rust-cache@v2` is added, but **only if** AC-7's measurement keeps it.
   - Every changed comment says why in plain, behaviour-first words, with no spec IDs.
 - **Modified: `tests/avif_tile_pin.rs`.**
-  - `probe_binary()` builds into
-    `PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("avif-probe-{:016x}", h))`, where `h`
-    hashes `env!("CARGO_MANIFEST_DIR")` with `std::hash::DefaultHasher`.
+  - `probe_binary()` builds into the plain folder
+    `PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("avif-probe")`.
   - Cargo sets `CARGO_TARGET_TMPDIR` for integration tests, as `<target>/tmp`. The folder stays the
     same from run to run, so the nested build is incremental, and `cargo clean` deletes it.
-  - The hash gives each checkout its own probe folder, even when worktrees share one
-    `CARGO_TARGET_DIR`. A shared target folder has served a stale library across worktrees before.
+  - There is no per-checkout hash. A `CARGO_TARGET_DIR` shared between checkouts is unsupported for
+    this test, as for every other test (see AC-5 and M4).
   - The doc comment is updated to match.
 - **Not changed:** `src/`, every other test, `justfile`, `scripts/`, the DECs and `docs/`.
   - DEC-020 stays as written, because a DEC records the decision as of its date.
@@ -167,12 +181,10 @@ CI runs each check once, with the same coverage:
   - After a green run on the same probe folder, remove the pin.
   - The probe must rebuild, and the test must go red.
   - Restore the pin, and the test goes green again.
-- [ ] **AC-5: two checkouts never share a probe binary** (mutant M3).
-  - Use two worktrees with **one shared** `CARGO_TARGET_DIR`.
-  - Run the test green in worktree A.
-  - In worktree B, with the pin removed, run it: it must be red.
-  - Run it in A again: it must be green.
-  - Each checkout gets its own `avif-probe-<hash>` folder. List both.
+- [x] **AC-5: a target folder shared between checkouts is unsupported.** Cargo reuses one checkout's
+  test binary in the other, with the first checkout's manifest path built in, so a run there can be a
+  false green or a false red whatever the probe does. Each checkout uses its own `CARGO_TARGET_DIR`,
+  as for every other test. Met by the doc comment on `probe_binary()`.
 - [ ] **AC-6: two concurrent runs don't corrupt each other.**
   - Start two `cargo test --test avif_tile_pin` at once, in one checkout with one target folder.
   - Both must pass.
@@ -182,14 +194,17 @@ CI runs each check once, with the same coverage:
   - Add `Swatinem/rust-cache@v2` to the three `check` legs and push twice. The first run saves the
     cache; the second restores it, and that second run is the measurement.
   - Keep the cache only if both of these hold:
-    - The second run's Build + Test time on **each** of the three legs is at least 20% below that
-      leg's baseline.
+    - The **Build step** falls at least 20% on **each** of the three legs, in two warm runs.
     - The repository's total cache stays under 6 GB. Check with
       `gh api repos/jysf/crustyimg/actions/cache/usage`, and
       `gh api repos/jysf/crustyimg/actions/caches --jq '.actions_caches[] | "\(.key) \(.size_in_bytes)"'`.
   - Otherwise, remove the step in a later commit and report the numbers.
   - Either way, record the numbers, and whether the probe's nested build was warm on the second run
     (its time in the log).
+  - **Restated at the punch list (orchestrator ruling).** The first bar was the Build + Test time. The
+    cache can only speed up the Build step, and the macOS Test step swings by more than 20% between
+    runs (424, 394 and 434 s), so a Build + Test bar measured that noise. The Build step fell 70-90%
+    on every warm leg in both warm runs.
 - [ ] **AC-8: the probe test runs where it should, and only there.** On the final CI run at the PR
   head:
   - each `check` leg's log shows `avif_output_is_identical_across_ambient_core_counts ... ok`;
@@ -232,6 +247,8 @@ Apply each mutant alone, then restore. Record every test that goes red.
 - **M3.**
   - Mutant: M1 in worktree B only, with A and B sharing one `CARGO_TARGET_DIR` (AC-5).
   - Expected: red in B, and green in A both before and after.
+  - Build saw: A green, B red, then A's second run **red**, reusing B's test binary. This is cargo's
+    behaviour with a shared target folder, not the probe's (see AC-5).
 - **M4.**
   - Mutant: take the hash out of `probe_binary()`'s folder name, leaving a plain `avif-probe` folder.
     Then repeat M3's drive.
@@ -239,6 +256,9 @@ Apply each mutant alone, then restore. Record every test that goes red.
     in some order.
   - If nothing ever goes wrong, say so. The hash then stays as cheap insurance, and the report says
     it was not proven necessary.
+  - Verify drove it: with the pin removed in B, B was red; A touched, green; B again a 1 s false green.
+    The false result appears whether or not the folder is hashed, so the hash protects nothing. It was
+    dropped at the punch list (orchestrator ruling 2).
 
 Before M1, check on the unmutated tree that `RAYON_NUM_THREADS` reaches the probe. The test's doc
 says that without the pin, 1, 4 and 14 threads give three different hashes. Quote what M1 shows.
@@ -307,11 +327,11 @@ says that without the pin, 1, 4 and 14 threads give three different hashes. Quot
 
 - **Branch:** chore/spec-162-ci-runs-each-test-once
 - **PR (if applicable):** #271 (draft)
-- **All acceptance criteria met?** yes, with two findings on AC-5 and M4 (below)
+- **All acceptance criteria met?** yes. AC-5 was restated at the punch list (a shared target folder is unsupported), and AC-7 is met on the restated bar (Build step).
 - **New decisions emitted:** none
 - **Files this diff touches:**
   - `.github/workflows/ci.yml` — `avif` job removed; `--skip avif_output_is_identical_across_ambient_core_counts` on the `webp-lossy` and `heic` Test steps; `Swatinem/rust-cache@v2` (key `check`) on the `check` legs; the `changes` comment no longer names `avif`.
-  - `tests/avif_tile_pin.rs` — the probe builds into `<target>/tmp/avif-probe-<hash of CARGO_MANIFEST_DIR>`; doc comment updated.
+  - `tests/avif_tile_pin.rs` — the probe builds into `<target>/tmp/avif-probe`; doc comment updated.
   - `projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-162-ci-runs-each-test-once.md` — this section and the cost entry.
 - **Acceptance criteria** (local drives used fresh `CARGO_TARGET_DIR`s):
   - AC-1: met. No `avif` job; `git diff --name-only origin/main...HEAD` lists only the three files above. The required checks are the three `check` legs, whose job and `name:` are unchanged.
@@ -337,22 +357,49 @@ says that without the pin, 1, 4 and 14 threads give three different hashes. Quot
   - Cache total 3.48 GB (9 entries) < 6 GB. The `check` entries: 641 MB (Linux), 634 MB (macOS), 563 MB (Windows).
   - The probe's nested build was warm: `avif_tile_pin` took 20.5 s on ubuntu (baseline 149.9 s), 20.1 s on macOS and 35.7 s on Windows; the nested build compiled only the crustyimg crate.
 - **Baseline vs final (runner-minutes):**
-  - Total: 102.6 -> 62.3 (run 2). Run 1 (cache cold, 3cfa32d) was 86.9.
+  - Total: 102.6 -> 62.3 (run 2). Run 1 (cache cold, 3cfa32d) was 86.9. Run 3 (`45541262385` at `e54e5b5`) was 68.5, slowest leg heic macOS 12.1 min. A second baseline, `main` run `45535869201`, was 106.2, with macOS Build + Test at 848 s.
   - Slowest leg: 17.9 min (heic macOS) -> 14.5 min (run 1; windows `check` 20.1 min, cold, saving the cache) / 10.7 min heic macOS in run 2; windows `check` 9.0 min in run 2.
   - Test step, baseline -> run 2: ubuntu check 496 -> 349 s; macOS 424 -> 394 s; windows 678 -> 454 s; webp-lossy 396 -> 257 s; heic ubuntu 523 -> 281 s; heic macOS 745 -> 395 s.
   - The 55-60 runner-minute estimate was missed by 2-7 minutes: 62.3 measured. Note that the `heic` and `webp-lossy` legs do not use the cache.
 - **Docs sweep (hits listed, none changed):**
   - `decisions/DEC-020-avif-output-feature-gated-ravif.md:146` — names the CI `avif` job.
-  - `decisions/DEC-081-avif-encode-moves-into-the-default-feature-set.md:188-190` — says the `avif` job is "kept ... not removed".
+  - `decisions/DEC-081-avif-encode-moves-into-the-default-feature-set.md:187-191` — says the `avif` job is "kept ... not removed".
   - `docs/sessions/2026-06-16-spec-018-avif-build-handoff.md:60` and `docs/sessions/2026-06-16-stage-004-formats-quality-build-handoff.md:98` — historical handoffs that plan the `avif` job.
 - **Overlap check (after the last rebase; no rebase was needed, branch at `origin/main`):** #237 (heic job, rewrites install steps; hunks near but not touching), #229 (docs/roadmap.md) and #226 (AGENTS.md, src/cli/mod.rs) are open. #240 is no longer open (merged as `39e68e0`). No open PR touches the files this PR changes except #237's `ci.yml`.
 - **Deviations from spec / findings:**
-  - A docs-only commit does not measure the cache: the path classifier skips the heavy steps. The build prompt suggested a Build Completion edit; that first push (`4270619`) was cancelled by the next one. The second measured commit is a one-line `ci.yml` comment (`ecf0dc7`).
+  - A docs-only commit on a code PR still re-runs everything: on a PR the classifier diffs `base...HEAD`, so the PR's code change is always in the diff. `4270619` was cancelled by the concurrency group, not skipped by the classifier. The second measured commit is a one-line `ci.yml` comment (`ecf0dc7`).
   - AC-5 / M3: with two worktrees sharing one `CARGO_TARGET_DIR`, cargo gives both the same unit hash, so A's run after B's reused B's library and B's test binary without compiling. That test binary has B's manifest path baked in, so it probed B's mutated folder, and `both_encode_paths_set_the_thread_count` (which does not use the probe) went red too. The probe hash protects only the nested probe build. It cannot protect the outer artifacts, which is the known stale-library problem for shared target folders. Touching A's sources restores green and A's own `avif-probe-<hash>` folder was never touched.
   - The local matrix's first webp pass failed because zsh did not word-split `$F`; re-run with explicit flags, green.
 - **Follow-up work identified:**
   - DEC-020 and DEC-081 still describe the `avif` job; a DEC records its date, so left alone. A note in a future decision or `docs/` is the orchestrator's call.
   - `heic` and `webp-lossy` legs could take the same cache: not measured here.
+
+### Punch list
+
+Verify found two claims and one wording item; the orchestrator ruled on both claims (cache stays; hash goes).
+
+- **Fix 1-3, commit `9897c9a`** (`ci.yml` and `tests/avif_tile_pin.rs`):
+  - The `check` job's cache step gets `if: needs.changes.outputs.code == 'true'`, and its comment is rewritten.
+  - `probe_binary()` builds into the plain `<target>/tmp/avif-probe`; the `DefaultHasher` use is gone; the doc comment says a shared `CARGO_TARGET_DIR` is unsupported and gives the plain reason for the separate probe target.
+- **Fix 4, local, one fresh `CARGO_TARGET_DIR`:**
+  - AC-2: run 1 113 s (cold); run 2 2 s. Run 2's outer build said `Fresh crustyimg`, its nested build `Finished dev ... in 0.15s`, and it had 0 `Compiling` lines. The nested build is not run verbose, so it prints no `Fresh` lines of its own.
+  - AC-3: `${TMPDIR}avif-probe*` and `${TMPDIR}crustyimg-spec124-probe-target-*` counts were 0 and 0 before and 0 and 0 after.
+  - AC-4, on the warm folder: M1 (line 782 pin removed) RED on both tests; M2 (line 426) RED on `both_encode_paths_set_the_thread_count` only, the probe test stayed green; restored, both green.
+  - AC-6: two concurrent runs, one checkout, one target: both `2 passed`.
+  - Only `<target>/tmp/avif-probe` exists; no `avif-probe-<hex>` folder was created.
+- **Fix 5-6, the spec edits:** AC-5, AC-7, the M3 and M4 rows, `## Outputs` and this section.
+- **Fix 7, CI evidence, run `45556625777` at `9897c9a`, every leg green:**
+  - Each `check` leg's cache step ran and restored with a full match (`Restored from cache key ... full match: true`): ubuntu 11 s, macOS 10 s, windows 20 s.
+  - Build step (baseline; the two earlier warm runs `45539781614` and `45541262385`; this run):
+    - ubuntu: 149 s; 19 and 25 s; 27 s.
+    - macOS: 136 s; 40 and 39 s; 21 s.
+    - windows: 254 s; 44 and 55 s; 50 s.
+  - The probe folder's name changed, so its nested build was cold once. `avif_tile_pin` took 154.2 s on ubuntu, 120.5 s on macOS and 216.0 s on windows (`2 passed`). The Test steps took 485, 378 and 633 s.
+  - The post step ran in about 0-1 s on every leg: a full key match is not saved again, so the new `avif-probe` folder is not in the cache and the next run on an unchanged lockfile and toolchain will be cold again until the key changes.
+  - The `webp-lossy` and both `heic` legs show `1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out` for `avif_tile_pin`.
+  - The `if:` can't be shown skipping on this PR, because a docs-only push on a PR still runs everything. Instead: the cache step's line and the Build step's line are the same text, `if: needs.changes.outputs.code == 'true'` (two identical lines in the `check` job, same indentation).
+  - Run total: 66.9 runner-minutes.
+- **Local matrix** (default, `--no-default-features`, `--features webp-lossy`; fmt, `clippy --all-targets -D warnings`, full test): all green. Tests passed: 1448, 1382, 1452; 0 failed.
 
 ### Build-phase reflection (3 questions, short answers)
 
