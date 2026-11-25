@@ -239,6 +239,33 @@ ideas:
     gate: null
     notes: "scripts/ci-code-paths.sh's self-test fails when the include scan finds fewer than INCLUDE_FLOOR (35 at SPEC-154) distinct include_str!/include_bytes! targets. It counts targets, not sites, and nothing raises it when includes are added, so a scan that silently loses newly added includes stays green until the count falls below the old floor. Options: derive the floor from a cheaper independent count (for example a plain grep -c of include sites) and require equality, or have the self-test print the count so a reviewer sees it move."
 
+  - id: ci-classifier-pr-diffs-the-whole-branch
+    title: "On a pull request the CI path classifier diffs the whole branch, so a docs-only commit on a code PR re-runs every gate"
+    status: proposed
+    source: "2026-11-25 SPEC-162 verify (PR #271)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "ci.yml's `changes` job diffs base...HEAD on a pull request, so any push to a PR that touches code anywhere runs every heavy job. Measured: e54e5b5 on PR #271 changed only the spec and still ran 68.5 runner-minutes. Push-to-main already diffs the pushed range. Fix: on a pull_request event, diff the previous head (github.event.before) against the new head when that range exists, and fall back to base...HEAD on the first push or after a force push. The required checks must still report on every head, so skipped steps keep the job green rather than skipping the job. Present since SPEC-154's design."
+
+  - id: native-lean-plus-avif-build
+    title: "No native CI build tests avif without the other default features"
+    status: proposed
+    source: "2026-11-25 SPEC-162 verify (PR #271)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "The `avif` job SPEC-162 removed ran `--features avif`, which only adds to the defaults, so it never tested avif alone. Only the wasm32 build does that (`--no-default-features --features avif`). DEC-081 repeats the misreading. Worth a native `--no-default-features --features avif` check leg only if a cfg combination is found that breaks natively but not on wasm32."
+
+  - id: rust-cache-on-feature-legs
+    title: "The webp-lossy and heic CI legs don't use the build cache"
+    status: proposed
+    source: "2026-11-25 SPEC-162 build and verify (PR #271)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "SPEC-162 added Swatinem/rust-cache to the three `check` legs only; their Build step fell 70-90%. The feature legs build different feature sets, so each would add its own entry (about 0.6 GB each) against the 10 GB repository limit, where `main` alone holds about 2.7 GB. Measure the Build-step saving and the cache total on a branch before adopting. heic macOS is the slowest leg (10.7-12.1 min)."
+
   - id: optimize-note-on-a-failed-write
     title: "`optimize` prints \"kept the source unchanged\" before a write that then fails"
     status: proposed

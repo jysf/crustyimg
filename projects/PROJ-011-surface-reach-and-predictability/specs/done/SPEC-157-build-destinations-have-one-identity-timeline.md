@@ -48,4 +48,4 @@ Cycle prompts live in `prompts/SPEC-157-<cycle>.md`.
   at `7e213b2` into the approved head `afbee0c`; `git log --first-parent --no-merges afbee0c..3dd1b48` lists nothing and
   `git show --remerge-diff 3dd1b48` is empty).
 - [x] **ship** (2026-11-25, Sonnet) — PR #270 merged as 3309cce. Reflected; DEC-117 written and DEC-061 amended;
-  archived. Total cost across all eight sessions: $51.80 (re-measured; the ship entry is measured after the push).
+  archived. Total cost across all eight sessions: $51.96 (re-measured; the orchestrator re-measured the ship entry from both whole transcripts, $1.98 → $2.14).

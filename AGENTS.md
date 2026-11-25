@@ -524,18 +524,28 @@ Before writing the mutation table, build its coverage map and put it in
 the spec:
 - **Shapes × reads.** List every shape of input the change reads (for a
   path: missing, regular file, symlink to a file, dangling symlink,
-  symlink to a directory, read-only) against every step or clause that
-  reads it. For a predicate, take each clause in turn with an input that
-  passes every *other* clause.
+  symlink to a directory, read-only, and another spelling of the same
+  file: case, Unicode normalization, a hard link) against every step or
+  clause that reads it. For a predicate, take each clause in turn with an
+  input that passes every *other* clause.
 - **Between steps.** For an ordering that matters (create, set mode,
   write, rename), list what an observer or a killed process sees between
-  each pair of steps, not only at the end.
+  each pair of steps, not only at the end. The next run is an observer
+  too: list what it sees of this run's output (a folder source that now
+  lists the file this run wrote).
 
 Each cell gets a test row or a one-line reason it needs none. A mutation
 table only tests the rows someone thought to write: SPEC-156 missed the
 one clause of its APP14 check without a row, and SPEC-155's two verify
 claims (a symlinked destination, a mode applied after the write) were
-cells no row covered.
+cells no row covered. SPEC-157's two verify claims were the two cells
+added above: `ß`/`SS` overwriting a source on APFS, and a glob source
+that built once and then refused every later build.
+
+A refusal added at a punch list gets the map too, and at least one
+"must not refuse" row: an input next to the refused one that must still
+build. A new refusal is a new claim, and its false positives are the
+half no fix row tests.
 
 ### During **build**
 
