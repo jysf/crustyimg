@@ -25,5 +25,8 @@ Cycle prompts live in `prompts/SPEC-162-<cycle>.md`.
   45556625777 green, 66.9 runner-min; Build step ubuntu 27 s, macOS 21 s, windows 50 s; the probe built cold once
   (folder renamed). A full key match saves nothing, so the PR's cache never gains `avif-probe`; `main` has no
   `check` entry, so its first post-merge run should save one with it. Diff checked by the orchestrator.
-- [~] **re-verify** — prompts/SPEC-162-reverify.md (Opus, read-only). Don't merge #271 before it reports.
-- [ ] **ship** — after the maintainer merges the PR.
+- [x] **re-verify** (2026-11-25, Opus, $1.70 measured before its final message) — APPROVED at `793dc0c`, no claims.
+  From rust-cache's source: a full key match saves nothing, and `main`'s first green run after the merge saves a
+  `check` entry including `target/tmp/avif-probe`. Two wording items left for ship (the AC-5 row in Build
+  Completion; tick the other ACs).
+- [ ] **ship** — prompts/SPEC-162-ship.md (Sonnet), after the maintainer merges #271.
