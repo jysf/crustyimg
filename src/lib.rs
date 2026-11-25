@@ -40,6 +40,18 @@
 //! `heic` / `webp-lossy`) is exactly as it was. [`wasm`] is the wasm-only
 //! `wasm-bindgen` surface over the engine.
 
+// A bad input must come back as an error, never a crash. Tests are exempt
+// through clippy.toml; a call that truly cannot fail takes a local
+// `#[allow(clippy::expect_used)]` with a message saying why.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::unreachable
+)]
+
 // ── The pure engine: native AND wasm32 ────────────────────────────────────────
 pub mod analysis;
 pub mod error;

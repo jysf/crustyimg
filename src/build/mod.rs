@@ -283,10 +283,9 @@ impl Target {
         // symlinks): for a relative `out`, resolving against an absolute root R
         // and requiring the result stay under R is equivalent to rejecting a
         // cleaned form that is absolute or begins with `..`. Component-based, so
-        // it is correct on every host separator (`/` and `\`). RESIDUAL: a
-        // pre-existing symlink *inside* the out path can still escape a purely
-        // lexical check; the sink's write-time canonicalize + symlink-destination
-        // guard (DEC-035) is the second layer for that (DEC-061).
+        // it is correct on every host separator (`/` and `\`). A link inside `out` is
+        // resolved at planning, and an `out` that resolves outside the tree is
+        // refused there.
         match watch::lexical_clean(Path::new(&self.out))
             .components()
             .next()

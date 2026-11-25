@@ -133,6 +133,9 @@ test-completeness patch, not a totality hole).
     (require the *canonicalized* out dir to stay within the canonicalized build root)
     would reject intentionally symlinked output dirs (`dist → ramdisk`) — filed as
     backlog item #10, not done here.
+    **Closed by DEC-117 (2026-11-25):** `build` now resolves each `out` with links followed before
+    anything is written and refuses one that resolves outside the canonical build root (exit 2). In-tree
+    links still work. `dist → ramdisk` is refused; build inside the tree and copy.
 
 ### Accepted risks (each a decision, with rationale)
 
@@ -159,9 +162,8 @@ test-completeness patch, not a totality hole).
    are clamped (see the out-directory containment fix decision). The `out` write side
    is bounded by that lexical clamp **plus** `safe_join`'s per-name clamp (rejects
    empty / absolute / `..` / separator in the expanded name), both verified by attack.
-   **One accepted exception:** a symlinked *out dir* still escapes both layers — see the
-   symlink residual above; accepted (higher exploit bar: a committed in-tree symlink +
-   manifest control) and filed as backlog item #10.
+   **The symlinked-*out*-dir exception is closed by DEC-117:** an `out` that resolves outside the tree
+   through a link is refused at planning.
 4. **The `.to_str()→""` stem/ext seams stay silent (for now).** They degrade to a
    deterministic, path-safe, injectivity-detected fallback, not a silent wrong output.
    A typed "filename not representable" error is a UX/correctness win folded into the

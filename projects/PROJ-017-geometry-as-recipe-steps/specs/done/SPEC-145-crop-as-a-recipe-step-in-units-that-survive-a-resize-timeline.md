@@ -1,0 +1,58 @@
+# SPEC-145 timeline
+
+Architect appends as cycles are designed. Executors update status as
+they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complete · `[?]` blocked.
+
+Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
+
+## Instructions
+
+- [x] **frame** (2026-11-04, `prompts/SPEC-145-frame.md`, Opus): GO, [M]. No crop op exists today
+  (`unknown operation 'crop'`, exit 1, on 0.8.2). Recommends fractions-only units with per-edge
+  rounding (DEC-091 Fence A already rules pixel coordinates lab-side), one op with exclusive
+  rectangle/aspect key groups, and a pre-named split (DEC + rectangle, then aspect). Q1 (pixels
+  in a recipe?) needs the maintainer before design.
+- [x] **design** (2026-11-05, `prompts/SPEC-145-design.md`, Opus): DEC-112 (fractions only, f64,
+  each edge rounded on its own with halves up; 0 px refused at apply as an op failure, not via the
+  skippable refusal hook). 65 ACs: 32 load and 4 apply refusals with exact messages, 2 corpus recipes
+  (`GOLDEN_LINES` 51 → 57), 3 wasm rows, 9 doc surfaces; 13-row mutation table. One spec, no split.
+  Rulings (2026-11-05, all three as recommended): fractions only in a recipe, pixels via `edit --crop`
+  later; `aspect` takes whole numbers only (`"239:100"`); a crop that rounds to 0 px is refused, not
+  clamped.
+- [x] **build** (`prompts/SPEC-145-build.md`, 2026-11-05, Sonnet, ~$9.37). Draft PR #244 at `6611e79`, CI green
+  on every leg; 65/65 ACs; M1–M12 driven (M2, M4, M6, M12 flip extra rows; M4b exits 2 on a single
+  input but 0 with uncropped output on a batch). Corpus: both crop recipes byte-identical across
+  the three targets, no existing output changed. wasm-test 49/0; bundle +3,271 B brotli. Finding:
+  the batch refusal warning says "watermark skipped" for any refusing op. The maintainer accepted design's reading of ruling 3 on
+  2026-11-05: the 0 px message names `crop` and both sizes, with no step index.
+- [x] **verify** (`prompts/SPEC-145-verify.md`, 2026-11-05, Opus, read-only, ~$5.98). APPROVED at `6611e79`,
+  no punch items. All 36 messages match by script and through the binary; the thesis holds on
+  6000/1200 px images with pixels exact against `vips`; M1, M3b, M8, M12 and M4b driven; a 0 px
+  batch exits 6 and writes nothing. Four optional cleanups; the maintainer chose to fix them
+  before merge.
+- [x] **punch list** (`prompts/SPEC-145-punchlist.md`, 2026-11-05, Sonnet, ~$1.37). PR #244 at `0c6f722`, CI
+  green on `1316ad7` (the last code commit). Bound is 0.4 + 1e-9 (the worst case computes as
+  0.4000000000000057); a +0.1 right-edge mutation drifts 0.6, red at 0.4 and green at 0.6. The
+  A-table assert fails at 3 vs 4. Batch exits driven: one bad input 1, two bad 6 with nothing
+  written, one bad + one good 6 with the good image written; `recipes/README.md` reworded. The
+  bound test lives in `src/operation/crop.rs`'s test module, so `src/` changed in tests only.
+  DEC-112's bound line now says 0.4.
+- [x] **re-verify** (`prompts/SPEC-145-reverify.md`, 2026-11-05, Opus, read-only, ~$1.50). PUNCH LIST at
+  `0c6f722`: the four cleanups are done and nothing regressed (1,156 passed), but the punch list
+  wrote that 0.4 px is the maximum drift. That holds in exact maths only; at `f64` near-ties it
+  reaches 0.6 (`width = 0.009583333333333333`: 12 px at 1200, 57 px at 6000). The "+0.1 green at
+  0.6" control row is false too. The orchestrator's punch-list prompt had passed the first
+  verify's "analytic maximum" on as settled, unchecked.
+- [x] **punch list 2** (`prompts/SPEC-145-punchlist-2.md`, 2026-11-05, Sonnet, ~$0.59). PR #244 at `9b44bb2`,
+  CI green on `6183fa6` (run 42102213967). DEC-112, the design note, AC-5, the Failing Tests entry
+  and the test comment now say 0.4 is the seeded sweep's measurement and 0.6 the general bound;
+  the near-tie (12 px at 1200, 57 px at 6000) was driven on the binary. The +0.1 row reads red at
+  both bounds. The test's panic and assert share one `BOUND` const (0.3 control panics naming 0.3).
+- [x] **re-verify 2** (`prompts/SPEC-145-reverify-2.md`, 2026-11-05, Opus, read-only, ~$1.67). APPROVED at
+  `9b44bb2`. Every 0.4 / maximum claim now true; near-tie driven (11.5 vs 57.49999999999999 → 12 px
+  and 57 px); +0.1 red at bare 0.6, green at 0.6 + 1e-9; `BOUND` const shared by assert and panic;
+  1156 passed. Two optional wording cleanups, not blocking. The orchestrator ran `update-branch`
+  (head `deaee5a`, main's docs only) before marking ready.
+- [x] **ship** (`prompts/SPEC-145-ship.md`, 2026-11-05, Sonnet, ~$0.87). Merged as `7fdee9f` (PR #244). After re-verify 2, the orchestrator pushed `9889dbd` and `b454a3a`
+  (`wasm-ci-check.sh` counts 47/45 → 49/47 and its self-test fixtures, for SPEC-146's new wasm job); checked by CI only, not by a verify session. Reflected, costs
+  re-measured (nine sessions, $38.26 in all), archived.

@@ -27,6 +27,7 @@ affected_scope:
   - "scripts/wasm-npm-finalize.mjs"
   - "tests/npm_smoke.mjs"
   - "justfile"
+  - ".github/workflows/publish-npm.yml"
 
 tags:
   - wasm
@@ -199,3 +200,10 @@ shares one `.wasm`.
   packaging recipe MUST route through it)
 - External: [`esbuild` vs `esbuild-wasm`](https://www.npmjs.com/package/esbuild-wasm) — the naming
   precedent; [wasm-pack target docs](https://rustwasm.github.io/docs/wasm-pack/commands/build.html#target)
+
+## Amendment — 2026-11-03 (SPEC-144): publishing moves to the tag (DEC-111)
+
+The *Publishing* section above is superseded by DEC-111. `npm publish` now runs in CI, from
+`release.yml`'s `custom-publish-npm` job, after every binary and the GitHub Release exist,
+through `just wasm-npm-publish` unchanged. The hand run is a recovery step. The name, the `web`
+target and lockstep versioning stand.

@@ -223,6 +223,7 @@ as a follow-up; SPEC-072 explicitly permitted this.
 - **No wasm CI job yet.** `just wasm-test` is the local floor, matching the fuzz-gate
   precedent (DEC-062). Nothing stops a future commit from breaking the wasm build
   silently. A CI job is a stage-level decision, filed as a follow-up.
+  *Update (SPEC-146, 2026-11-05): CI's `wasm-roundtrip` job now runs `just wasm-test` and `wasm-test-slim` on every code change.*
 
 ---
 

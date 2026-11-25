@@ -57,12 +57,103 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   exclusive** — pass exactly one of `--max`, `--fit`, `--fill`, `--cover`, `--exact`, `--percent`.
 - **Fit inside a box, keeping aspect** **[today]** — `crustyimg resize photo.jpg --fit 800x600`
 - **Thumbnail** **[today]** — `crustyimg thumbnail photo.jpg --size 256` (`--square` to crop square)
-- **Crop to an arbitrary rect / gravity / aspect** **[planned — PROJ-006]**
-  `crustyimg crop photo.jpg --gravity center --aspect 1:1`
-  Today `resize --fill WxH` covers the common center-crop-to-a-box case.
-- **Rotate / flip / trim / pad** **[planned — PROJ-006]**
-- **Smart (content-aware) crop** **[planned — PROJ-006]**
-  `crustyimg crop photo.jpg --smart attention --aspect 16:9`
+- **Crop to a rectangle or an aspect** **[today]** — a recipe step, run with `crustyimg apply --recipe`:
+  ```toml
+  [[step]]
+  op = "crop"
+  x = 0.25
+  y = 0.1
+  width = 0.5
+  height = 0.6
+  ```
+  or the largest 16:9 region, anchored at one side of the frame:
+  ```toml
+  [[step]]
+  op = "crop"
+  aspect = "16:9"
+  gravity = "north"
+  ```
+  The numbers are fractions of the image (0–1), not pixels, so the same recipe crops the same
+  region of a 1200 px copy and a 6000 px original. Put `op = "auto-orient"` first when the
+  fractions are meant as the photo is displayed. `resize --fill WxH` still covers the common
+  center-crop-to-a-box case.
+- **Rotate** **[today]** — a quarter turn, as a recipe step:
+  ```toml
+  [[step]]
+  op = "rotate"
+  angle = 90
+  ```
+  `angle` is a multiple of 90 from -360 to 360. A positive `angle` turns the image clockwise as it
+  is displayed after any earlier step; `-90` turns it anticlockwise. `0`, `360` and `-360` change
+  nothing. Any other angle is refused for now, when the recipe loads. Put `op = "auto-orient"`
+  first when the recipe is meant as the photo is displayed.
+- **Flip** **[today]** — a mirror, as a recipe step:
+  ```toml
+  [[step]]
+  op = "flip"
+  axis = "horizontal"
+  ```
+  `horizontal` mirrors left and right; `vertical` mirrors top and bottom. Put `op = "auto-orient"`
+  first when the recipe is meant as the photo is displayed.
+- **Pad to an aspect or add a border** **[today]** — a recipe step:
+  ```toml
+  [[step]]
+  op = "pad"
+  aspect = "1:1"
+  color = "#ffffff"
+  ```
+  or the same border on every side:
+  ```toml
+  [[step]]
+  op = "pad"
+  border = 0.05
+  color = "#000000"
+  ```
+  `color` is required: a hex colour such as `"#ffffff"` (or `"#RRGGBBAA"`) or `"transparent"`, with no default. `aspect` grows the canvas
+  to the smallest `W:H` shape that holds the image, placed by `gravity` (default `center`); an image
+  already at that aspect is written unchanged. `border` is a fraction of the image's long edge,
+  added on every side: a 6000×4000 photo with `border = 0.05` gets 300 px all round. A grey image
+  padded with a colour that is not grey becomes RGB. `"transparent"` is alpha 0 over black, and
+  `"#RRGGBBAA"` is straight alpha, stored as written; a fill with alpha below `ff` makes an image
+  with no alpha gain an alpha channel (a grey image stays grey, plus alpha, for a grey fill such as
+  `transparent`). JPEG can't store that alpha and GIF stores only `00` or `ff`, so a recipe that
+  would write one is refused for those formats: exit 4, nothing written, for one input or a batch
+  with one format; when each input keeps its own format, that input fails and the batch exits 6.
+  Write PNG, WebP or AVIF. AVIF keeps the alpha approximately (on very small images it can be off
+  by a few levels, for example a `transparent` border read back as alpha 5 of 255 on a 4×4 image),
+  and some TIFF readers show it opaque. A source image's own
+  alpha written to JPEG is still dropped, without a warning. For an
+  exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
+  `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a
+  smaller square. Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
+- **Trim a uniform border** **[today]** — a recipe step:
+  ```toml
+  [[step]]
+  op = "trim"
+  ```
+  or against a stated colour, within a tolerance:
+  ```toml
+  [[step]]
+  op = "trim"
+  color = "#ffffff"
+  tolerance = 8
+  ```
+  `trim` compares each pixel with one colour, the stated `color` or the image's top-left pixel, and
+  removes the outer rows and columns in which every pixel matches. It never looks at what the
+  content is. Each side is trimmed on its own, so a border can be wider on one side than another.
+  With no `color`, the colour is the top-left pixel of the image as the step receives it: put
+  `op = "auto-orient"` first when the recipe is meant as the photo is displayed. `tolerance`
+  (default 0, exact) is in 8-bit steps per channel at every bit depth: `tolerance = 8` allows 8 off
+  at 8 bits and 2056 (8 × 257) at 16 bits, and a float sample is read as its nearest 16-bit value.
+  A fully transparent pixel matches a transparent `color` (`"transparent"`, or such as `"#00000000"`) whatever colour is
+  hidden under it; any other pixel is compared on all four channels, alpha included. An image with
+  no border is written unchanged. An image in which every pixel matches fails, because trimming it
+  would leave nothing. `pad` then `trim` with the same colour gives back the original, unless an
+  edge row or column of the original already matches the colour; a grey image padded with a colour
+  comes back as RGB, and an RGB image padded with `transparent` comes back as RGBA. ImageMagick's `-fuzz` is a colour distance, not a per-channel step, so
+  `magick -trim -fuzz` cuts differently whenever `tolerance` is above 0.
+- **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
+  [`roadmap.md`](roadmap.md).
 
 ## 4. Format conversion
 
@@ -123,8 +214,12 @@ crustyimg apply --recipe web "assets/**/*.{jpg,png}" --out-dir dist/img -j 8
 - **Record your own from a tuned edit** **[today]**
   `crustyimg edit in.jpg --auto-orient --resize-max 1600 --save-recipe mine.toml`
   then `crustyimg apply --recipe mine.toml "assets/**/*.jpg" --out-dir dist/img -j 8`.
-  `edit` records only the ops it exposes — `--auto-orient`, `--resize-max`, `--invert`.
-- **Write one by hand for anything else** **[today]** — a crop to an exact box, a watermark,
+  The saved recipe always starts with an `auto-orient` step, wherever `--auto-orient` is typed. Then
+  come the other ops `edit` exposes — `--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim` — in
+  the order you typed them. A pixel `--crop WxH+X+Y` is saved as fractions of the image that step
+  received, so on another image it crops the same proportions, not the same pixels, and fails if a
+  side rounds to 0 px; a border `--pad N` is saved as a fraction of that image's long edge, so a replay scales the border with the image (7 px saved from a 60 px long edge replays as 14 px on a 120 px one).
+- **Write one by hand for anything else** **[today]** — a watermark,
   a pinned output `format`/`quality` (`version = "2"`), or the terminal `optimize` step the
   bundled recipes end in, is written directly as TOML. Format and op
   vocabulary: [`recipes/README.md`](../recipes/README.md). An `avatar` recipe (square 256×256
@@ -222,7 +317,8 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 - **PROJ-002:** `optimize` auto-decides format + `--explain` — **shipped**.
 - **PROJ-004:** `lint` (+ the GitHub Actions) — **shipped**.
 - **PROJ-005:** `--manifest`, `favicon`, `placeholder`, dominant color — **planned**; unlocks §9.
-- **PROJ-006:** `crop`/smart-crop, rotate/flip/trim/pad, redaction, auto-color, upscaling — **planned**.
+- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns), `flip`, `pad` and `trim` today; straighten **planned**.
+- Smart crop, redaction, auto-color, upscaling — **planned**.
 - **PROJ-007:** `build` + cache + lockfile + `--watch` — **shipped**.
 - **PROJ-008:** the wasm core + browser demo (recipes run in the browser via `transform()`) — **shipped**.
 - **PROJ-009:** RAW preview / AVIF / SVG input reach, HEIC behind `feat:heic` — **shipped**.

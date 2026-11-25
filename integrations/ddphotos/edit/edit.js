@@ -9,6 +9,8 @@
 //      /edit/index.html?album=<slug>             pick a photo
 //      /edit/index.html?album=<slug>&photo=<n>   edit photo n (1-based, like permalinks)
 
+import { cliRecipe, pixelRecipe, planEdit } from "./recipe.js";
+
 const $ = (id) => document.getElementById(id);
 
 // ── the engine, in a worker ──────────────────────────────────────────────────
@@ -180,116 +182,20 @@ function stripHtml(html) {
 
 // ── the recipe ───────────────────────────────────────────────────────────────
 
-// A TOML basic string. Watermark text is one line, so newlines are refused.
-function tomlString(s) {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 let photo; // { album, entry, index, width, height }
-
-// Advance widths of crustyimg's bundled watermark font (Go Regular, 2048 units per
-// em) for U+0020..U+00FF; 0 marks the unused control range. The engine lays text
-// out as the plain sum of these advances (no kerning), so the page can tell how
-// wide a mark will be before asking for it. Characters outside this range use the
-// font's widest advance, which can only overestimate.
-// prettier-ignore
-const GO_ADVANCE = [
-  569,569,727,1139,1139,1821,1366,391,682,682,1196,1196,648,1196,648,569,1139,1139,1139,1139,1139,1139,1139,1139,1139,1139,627,627,1196,1196,1196,1139,
-  2079,1366,1366,1479,1479,1366,1251,1593,1479,817,1015,1366,1139,1706,1479,1593,1366,1593,1479,1366,1251,1479,1366,1933,1366,1366,1251,569,569,569,960,1139,
-  682,1139,1139,1024,1139,1139,569,1139,1139,505,519,1024,548,1706,1139,1139,1139,1139,682,1024,579,1139,1024,1479,1024,1024,1024,684,532,684,1196,0,
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  569,682,1139,1139,1139,1139,532,1139,682,1509,758,1139,1196,682,1509,1139,819,1196,933,933,682,1139,1100,547,682,933,748,1139,1708,1708,1708,1251,
-  1366,1366,1366,1366,1366,1366,2048,1479,1366,1366,1366,1366,817,817,817,817,1489,1479,1593,1593,1593,1593,1593,1196,1593,1479,1479,1479,1479,1366,1366,1251,
-  1139,1139,1139,1139,1139,1139,1821,1024,1139,1139,1139,1139,505,505,505,505,1139,1139,1139,1139,1139,1139,1139,1196,1251,1139,1139,1139,1139,1024,1139,1024,
-];
-const GO_WIDEST = 2240;
-
-/// The width of `text` in ems of the bundled font.
-function textEms(text) {
-  let units = 0;
-  for (const ch of text) {
-    const cp = ch.codePointAt(0);
-    units += cp >= 0x20 && cp <= 0xff ? GO_ADVANCE[cp - 0x20] : GO_WIDEST;
-  }
-  return units / 2048;
-}
-
-/// The watermark's font size in pixels for an output of `outW` × `outH`.
-///
-/// The chosen size (Small, Medium, Large) is a fraction of the long edge, so the
-/// mark looks the same at any output size. On a portrait or a narrow photo that
-/// can make the text wider than the image, which the engine refuses. So the size
-/// is capped to keep the text within 90% of the width (after the margin), and to
-/// a tenth of the short edge, which keeps the mark's height and its share of the
-/// image well inside the engine's limits. `capped` says the cap applied.
-function watermarkSize(text, outW, outH, margin) {
-  const outLong = Math.max(outW, outH);
-  const wanted = Math.max(8, Math.round(outLong * Number($("wm-size").value)));
-  const fitsWidth = Math.floor((0.9 * (outW - margin)) / textEms(text));
-  const fitsHeight = Math.floor(0.1 * Math.min(outW, outH));
-  const size = Math.max(1, Math.min(wanted, fitsWidth, fitsHeight));
-  return { size, capped: size < wanted };
-}
 
 /// The edit as a crustyimg recipe: the same TOML the CLI reads.
 function readEdit() {
-  const longEdge = Math.max(photo.width, photo.height);
-  const target = Number($("size").value) || longEdge;
-  const outLong = Math.min(target, longEdge);
-  // The output's sides, as `resize` (mode "max") computes them.
-  const s = outLong / longEdge;
-  const outW = Math.round(photo.width * s);
-  const outH = Math.round(photo.height * s);
-  const text = $("wm-text").value.trim().replace(/[\r\n]+/g, " ");
-  const wm = $("wm-on").checked && text !== "";
-  // Margin scales with the output, like the size.
-  const margin = Math.round(outLong * 0.02);
-  const fit = wm ? watermarkSize(text, outW, outH, margin) : null;
-  return {
-    resize: target < longEdge ? target : null,
-    outLong,
-    watermark: wm
-      ? {
-          text,
-          gravity: $("wm-gravity").value,
-          size: fit.size,
-          capped: fit.capped,
-          margin,
-          color: $("wm-color").value,
-          opacity: Number($("wm-opacity").value),
-        }
-      : null,
+  return planEdit(photo, {
+    size: $("size").value,
+    wmOn: $("wm-on").checked,
+    wmText: $("wm-text").value,
+    wmGravity: $("wm-gravity").value,
+    wmSize: $("wm-size").value,
+    wmColor: $("wm-color").value,
+    wmOpacity: $("wm-opacity").value,
     format: $("format").value,
-  };
-}
-
-function pixelRecipe(edit) {
-  let r = 'version = "2"\n\n[[step]]\nop = "auto-orient"\n';
-  if (edit.resize) {
-    r += `\n[[step]]\nop = "resize"\nmode = "max"\nwidth = ${edit.resize}\n`;
-  }
-  if (edit.watermark) {
-    const w = edit.watermark;
-    r +=
-      `\n[[step]]\nop = "watermark"\ntext = ${tomlString(w.text)}\n` +
-      `gravity = "${w.gravity}"\nsize = ${w.size}\nmargin = ${w.margin}\n` +
-      `color = "${w.color}"\nopacity = ${w.opacity}\n`;
-  }
-  return r;
-}
-
-/// The recipe for the CLI, to run on the original file. The original is usually
-/// much larger than the published copy, and the watermark size is in pixels, so
-/// this recipe always resizes to the long edge the page made: the result matches
-/// what the user saw, built from a better source. `format` is the one the page
-/// actually wrote, so "let the engine choose" gives the CLI the same answer. The
-/// terminal `optimize` step uses the CLI's own fast quality choice, not the page's
-/// similarity search, so the file sizes can differ.
-function cliRecipe(edit) {
-  let r = pixelRecipe({ ...edit, resize: edit.outLong });
-  if (edit.format) r = r.replace('version = "2"\n', `version = "2"\nformat = "${edit.format}"\n`);
-  if (edit.format !== "png") r += '\n[[step]]\nop = "optimize"\n';
-  return r;
+  });
 }
 
 // ── the editor ───────────────────────────────────────────────────────────────

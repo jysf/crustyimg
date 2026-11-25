@@ -7,6 +7,7 @@
 // here, so each preview only sends the recipe.
 
 import init, { info, optimizeDetailed, score, transform, version } from "./vendor/crustyimg.js";
+import { previewRecipe } from "./recipe.js";
 
 const msg = (e) => e?.message ?? String(e);
 
@@ -16,10 +17,6 @@ const booted = init().then(
   () => self.postMessage({ type: "ready", version: version() }),
   (e) => self.postMessage({ type: "failed", message: msg(e) }),
 );
-
-// Preview quality. A preview only needs to look right on screen, so it uses a fast
-// fixed-quality JPEG rather than the perceptual search the final copy gets.
-const PREVIEW_QUALITY = 88;
 
 // AVIF speed for the final copy: 10 is the fastest rav1e setting. In a browser tab
 // it costs a few percent more bytes and saves most of the wait.
@@ -36,11 +33,6 @@ async function avifToPng(bytes) {
   return new Uint8Array(await png.arrayBuffer());
 }
 
-/// A recipe with a top-level quality, for the preview encode.
-function withQuality(recipe, quality) {
-  return recipe.replace('version = "2"\n', `version = "2"\nquality = ${quality}\n`);
-}
-
 async function handle(req) {
   switch (req.type) {
     case "load": {
@@ -53,7 +45,7 @@ async function handle(req) {
 
     case "preview": {
       if (!source) throw new Error("no photo loaded");
-      const out = transform(source, withQuality(req.recipe, PREVIEW_QUALITY), "jpeg");
+      const out = transform(source, previewRecipe(req.recipe), "jpeg");
       return { bytes: out };
     }
 

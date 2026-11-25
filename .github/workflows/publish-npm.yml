@@ -1,0 +1,134 @@
+name: publish-npm
+# Called by release.yml (custom-publish-npm) after `host`, on a v* tag push. Publishes
+# crustyimg-wasm by npm trusted publishing (OIDC; the npmjs.com setting names release.yml,
+# the CALLING workflow). Runs `just wasm-npm-publish` unchanged, so the size-profiled build,
+# the smoke test and the pkg/-vs-Cargo.toml refusal all run first (DEC-066, DEC-111).
+# On a PR it runs the same recipe as a dry run against an unreachable registry, and
+# never publishes.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/publish-npm.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "npm/**"
+      - "scripts/wasm-npm-finalize.mjs"
+      - "scripts/release-publish-guard.sh"
+      - "tests/npm_smoke.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.guard.outputs.action }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: guard
+        name: Tag, version, clean tree, and is it already on npm?
+        run: scripts/release-publish-guard.sh npm "$GITHUB_REF_NAME"
+      - name: The guard's verdict is publish or skip
+        env:
+          ACTION: ${{ steps.guard.outputs.action }}
+        run: |
+          case "$ACTION" in
+            publish|skip) echo "guard verdict: $ACTION" ;;
+            *) echo "::error::release-publish-guard.sh wrote action='$ACTION', expected publish or skip"; exit 1 ;;
+          esac
+
+  publish:
+    needs: guard
+    if: github.event_name == 'push' && github.ref_type == 'tag' && needs.guard.outputs.action == 'publish'
+    runs-on: ubuntu-latest
+    # id-token: the OIDC token npm trusted publishing exchanges for a publish.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@wasm-pack
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: npm is new enough for trusted publishing (>= 11.5.1)
+        run: |
+          v=$(npm --version)
+          if ! printf '%s\n' 11.5.1 "$v" | sort -V -C; then
+            echo "::error::npm $v is older than 11.5.1; trusted publishing needs 11.5.1 or later"; exit 1
+          fi
+          echo "npm $v"
+      - name: just wasm-npm-publish
+        run: just wasm-npm-publish
+
+  dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@wasm-pack
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      # Make `npm publish`, and only it, a dry run. An `npm_config_dry_run` env var on
+      # the whole step would also turn the smoke test's `npm pack` and `npm install`
+      # into dry runs (no tarball, nothing installed), so this wrapper sets it for the
+      # publish call alone. It also points that call at an address where nothing
+      # listens: npm 11 refuses even a dry run of a version the real registry already
+      # has, a PR usually carries a released version, and the publish then could not
+      # reach npm even if the dry-run flag were lost.
+      - name: Wrap npm so only `npm publish` is a dry run
+        run: |
+          shim="$RUNNER_TEMP/npm-shim"
+          real_npm=$(command -v npm)
+          mkdir -p "$shim"
+          cat > "$shim/npm" <<EOF
+          #!/usr/bin/env bash
+          if [ "\${1:-}" = publish ]; then
+            export npm_config_dry_run=true npm_config_registry=http://127.0.0.1:9/ npm_config_fetch_retries=0
+          fi
+          exec "$real_npm" "\$@"
+          EOF
+          chmod +x "$shim/npm"
+          echo "$shim" >> "$GITHUB_PATH"
+      - name: npm publish --dry-run, through the unchanged recipe
+        run: |
+          case "$(command -v npm)" in
+            "$RUNNER_TEMP/npm-shim/npm") ;;
+            *) echo "::error::npm resolves to $(command -v npm), not the dry-run wrapper"; exit 1 ;;
+          esac
+          set +e
+          just wasm-npm-publish > "$RUNNER_TEMP/npm.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/npm.log"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          grep -q '(dry-run)' "$RUNNER_TEMP/npm.log" || { echo "::error::npm publish did not run as a dry run"; exit 1; }

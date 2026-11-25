@@ -499,6 +499,13 @@ height = 50000
         "oversized resize via recipe must exit 1; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "target area 50000×50000 = 2500000000 px exceeds the maximum area of 134217728 px"
+        ),
+        "area cap text drifted; stderr: {stderr}"
+    );
 }
 
 // ─── SPEC-126: apply/build output-format agreement ───────────────────────────

@@ -1,6 +1,6 @@
 ---
 name: crustyimg
-description: Prepare images for the web with the crustyimg CLI — downscale and convert to AVIF/WebP/PNG, resize, thumbnail, build responsive srcset sets, strip EXIF/GPS metadata, watermark, batch-process folders with recipes, and gate image quality or size in CI. Use when the user wants to optimize, compress, resize, convert, or clean images for a website, or check image assets in a pipeline.
+description: Prepare images for the web with the crustyimg CLI — downscale and convert to AVIF/WebP/PNG, resize, thumbnail, build responsive srcset sets, strip EXIF/GPS metadata, watermark, crop, rotate, flip, pad, trim, batch-process folders with recipes, and gate image quality or size in CI. Use when the user wants to optimize, compress, resize, convert, or clean images for a website, or check image assets in a pipeline.
 ---
 
 # crustyimg
@@ -53,6 +53,7 @@ Prebuilt binaries: https://github.com/jysf/crustyimg/releases
   `-o` is a usage error (exit 2). `--out-dir` is created if missing.
 - **Existing outputs are not overwritten** without `-y` (exit 5). Add `-y` in
   non-interactive runs, but only when overwriting is what the user wants.
+  The same holds for `edit --save-recipe FILE`.
 - **Quote globs** so crustyimg expands them, including recursive `**`:
   `'assets/**/*.jpg'`. A directory works as an input too, but reads only the images directly
   inside it, not its subfolders (a folder of only subfolders exits 3); use `'assets/**/*'`
@@ -184,9 +185,15 @@ The mark must suit each image, or crustyimg refuses it rather than damage the pi
   written. With several inputs, or in `build`, that image is written **without** the mark,
   with a `warning: … watermark skipped …` line, and the run still exits 0 — read stderr.
 - `--size` is a number above 0 and at most 1024. A bad `--size`, `--scale`, `--opacity`,
-  `--gravity` or `--color` exits 2 before any file is read.
+  `--gravity` or `--color` exits 2 before any file is read, and so do `--opacity 0` and a
+  `--color` with alpha `00`. A mark that would draw no visible pixel for another reason
+  (blank `--text`, a too-small `--size`, a fully transparent `--image`, an opacity too small to
+  leave any alpha) also exits 2 and writes nothing, after the `--font` / `--image` read and
+  before any input is read (`--text " " --font /no/f.ttf` exits 3). To leave images unmarked,
+  do not run `watermark`.
 
-A mark that fits is drawn as asked, even if too small or faint to see; check the output.
+A faint mark that still has a visible pixel is drawn, even where it changes nothing on a
+particular image; check the output.
 
 ## Recipes: one pipeline, many files
 
@@ -225,7 +232,11 @@ op = "optimize"    # optional; must be the last step
 ```
 
 Ops: `auto-orient`, `resize` (`mode` = `max` + `width`; `fit`/`fill`/`cover`/`exact` +
-`width` + `height`; `percent` + `percent`), `watermark`, `invert`, `identity`, `optimize`.
+`width` + `height`; `percent` + `percent`), `crop` (`x`/`y`/`width`/`height` as fractions 0–1 of the
+image, or `aspect = "W:H"` + `gravity`), `rotate` (`angle`, a multiple of 90, clockwise),
+`flip` (`axis = "horizontal" | "vertical"`), `pad` (`aspect = "W:H"` + `gravity`, or `border` as a
+fraction of the long edge, with a required `color`: hex with any alpha, or `transparent`), `trim` (an optional `color`, default the
+top-left pixel, and `tolerance` 0–255 in 8-bit steps), `watermark`, `invert`, `identity`, `optimize`.
 
 A recipe can also watermark, and pin its output format and quality. `format`/`quality` need
 `version = "2"`:
@@ -288,7 +299,10 @@ format is `name`'s extension (`"{stem}.webp"`), else the recipe's `format`. `bui
 `--format`, `-o`/`--output`, `--out-dir` and `--name-template` with exit 2 and writes nothing,
 including with `--watch` and `--check`.
 
-`build` overwrites its own outputs without `-y`. Commit `crustyimg.build.lock`; add
+`build` overwrites its own outputs without `-y`, but never a file it reads (a source, recipe,
+watermark file, manifest or lockfile). That, two outputs that are one file (letter case ignored), a
+glob or folder source that would list its own output next time, or an `out` that links outside the
+project is refused with exit 2 and nothing written. Commit `crustyimg.build.lock`; add
 `.crustyimg/` (the local cache) to `.gitignore`. `recipe` can be a path to your own recipe
 file; editing a watermark's logo or font rebuilds the outputs that use it.
 
@@ -321,8 +335,8 @@ medium.
 | 1 | Runtime error (decode/encode failed, resource limit), or a recipe that fails to load | Read stderr; fix the named recipe step |
 | 2 | Usage error, or a watermark refused on a single input | Fix the flags; check `--help` |
 | 3 | Input not found, or the glob matched nothing | Check the path / quoting |
-| 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it | Use another format, rebuild with the feature, or `convert` first |
-| 5 | Output write refused (exists, symlink, path traversal) | Add `-y` if overwriting is intended |
+| 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it, or a recipe's fill alpha the output format can't store (`pad` with `transparent` into JPEG) | Use another format (PNG, WebP, AVIF), rebuild with the feature, or `convert` first |
+| 5 | Output write refused or failed (exists, symlink, path traversal, read-only directory; a failed write keeps the old file) | Add `-y` if overwriting is intended; write to a directory you can create files in |
 | 6 | Some inputs in a batch failed | Others were written; read the summary |
 | 7 | A check failed (`diff --fail-under`, `build --check`, `lint` error) | Report it; this is a gate, not a crash |
 

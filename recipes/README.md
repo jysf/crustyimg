@@ -49,8 +49,10 @@ crustyimg apply --recipe mine.toml *.jpg --out-dir out/ -j 8
 The round trip is **byte-stable** — replaying the saved recipe reproduces the `edit` output
 byte for byte, so a recipe reviewed in a PR is exactly what runs in CI.
 
-`edit` only records the ops it exposes (`--auto-orient`, `--resize-max`, `--invert`). For
-anything else — a crop to an exact box, a watermark, an output format, or the terminal
+A saved recipe always starts with an `auto-orient` step, wherever `--auto-orient` is typed. `edit`
+then records the other ops it exposes (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`)
+in the order you typed them; a pixel `--crop` or a border `--pad N` is saved as fractions of the image at that step, so a replay scales them with the image (a 7 px border saved from a 60 px long edge replays as 14 px on a 120 px one). For
+anything else — a watermark, an output format, or the terminal
 `optimize` step the bundled recipes end in — write the TOML directly:
 
 ```toml
@@ -90,6 +92,11 @@ Operations available in a recipe:
 | `invert` | none |
 | `identity` | none — a no-op |
 | `watermark` | an `image` or `text` mark and its placement (below) |
+| `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` (below) |
+| `rotate` | `angle`, a multiple of 90 from -360 to 360, clockwise (below) |
+| `flip` | `axis`, `horizontal` or `vertical` (below) |
+| `pad` | `aspect` + `gravity`, or `border`, and a required `color` (below) |
+| `trim` | an optional `color` and `tolerance` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
 `resize` modes:
@@ -182,7 +189,7 @@ margin = 16
 | `size` | text | Font size in pixels, a finite number `> 0` and `<= 1024`. Default `32`. |
 | `color` | text | Hex `RRGGBB`, `#RRGGBB` or `RRGGBBAA`. Default `ffffff`. |
 | `gravity` | both | `center`, `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast` or `southwest`. Default `southeast`. |
-| `opacity` | both | `0.0`–`1.0`. Default `1.0`. |
+| `opacity` | both | Above `0`, up to `1.0`. Default `1.0`. `0` is refused: to leave images unmarked, remove the step. |
 | `margin` | both | Pixels from the anchored edges, a whole number `>= 0`. Default `0`. |
 | `scale` | image only | Overlay width as a fraction of the image's width (`0.1` = a tenth), aspect kept. A finite number `> 0`. Without it the overlay keeps its own size. |
 | `tile` | image only | `true` repeats the overlay across the image. Default `false`. |
@@ -194,6 +201,132 @@ margin = 16
   (exit `1`), naming the step and the file.
 - `build` caches by the file's content as well as its path, so editing `logo.png` rebuilds
   every output that uses it.
+
+### The crop step
+
+A crop is a rectangle or an aspect, never both. A rectangle:
+
+```toml
+[[step]]
+op = "crop"
+x = 0.25
+y = 0.1
+width = 0.5
+height = 0.6
+```
+
+An aspect, anchored at one side of the frame:
+
+```toml
+[[step]]
+op = "crop"
+aspect = "16:9"
+gravity = "north"
+```
+
+| Key | Form | Value |
+|---|---|---|
+| `x`, `y` | rectangle | where the top-left corner sits, a number from `0` to `1` |
+| `width`, `height` | rectangle | the size, a number above `0` and at most `1` |
+| `aspect` | aspect | two whole numbers from 1 to 65535 as `"W:H"` |
+| `gravity` | aspect | one of the nine compass names; `center` when left out |
+
+- Lengths are **fractions of the image, 0 to 1, not pixels**. `width = 1` is the full width, and
+  `width = 800` is refused. The same recipe therefore crops the same region of a 1200 px copy and
+  a 6000 px original.
+- Each edge rounds to the nearest pixel (halves up), so a recipe agrees within a pixel at any
+  size. `x + width` and `y + height` must not pass `1`; a rectangle that does is refused when the
+  recipe loads.
+- `aspect` takes whole numbers: write `"239:100"`, not `"2.39:1"`. A decimal is refused, and the
+  message shows the whole-number spelling.
+- A crop that rounds to 0 px on an image fails instead of being widened, so a recipe that is fine
+  on a 6000 px original can be refused on a 40 px thumbnail. For one input that is exit `1`. In a
+  batch, each failed image is reported and exits `6`, whether some or all inputs failed; the
+  images that did not fail are still written.
+- The fractions are of the image as the step receives it. Put `op = "auto-orient"` first when they
+  are meant as the photo is displayed.
+
+### The rotate and flip steps
+
+```toml
+[[step]]
+op = "rotate"
+angle = 90
+```
+
+```toml
+[[step]]
+op = "flip"
+axis = "horizontal"
+```
+
+- A positive `angle` turns the image clockwise as it is displayed after any earlier step; `-90`
+  turns it anticlockwise.
+- `horizontal` mirrors left and right; `vertical` mirrors top and bottom.
+- `0`, `360` and `-360` are accepted and change nothing.
+- Any angle that is not a multiple of 90 is refused when the recipe loads.
+- Both act on the image as the step receives it, so put `op = "auto-orient"` first when the recipe
+  is meant as the photo is displayed.
+- Neither changes a pixel's value or the colour type, only its place.
+
+### The pad step
+
+```toml
+[[step]]
+op = "pad"
+aspect = "1:1"
+gravity = "center"
+color = "#ffffff"
+```
+
+```toml
+[[step]]
+op = "pad"
+border = 0.05
+color = "#000000"
+```
+
+- The canvas grows to the smallest `W:H` shape that holds the image. An image already at the
+  aspect is unchanged.
+- `gravity` places the image (default `center`). With `center`, an odd leftover pixel goes on the
+  right or bottom.
+- `border` is a fraction of the long edge, the same width on every side. A border that rounds to
+  0 px on an image fails that image (a batch exits `6`).
+- A canvas past 50,000 px on a side or 134,217,728 px in all fails the same way.
+- `color` is required: hex with any alpha (`#RRGGBBAA`), or `transparent` (alpha 0 over black). A
+  fill alpha JPEG can't store (anything below `ff`) or GIF can't (anything but `00` and `ff`) is
+  refused for that output: exit `4` (nothing written) for one input or a batch with one format, and
+  when each input keeps its own format that input fails and the batch exits `6`. Write PNG, WebP or
+  AVIF.
+- A grey image with a colour fill becomes RGB, a translucent fill adds alpha (grey plus alpha for a
+  grey fill), and the bit depth is kept.
+- For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.
+- Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
+
+### The trim step
+
+```toml
+[[step]]
+op = "trim"
+```
+
+```toml
+[[step]]
+op = "trim"
+color = "#ffffff"
+tolerance = 8
+```
+
+- Each pixel is compared with one colour, the stated `color` or the top-left pixel, and the outer
+  rows and columns that match are removed, each side on its own.
+- `tolerance` is 0 to 255 (default 0) in 8-bit steps per channel: × 257 at 16 bits, and a float
+  sample is read as its nearest 16-bit value.
+- A pixel with alpha 0 matches a `color` with alpha 0 whatever is hidden under it.
+- An image with nothing to trim is written unchanged.
+- An image that matches everywhere fails that image (a batch exits `6`).
+- `color` is hex or `transparent`, and may be translucent.
+- The colour type and bit depth are kept.
+- Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
 ### Step keys are checked
 
@@ -233,8 +366,12 @@ the mark would cover 100.00 % of the 800×532 px image (425600 of 425600 px); th
 the scaled mark does not fit inside the 800×532 px image
 ```
 
-The second is for a `scale` so large the mark could never fit. A mark that fits is drawn as
-asked, even one too small or faint to see (`opacity = 0`, a tiny `size`).
+The second is for a `scale` so large the mark could never fit. A mark that would draw no
+visible pixel at all is refused before any image is read: `opacity = 0`, an opacity too small
+to leave any alpha, text with no visible characters, a `size` too small to draw the text, a
+`color` with alpha `00`, or a fully transparent `image`. A faint mark that still has a visible
+pixel is drawn as asked, even where it changes nothing on a particular image (white text on a
+white photo, or a very low opacity on an 8-bit image).
 
 ## Beyond one recipe
 

@@ -16,7 +16,7 @@
 
 use std::process::ExitCode;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::generate;
 
 use crate::error::ImageError;
@@ -28,6 +28,8 @@ use crate::source::SourceError;
 
 mod build;
 mod common;
+mod global_flags;
+mod logger;
 mod ops;
 mod optimize;
 // `pub(crate)` (not private): `lint::report` reuses `report::escape_json`
@@ -41,7 +43,7 @@ pub use optimize::WEB_DEFAULT_LONG_EDGE;
 use build::{run_build, run_build_watching};
 use ops::{
     run_auto_orient, run_clean, run_copy_metadata, run_edit, run_resize, run_set, run_strip,
-    run_thumbnail, run_view, run_watermark, ResizeModes, WatermarkSource,
+    run_thumbnail, run_view, run_watermark, EditFlags, ResizeModes, WatermarkSource,
 };
 use optimize::{run_apply, run_convert, run_optimize, run_responsive, run_web};
 use report::{run_diff, run_info, run_lint, LintFlags};
@@ -92,11 +94,11 @@ pub struct GlobalArgs {
     #[arg(short = 'q', long, global = true)]
     pub quality: Option<u8>,
 
-    /// Increase verbosity; repeatable (`-vv` for more). Logs to stderr.
+    /// Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. `-Q` silences it.
     #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
 
-    /// Suppress non-error output.
+    /// Suppress non-error output, including `-v` logging.
     #[arg(short = 'Q', long, global = true)]
     pub quiet: bool,
 
@@ -104,21 +106,22 @@ pub struct GlobalArgs {
     #[arg(short = 'y', long, global = true)]
     pub yes: bool,
 
-    /// Opt out of the default drop-GPS policy on pixel-lane encodes.
-    #[arg(long, global = true)]
+    /// Refused (exit 2): pixel-lane encodes drop all metadata; use `meta copy` after the encode.
+    #[arg(long, global = true, hide = true)]
     pub keep_gps: bool,
 
-    /// Bypass the `build` cache: read no entries, write none, rebuild every
-    /// input (SPEC-064). The cache is on by default; this is the opt-out.
+    /// `build` only: bypass the cache: read no entries, write none, rebuild every
+    /// input. The cache is on by default; this is the opt-out.
     #[arg(long, global = true)]
     pub no_cache: bool,
 
-    /// Verify the build against the committed `crustyimg.build.lock` instead of
-    /// refreshing it: exit 7 on drift, and never modify the lockfile (SPEC-066).
+    /// `build` only: check the build against the committed `crustyimg.build.lock` instead of
+    /// refreshing it: exit 7 on drift, and never modify the lockfile (outputs and the
+    /// cache are still written).
     ///
-    /// `--frozen` and `--locked` are aliases — crustyimg has no network, so the
-    /// cargo distinction between "don't update" and "don't hit the registry"
-    /// collapses into one assert mode (DEC-059).
+    /// `--frozen` and `--locked` are aliases of `--check`: crustyimg never uses the
+    /// network, so cargo's "don't update" and "don't hit the registry" mean the same
+    /// thing here.
     #[arg(
         long,
         global = true,
@@ -127,17 +130,17 @@ pub struct GlobalArgs {
     )]
     pub check: bool,
 
-    /// With `--check`: promote cross-environment output-byte variance from a
-    /// note to a failure. For shops on a pinned toolchain and arch that want
-    /// byte-identity enforced (DEC-059).
+    /// `build --check` only: fail, instead of only noting it, when an output's bytes
+    /// differ from a lockfile written on a different platform (target triple). For a
+    /// team on one pinned toolchain that wants byte-identical output everywhere.
     #[arg(long, global = true)]
     pub strict: bool,
 
-    /// `build` only: re-run the build whenever a source, recipe, or the manifest
-    /// changes (SPEC-067). Debounced (an editor's save burst = one rebuild) and
-    /// self-trigger-proof (the build's own outputs / `.crustyimg` / lockfile are
-    /// ignored). Ctrl-C exits. Incompatible with `--check`/`--frozen`/`--locked`.
-    /// A build cycle under `--watch` does not rewrite the committed lockfile.
+    /// `build` only: rebuild whenever a source, recipe or the manifest changes.
+    /// Debounced (an editor's burst of saves is one rebuild); the build's own outputs,
+    /// `.crustyimg` and the lockfile never trigger it. Ctrl-C exits. Incompatible with
+    /// `--check`/`--frozen`/`--locked`. A rebuild under `--watch` does not rewrite the
+    /// committed lockfile.
     #[arg(long, global = true)]
     pub watch: bool,
 }
@@ -375,7 +378,8 @@ pub enum Commands {
     /// Generate a responsive image set: width-scaled variants per format + a
     /// paste-ready <picture>/srcset snippet on stdout.
     /// Uses the global `--out-dir` (created if missing); resizes by target width,
-    /// never upscaling.
+    /// never upscaling. Output names are fixed (`{stem}-{w}w.{ext}`); `--name-template`
+    /// and `--format` are refused: choose formats with `--formats`.
     Responsive {
         input: String,
         /// Comma-separated target widths in px, e.g. `320,640,1280`.
@@ -408,7 +412,7 @@ pub enum Commands {
         /// Overlay image path (image mode; XOR `--text`).
         #[arg(long, conflicts_with = "text")]
         image: Option<String>,
-        /// Text to render (text mode; XOR `--image`).
+        /// Text to render; must draw at least one visible character (text mode; XOR `--image`).
         #[arg(long, required_unless_present = "image")]
         text: Option<String>,
         /// Font file (TTF/OTF) for `--text`; defaults to the bundled Go font.
@@ -422,6 +426,7 @@ pub enum Commands {
         color: Option<String>,
         #[arg(long)]
         gravity: Option<String>,
+        /// Mark opacity: above 0, at most 1 (default 1).
         #[arg(long)]
         opacity: Option<f32>,
         #[arg(long, conflicts_with = "text")]
@@ -436,35 +441,81 @@ pub enum Commands {
     /// (remove location), `copy` (graft one file's metadata onto another), `set`
     /// (write artist/copyright/description tags).
     ///
-    /// A grouped surface so the top-level verbs read by *job*: `meta` owns the
-    /// container-lane metadata ops, none of which re-decode pixels (SPEC-087,
-    /// SPEC-089). `auto-orient` is NOT here — it bakes orientation into pixels,
-    /// an image op, so it stays top-level (DEC-017).
+    /// `meta` groups the commands that edit metadata without re-decoding pixels.
+    /// `auto-orient` is not here: it bakes orientation into the pixels, so it is an
+    /// image command.
     #[command(subcommand_required = true, arg_required_else_help = true)]
     Meta {
         #[command(subcommand)]
         command: MetaCommand,
     },
 
-    /// One-shot multi-op on a single image; optionally saves the recipe.
+    /// One-shot multi-op on one image or a batch; optionally saves the recipe.
     ///
-    /// Op flags are applied in canonical order regardless of CLI position:
-    /// `auto-orient` → `resize` → `invert`. At least one op flag is required.
+    /// Op flags run in the order you type them, like a recipe's steps:
+    /// `--rotate 90 --crop 300x200+0+0` turns the image, then crops what it
+    /// shows. EXIF orientation is always baked first, wherever `--auto-orient`
+    /// is typed. Each op flag may be given once. At least one op flag is
+    /// required.
     Edit {
         input: String,
-        /// Normalize EXIF orientation to pixels, then clear the tag.
+        /// Normalize EXIF orientation to pixels, then clear the tag. Always runs
+        /// first, wherever it is typed.
         #[arg(long)]
         auto_orient: bool,
-        /// Resize to a max edge of N pixels (canonical order: after auto-orient,
-        /// before invert).
+        /// Resize to a max edge of N pixels.
         #[arg(long, value_name = "N")]
         resize_max: Option<u32>,
         /// Invert pixel colors.
         #[arg(long)]
         invert: bool,
+        /// Crop to WxH+X+Y (pixels of the image at this point in the command) or
+        /// to the largest W:H aspect that fits.
+        #[arg(long, value_name = "WxH+X+Y|W:H")]
+        crop: Option<String>,
+        /// Where an aspect --crop sits: center (default), north, south, east,
+        /// west, northeast, northwest, southeast, southwest.
+        #[arg(long, value_name = "GRAVITY", requires = "crop")]
+        crop_gravity: Option<String>,
+        /// Rotate clockwise by DEGREES: 90, 180 or 270 (negative turns
+        /// counter-clockwise).
+        #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
+        rotate: Option<i64>,
+        /// Mirror the image: horizontal or vertical.
+        #[arg(long, value_name = "AXIS")]
+        flip: Option<String>,
+        /// Grow the canvas: N adds N pixels (of the image at this point in the
+        /// command) on every side; W:H grows it to that aspect.
+        #[arg(long, value_name = "N|W:H", requires = "pad_color")]
+        pad: Option<String>,
+        /// The fill for --pad: "transparent", or a hex colour RRGGBB, #RRGGBB or
+        /// RRGGBBAA. Required with --pad.
+        #[arg(long, value_name = "COLOR", requires = "pad")]
+        pad_color: Option<String>,
+        /// Where the image sits in an aspect --pad W:H: center (default), north,
+        /// south, east, west, northeast, northwest, southeast, southwest.
+        #[arg(long, value_name = "GRAVITY", requires = "pad")]
+        pad_gravity: Option<String>,
+        /// Remove the outer rows and columns that match the top-left pixel (or
+        /// --trim-color).
+        #[arg(long)]
+        trim: bool,
+        /// The colour --trim removes, instead of the top-left pixel:
+        /// "transparent", or a hex colour RRGGBB, #RRGGBB or RRGGBBAA.
+        #[arg(long, value_name = "COLOR", requires = "trim")]
+        trim_color: Option<String>,
+        /// How far a channel may differ from the colour and still be trimmed, in
+        /// 8-bit steps, 0 to 255 (default 0).
+        #[arg(long, value_name = "N", requires = "trim")]
+        trim_tolerance: Option<u8>,
         /// Write the op chain as a TOML recipe to FILE after a successful edit.
+        /// An existing FILE needs --yes.
         #[arg(long)]
         save_recipe: Option<String>,
+        /// The op flags in the order they were typed. Filled by [`run`] from the
+        /// parsed matches; clap never sets it.
+        #[arg(skip)]
+        order: Vec<EditOp>,
     },
 
     /// Run a saved recipe over one image or a batch.
@@ -483,16 +534,18 @@ pub enum Commands {
         timing: bool,
     },
 
-    /// Run a declared build: every `[[target]]` in a build manifest (SPEC-063, DEC-057).
+    /// Run a declared build: every `[[target]]` in a build manifest.
     ///
     /// FILE defaults to `./crustyimg.build.toml`. Each target binds sources (a
     /// glob / dir / path, or a list) to a recipe file, an output directory, and
     /// an optional name template. Unlike `apply`, `build` overwrites its own
-    /// declared outputs without `--yes` — a build must be re-runnable.
+    /// declared outputs without `--yes` — a build must be re-runnable. It never
+    /// overwrites a file the build reads, and refuses (exit 2, nothing written)
+    /// outputs that collide or resolve outside the tree.
     Build { file: Option<String> },
 
-    /// Lint an image asset tree: report problems (each with a runnable fix) and
-    /// a CI-native exit code. Read-only — never writes an image (SPEC-050, DEC-050).
+    /// Lint an image asset tree: report problems, with a runnable fix where one exists,
+    /// and exit with a CI-friendly code. Read-only: never writes an image.
     ///
     /// Resolves PATHS via the shared source fan-out (globs/dirs/files, non-images
     /// skipped), runs the default rule set per image, and exits `0` clean · `7`
@@ -616,7 +669,7 @@ pub enum CliError {
     /// (which names the PRIMARY input) or `6` (which implies some inputs
     /// could have succeeded — an unreadable recipe-level asset dooms every
     /// input in the batch identically).
-    #[error("recipe step {step} ('{op}'): could not read '{key}' file \"{path}\": {source}")]
+    #[error("recipe step {step} ('{op}'): could not read '{key}' file {}: {source}", quoted(.path))]
     RecipeAssetUnreadable {
         /// 0-based index of the offending step in the recipe.
         step: usize,
@@ -629,6 +682,22 @@ pub enum CliError {
         /// The underlying I/O failure.
         source: std::io::Error,
     },
+
+    /// A `watermark --font` or `--image` file that could not be read (SPEC-149).
+    /// Names the file; an unreadable CLI input is exit 3 (DEC-007).
+    #[error("could not read {what} {}: {source}", quoted(.path))]
+    WatermarkAssetUnreadable {
+        /// `"font file"` or `"watermark image"`.
+        what: &'static str,
+        /// The path that could not be read.
+        path: String,
+        /// The underlying I/O failure.
+        source: std::io::Error,
+    },
+
+    /// A command that reads one image file was given a folder (exit 3).
+    #[error("'{0}' is a folder, not an image file")]
+    InputIsAFolder(String),
 
     /// A build-manifest parse / version / invalid-target error (SPEC-063).
     /// Every variant is a manifest *content* error → exit 2 (usage).
@@ -699,6 +768,14 @@ pub enum CliError {
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
 
+    /// A recipe step writes alpha the output format can't store (a `pad`
+    /// filled with `transparent` into JPEG). Checked once the format is known
+    /// and before the pipeline runs; nothing is written. Exit 4, like an
+    /// unsupported format. In a batch that keeps each input's format, this is
+    /// that input's failure (exit 6).
+    #[error(transparent)]
+    UnstorableAlpha(#[from] crate::operation::UnstorableAlpha),
+
     /// `meta` keeps each input's own container, so it refuses, before writing
     /// anything, when the output's name (`-o`, or the `--out-dir` name
     /// template) asks for a different format: writing the source's bytes under
@@ -747,6 +824,39 @@ pub enum CliError {
         /// The later of the two colliding sources.
         second: String,
     },
+
+    /// A build output would replace a file the build itself reads: a source, a
+    /// recipe, a watermark image or font, the manifest or the lockfile. Found at
+    /// planning, before anything is written → exit 2, like a malformed manifest.
+    ///
+    /// `what` is the clause that says which file it is and who reads it. Paths are
+    /// printed with `Display`, never `{:?}`, for the same Windows reason as
+    /// [`CliError::OutputCollision`].
+    #[error("target #{target} would overwrite \"{output}\", {what}")]
+    OutputOverlap {
+        target: usize,
+        output: String,
+        what: String,
+    },
+
+    /// A build output would land under `.crustyimg/`, the build's own cache
+    /// directory. Exit 2, nothing written.
+    #[error(
+        "target #{target} would write \"{output}\" inside .crustyimg/, the build's cache directory"
+    )]
+    OutputInCacheDir { target: usize, output: String },
+
+    /// A target's `out` resolves outside the build tree through a link. Exit 2,
+    /// nothing written.
+    #[error(
+        "target #{target}'s out \"{out}\" resolves outside the build tree through the link \"{link}\"; \
+         build inside the tree and copy the outputs where you need them"
+    )]
+    OutputOutsideTree {
+        target: usize,
+        out: String,
+        link: String,
+    },
 }
 
 impl CliError {
@@ -765,6 +875,8 @@ impl CliError {
         match self {
             // Source errors
             CliError::Source(SourceError::NotFound(_)) => 3,
+            CliError::Source(SourceError::NoImagesInFolder(_)) => 3,
+            CliError::Source(SourceError::NoImagesMatched(_)) => 3,
             CliError::Source(SourceError::Stdin(_)) => 3,
             CliError::Source(SourceError::InvalidPattern { .. }) => 2,
             // Image errors
@@ -797,12 +909,21 @@ impl CliError {
             // recipe, not a bad input → generic runtime error, like other
             // recipe/operation errors (SPEC-128, Call 2).
             CliError::RecipeAssetUnreadable { .. } => 1,
+            // The CLI's own `--font` / `--image` file: an unreadable input → 3.
+            CliError::WatermarkAssetUnreadable { .. } => 3,
+            // A folder where one image file is expected: the input is unusable → 3.
+            CliError::InputIsAFolder(_) => 3,
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
             // A non-injective source→output mapping is a manifest *config* error
             // caught before execution → 2, like a malformed manifest (SPEC-065).
             CliError::OutputCollision { .. } => 2,
+            // The other planning-time refusals of a build destination: a manifest
+            // *config* error, found before anything is written → 2.
+            CliError::OutputOverlap { .. }
+            | CliError::OutputInCacheDir { .. }
+            | CliError::OutputOutsideTree { .. } => 2,
             // A watcher setup failure is a generic runtime error → 1.
             CliError::Watch(_) => 1,
             CliError::BuildManifestIo { .. } => 3,
@@ -827,10 +948,59 @@ impl CliError {
             CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(_)) => 4,
             // `meta` cannot change the format an output name asks for → 4.
             CliError::MetaFormatMismatch { .. } => 4,
+            CliError::UnstorableAlpha(_) => 4,
             CliError::Metadata(crate::metadata::MetadataError::Container(_)) => 1,
             CliError::Metadata(crate::metadata::MetadataError::Exif(_)) => 1,
         }
     }
+}
+
+/// One op flag of `edit`, for the order they were typed in.
+///
+/// `--auto-orient` is not here: orientation is always baked first, so the flag
+/// has no position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditOp {
+    /// `--resize-max`
+    ResizeMax,
+    /// `--invert`
+    Invert,
+    /// `--crop`
+    Crop,
+    /// `--rotate`
+    Rotate,
+    /// `--flip`
+    Flip,
+    /// `--pad`
+    Pad,
+    /// `--trim`
+    Trim,
+}
+
+/// The op flags of an `edit` invocation, in the order they were typed.
+///
+/// Only flags typed on the command line count: clap also gives an index to an
+/// unset flag that has a default (the `--invert` switch), and that must not
+/// become a step. The position is the flag's own, wherever the input path and
+/// the other flags sit and whichever spelling (`--rotate 90`, `--rotate=90`) was
+/// used.
+pub(crate) fn edit_op_order(m: &clap::ArgMatches) -> Vec<EditOp> {
+    let known = [
+        ("resize_max", EditOp::ResizeMax),
+        ("invert", EditOp::Invert),
+        ("crop", EditOp::Crop),
+        ("rotate", EditOp::Rotate),
+        ("flip", EditOp::Flip),
+        ("pad", EditOp::Pad),
+        ("trim", EditOp::Trim),
+    ];
+    let mut typed: Vec<(usize, EditOp)> = known
+        .iter()
+        .filter(|(id, _)| m.value_source(id) == Some(clap::parser::ValueSource::CommandLine))
+        .filter_map(|(id, op)| m.index_of(id).map(|i| (i, *op)))
+        .collect();
+    typed.sort_by_key(|(i, _)| *i);
+    typed.into_iter().map(|(_, op)| op).collect()
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
@@ -841,7 +1011,19 @@ impl CliError {
 /// maps typed library errors to codes 1/3/4/5 and prints diagnostics to
 /// stderr, keeping stdout clean for `-o -` pipe use.
 pub fn run() -> ExitCode {
-    let cli = Cli::parse(); // clap exits 2 on parse errors
+    // Keep the `ArgMatches`: they record the position each flag was typed at,
+    // which `edit` runs its op flags in. Errors exit 2, as `Cli::parse()` does.
+    let matches = Cli::command().get_matches();
+    let mut cli = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(e) => e.format(&mut Cli::command()).exit(),
+    };
+    if let (Commands::Edit { order, .. }, Some(("edit", sub))) =
+        (&mut cli.command, matches.subcommand())
+    {
+        *order = edit_op_order(sub);
+    }
+    logger::init(cli.global.verbose, cli.global.quiet);
     match dispatch(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -889,17 +1071,14 @@ fn refused_build_flags(global: &GlobalArgs) -> Vec<&'static str> {
 
 /// Route the parsed CLI to its subcommand's handler.
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
-    // `--watch` is a GLOBAL clap flag, but only `build` has a rebuild loop to run.
-    // On any other subcommand it used to be a silent no-op — the user asks to watch
-    // and gets one quiet one-shot run instead. Reject it as a usage error (exit 2)
-    // rather than ignoring it (SPEC-071 fix 4; `ergonomic-defaults`). Same shape as
-    // the `--watch` × verify-mode guard in `run_build_watching`.
-    if cli.global.watch && !matches!(cli.command, Commands::Build { .. }) {
-        return Err(CliError::Usage(
-            "--watch is only valid with `build`: there is no rebuild loop to run for \
-             this subcommand"
-                .to_owned(),
-        ));
+    // A global flag a subcommand would accept and ignore is refused (exit 2) with a
+    // reason: `--watch` and the build-only flags off `build`, `--keep-gps` everywhere,
+    // `responsive`'s fixed names. Every row is reported, in table order (SPEC-071,
+    // SPEC-149; `ergonomic-defaults`).
+    let refused = global_flags::refused_global_flags(cli);
+    if !refused.is_empty() {
+        // `run` prefixes the first line with `error: `; the join prefixes the rest.
+        return Err(CliError::Usage(refused.join("\nerror: ")));
     }
 
     // `build` takes its outputs from the manifest, so a global flag that would set an
@@ -1057,13 +1236,34 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             input,
             auto_orient,
             resize_max,
-            invert,
+            crop,
+            crop_gravity,
+            rotate,
+            flip,
+            pad,
+            pad_color,
+            pad_gravity,
+            trim_color,
+            trim_tolerance,
             save_recipe,
+            order,
+            ..
         } => run_edit(
             input,
-            *auto_orient,
-            *resize_max,
-            *invert,
+            &EditFlags {
+                auto_orient: *auto_orient,
+                resize_max: *resize_max,
+                crop: crop.clone(),
+                crop_gravity: crop_gravity.clone(),
+                rotate: *rotate,
+                flip: flip.clone(),
+                pad: pad.clone(),
+                pad_color: pad_color.clone(),
+                pad_gravity: pad_gravity.clone(),
+                trim_color: trim_color.clone(),
+                trim_tolerance: *trim_tolerance,
+                order: order.clone(),
+            },
             save_recipe.as_deref(),
             &cli.global,
         ),
@@ -1106,11 +1306,101 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
     Ok(())
 }
 
+/// A path in double quotes, with any `"` inside it escaped, so the reader can see
+/// where the path ends. Only `"` is escaped: a Windows path's backslashes are shown
+/// as typed (`{:?}` would double each one).
+fn quoted(path: &str) -> String {
+    format!("\"{}\"", path.replace('"', "\\\""))
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `edit_op_order` returns the flags in the order typed, and leaves out a
+    /// flag clap defaults without being typed (`--invert`).
+    #[test]
+    fn edit_op_order_follows_indices() {
+        let order = |args: &[&str]| {
+            let m = Cli::command()
+                .try_get_matches_from(args)
+                .expect("args parse");
+            let (_, sub) = m.subcommand().expect("a subcommand");
+            edit_op_order(sub)
+        };
+        assert_eq!(
+            order(&[
+                "crustyimg",
+                "edit",
+                "in",
+                "--flip",
+                "vertical",
+                "--resize-max",
+                "3",
+                "--crop=1:1"
+            ]),
+            [EditOp::Flip, EditOp::ResizeMax, EditOp::Crop]
+        );
+        assert_eq!(
+            order(&["crustyimg", "edit", "in", "--resize-max", "3"]),
+            [EditOp::ResizeMax]
+        );
+        // A switch typed before the input path keeps its position, and the
+        // modifiers (`--pad-color`, `--trim-tolerance`) have none.
+        assert_eq!(
+            order(&[
+                "crustyimg",
+                "edit",
+                "--trim",
+                "--rotate=90",
+                "in",
+                "--pad",
+                "4:5",
+                "--pad-color",
+                "000000",
+                "--trim-tolerance",
+                "2"
+            ]),
+            [EditOp::Trim, EditOp::Rotate, EditOp::Pad]
+        );
+    }
+
+    #[test]
+    fn new_source_and_folder_errors_exit_3() {
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesInFolder("d".into())).code(),
+            3
+        );
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesMatched("d/*".into())).code(),
+            3
+        );
+        assert_eq!(CliError::InputIsAFolder("d".into()).code(), 3);
+    }
+
+    #[test]
+    fn quoted_escapes_double_quotes_only() {
+        assert_eq!(quoted("a\"b"), "\"a\\\"b\"");
+        assert_eq!(quoted(r"C:\d\f"), r#""C:\d\f""#);
+        assert_eq!(quoted("plain"), "\"plain\"");
+    }
+
+    #[test]
+    fn watermark_asset_unreadable_is_exit_3_and_names_the_file() {
+        let err = CliError::WatermarkAssetUnreadable {
+            what: "font file",
+            path: "a b.ttf".to_owned(),
+            source: std::io::Error::from(std::io::ErrorKind::NotFound),
+        };
+        assert_eq!(err.code(), 3);
+        assert!(
+            err.to_string()
+                .starts_with("could not read font file \"a b.ttf\": "),
+            "{err}"
+        );
+    }
 
     // ── cli_parses_global_and_apply ──────────────────────────────────────────
 
@@ -1397,6 +1687,34 @@ mod tests {
             2
         );
 
+        // The planning-time refusals of a build destination are config errors → 2.
+        assert_eq!(
+            CliError::OutputOverlap {
+                target: 0,
+                output: "src/a.png".into(),
+                what: "which target #0 reads as a source".into(),
+            }
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::OutputInCacheDir {
+                target: 0,
+                output: ".crustyimg/x/a.{ext}".into(),
+            }
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::OutputOutsideTree {
+                target: 0,
+                out: "link/x".into(),
+                link: "link".into(),
+            }
+            .code(),
+            2
+        );
+
         // Metadata variants (SPEC-026, DEC-029): unsupported format → 4; a
         // container/EXIF parse or rewrite failure → 1 (generic runtime).
         assert_eq!(
@@ -1416,6 +1734,22 @@ mod tests {
         assert_eq!(
             CliError::Metadata(crate::metadata::MetadataError::Exif("bad tag".into())).code(),
             1
+        );
+        // A step writing alpha the output format can't store → 4.
+        assert_eq!(
+            CliError::UnstorableAlpha(crate::operation::UnstorableAlpha {
+                step: 0,
+                op: "pad",
+                introduced: crate::operation::IntroducedAlpha {
+                    alpha: 0,
+                    key: "color",
+                    written: "transparent".into(),
+                    flag: None,
+                },
+                format: ::image::ImageFormat::Jpeg,
+            })
+            .code(),
+            4
         );
         // `meta` refusing an output name that asks for another format → 4.
         assert_eq!(

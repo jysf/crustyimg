@@ -161,7 +161,7 @@ cp -R ~/site/images ~/cimg-test && mkdir -p ~/cimg-out
    ci info ~/cimg-out/hero.jpg --exif | grep -i gps || echo "no GPS — good"
    ```
 
-Current safety behavior: GPS is dropped by default (`--keep-gps` to retain);
+Current safety behavior: pixel-lane encodes drop all metadata, GPS included (`--keep-gps` is refused; use `meta copy` after the encode to keep it);
 existing files are not overwritten without `-y` and symlinked output paths are
 refused; multi-input commands need `--out-dir`; absurd-dimension/decode-bomb
 inputs are rejected. Full CLI contract: `docs/api-contract.md`.

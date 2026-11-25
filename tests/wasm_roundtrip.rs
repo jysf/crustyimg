@@ -53,8 +53,13 @@ mod wasm {
     /// fixtures, never shell out). A 64×48 two-tone image — enough for a resize to
     /// be observable and for the analysis layer to have something to look at.
     fn png_64x48() -> Vec<u8> {
+        png_two_tone(64, 48)
+    }
+
+    /// The same two-tone image at any size.
+    fn png_two_tone(w: u32, h: u32) -> Vec<u8> {
         use image::{ImageEncoder, Rgba, RgbaImage};
-        let mut img = RgbaImage::new(64, 48);
+        let mut img = RgbaImage::new(w, h);
         for (x, y, px) in img.enumerate_pixels_mut() {
             *px = if (x / 8 + y / 8) % 2 == 0 {
                 Rgba([220, 40, 40, 255])
@@ -64,7 +69,7 @@ mod wasm {
         }
         let mut out = Vec::new();
         image::codecs::png::PngEncoder::new(&mut out)
-            .write_image(img.as_raw(), 64, 48, image::ExtendedColorType::Rgba8)
+            .write_image(img.as_raw(), w, h, image::ExtendedColorType::Rgba8)
             .expect("encode fixture png");
         out
     }
@@ -328,6 +333,382 @@ op = "identity"
 
         let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
         assert!(!ok.is_empty());
+    }
+
+    /// A mark that would draw nothing is thrown as an error, with the same
+    /// line `apply` prints, rather than returned as an unmarked image. The
+    /// module survives each refusal.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_mark_that_draws_nothing() {
+        // Large enough that the default-size mark is under the 5 % coverage cap,
+        // so a missing refusal would return a marked image rather than the cap's error.
+        let src = png_two_tone(256, 192);
+        let rows = [
+            ("text = \"hi\"\nopacity = 0", "'opacity' = 0 draws no mark"),
+            ("text = \" \"", "'text' has no visible characters"),
+        ];
+        for (body, want) in rows {
+            let recipe = format!("version = \"1\"\n\n[[step]]\nop = \"watermark\"\n{body}\n");
+            let err =
+                transform(&src, &recipe, "png").expect_err("a mark that draws nothing is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{body:?}: got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty());
+        }
+    }
+
+    /// An RGBA PNG whose every pixel is unique (for sides under 4096), so a
+    /// crop that lands one pixel off cannot compare equal.
+    fn png_unique(w: u32, h: u32) -> Vec<u8> {
+        use image::{ImageEncoder, Rgba, RgbaImage};
+        let img = RgbaImage::from_fn(w, h, |x, y| {
+            Rgba([x as u8, y as u8, (((x >> 8) << 4) | (y >> 8)) as u8, 255])
+        });
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), w, h, image::ExtendedColorType::Rgba8)
+            .expect("encode unique png");
+        out
+    }
+
+    /// A crop moves pixels and computes none, so the wasm output equals the
+    /// native one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_crops_exactly() {
+        let src = png_unique(1200, 800);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let rows = [
+            (
+                "rectangle",
+                "x = 0.123\ny = 0.2345\nwidth = 0.5\nheight = 0.4321",
+                (600u32, 345u32),
+                (148u32, 188u32),
+            ),
+            (
+                "aspect",
+                "aspect = \"5:4\"\ngravity = \"southeast\"",
+                (1000, 800),
+                (200, 0),
+            ),
+        ];
+        for (name, body, (w, h), (left, top)) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"crop\"\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a crop recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (w, h), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| *px != decoded.get_pixel(left + x, top + y))
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the input");
+        }
+    }
+
+    /// A bad crop throws the same line the CLI prints, at load or at apply,
+    /// and the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_crop_with_the_native_message() {
+        let rows = [
+            (
+                "R18",
+                1200u32,
+                800u32,
+                "aspect = \"16:9\"\nx = 0\ny = 0\nwidth = 0.5\nheight = 0.5",
+                "recipe step 0 ('crop'): 'aspect' cannot be combined with 'x'; a crop is either a rectangle (x, y, width, height) or an aspect (aspect, gravity)",
+            ),
+            (
+                "R28",
+                1200,
+                800,
+                "aspect = \"2.39:1\"",
+                "recipe step 0 ('crop'): 'aspect' must be two whole numbers written W:H; write \"2.39:1\" as \"239:100\"",
+            ),
+            (
+                "A1",
+                1600,
+                1067,
+                "x = 0.5\ny = 0\nwidth = 0.0001\nheight = 1",
+                "operation 'crop' failed: the crop rounds to 0×1067 px on this 1600×1067 px image; it must keep at least 1 px each way",
+            ),
+        ];
+        for (id, w, h, body, want) in rows {
+            let src = png_unique(w, h);
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"crop\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad crop is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
+    /// A rotate or flip moves pixels and computes none, so the wasm output is
+    /// the native one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_rotates_and_flips_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let (w, h) = (120u32, 80u32);
+        // (name, step body, output size, output (x, y) -> input (x, y)),
+        // each map written out by hand.
+        type Map = fn(u32, u32) -> (u32, u32);
+        let rows: [(&str, &str, (u32, u32), Map); 4] = [
+            (
+                "rotate 90",
+                "op = \"rotate\"\nangle = 90",
+                (80, 120),
+                |x, y| (y, 79 - x),
+            ),
+            (
+                "rotate -90",
+                "op = \"rotate\"\nangle = -90",
+                (80, 120),
+                |x, y| (119 - y, x),
+            ),
+            (
+                "flip horizontal",
+                "op = \"flip\"\naxis = \"horizontal\"",
+                (120, 80),
+                |x, y| (119 - x, y),
+            ),
+            (
+                "flip vertical",
+                "op = \"flip\"\naxis = \"vertical\"",
+                (120, 80),
+                |x, y| (x, 79 - y),
+            ),
+        ];
+        assert_eq!((w, h), (decoded.width(), decoded.height()));
+        for (name, body, size, map) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a geometry recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), size, "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| {
+                    let (ix, iy) = map(*x, *y);
+                    *px != decoded.get_pixel(ix, iy)
+                })
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the index map");
+        }
+    }
+
+    /// A bad rotate or flip throws the same line the CLI prints, and the
+    /// module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_rotate_or_flip_with_the_native_message() {
+        let rows = [
+            (
+                "R12",
+                "op = \"rotate\"\nangle = 45",
+                "recipe step 0 ('rotate'): 'angle' must be a multiple of 90, got 45; rotating by any other angle is not supported yet",
+            ),
+            (
+                "R6",
+                "op = \"rotate\"\nangle = 450",
+                "recipe step 0 ('rotate'): 'angle' must be a number in -360.0..=360.0, got 450",
+            ),
+            (
+                "F3",
+                "op = \"flip\"\naxis = \"diagonal\"",
+                "recipe step 0 ('flip'): 'axis' must be one of: horizontal, vertical; got \"diagonal\"",
+            ),
+        ];
+        let src = png_unique(120, 80);
+        for (id, body, want) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad step is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
+    /// A pad copies pixels and computes none, so the wasm output is the native
+    /// one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_pads_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        // (name, step body, canvas size, input offset), each written by hand.
+        let rows = [
+            (
+                "aspect",
+                "aspect = \"1:1\"\ngravity = \"south\"\ncolor = \"#123456\"",
+                (120u32, 120u32),
+                (0u32, 40u32),
+            ),
+            (
+                "border",
+                "border = 0.05\ncolor = \"#123456\"",
+                (132, 92),
+                (6, 6),
+            ),
+        ];
+        for (name, body, (w, h), (left, top)) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"pad\"\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a pad recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (w, h), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| {
+                    let inside = *x >= left && *x < left + 120 && *y >= top && *y < top + 80;
+                    let want = if inside {
+                        *decoded.get_pixel(x - left, y - top)
+                    } else {
+                        image::Rgba([0x12, 0x34, 0x56, 0xff])
+                    };
+                    **px != want
+                })
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the hand map");
+        }
+    }
+
+    /// A bad pad throws the same line the CLI prints, at load or at apply, and
+    /// the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_pad_with_the_native_message() {
+        let rows = [
+            (
+                "P22",
+                120u32,
+                80u32,
+                "aspect = \"1:1\"",
+                "recipe step 0 ('pad'): missing required key 'color'; a pad needs a fill colour such as \"#ffffff\"",
+            ),
+            (
+                "A1",
+                40,
+                30,
+                "border = 0.001\ncolor = \"#ffffff\"",
+                "operation 'pad' failed: the border rounds to 0 px on this 40×30 px image ('border' = 0.001 of its 40 px long edge); it must add at least 1 px",
+            ),
+        ];
+        for (id, w, h, body, want) in rows {
+            let src = png_unique(w, h);
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"pad\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad pad is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
+    /// A pad with a fill that has alpha runs into an output that can store it,
+    /// and is refused, with the line the CLI prints, into one that can't.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_fill_alpha_the_format_cannot_store() {
+        let src = png_unique(120, 80);
+        let recipe =
+            "version = \"2\"\n\n[[step]]\nop = \"pad\"\nborder = 0.05\ncolor = \"transparent\"\n";
+        let png = transform(&src, recipe, "png").expect("PNG stores the alpha");
+        assert!(!png.is_empty());
+
+        let err = transform(&src, recipe, "jpeg").expect_err("JPEG can't store it");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        let want = "recipe step 0 ('pad'): 'color' = \"transparent\" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque";
+        assert!(msg.contains(want), "wanted {want:?}, got {msg}");
+        assert!(!msg.contains("error: "), "no CLI prefix: {msg}");
+
+        let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+        assert!(!ok.is_empty());
+    }
+
+    /// A trim copies pixels and computes none, so a pad followed by a trim
+    /// gives the input back exactly, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_trims_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let rows = [
+            (
+                "border, top-left colour",
+                "[[step]]\nop = \"pad\"\nborder = 0.05\ncolor = \"#123456\"\n\n[[step]]\nop = \"trim\"\n",
+            ),
+            (
+                "aspect, stated colour",
+                "[[step]]\nop = \"pad\"\naspect = \"1:1\"\ngravity = \"south\"\ncolor = \"#123456\"\n\n[[step]]\nop = \"trim\"\ncolor = \"#123456\"\n",
+            ),
+        ];
+        for (name, steps) in rows {
+            let recipe = format!("version = \"2\"\n\n{steps}");
+            let out = transform(&src, &recipe, "png").expect("a trim recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (120, 80), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| **px != *decoded.get_pixel(*x, *y))
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the input");
+        }
+    }
+
+    /// A bad trim throws the same line the CLI prints, at load or at apply, and
+    /// the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_trim_with_the_native_message() {
+        use image::{ImageEncoder, Rgb, RgbImage};
+        let mut flat = Vec::new();
+        let one_colour = RgbImage::from_pixel(4, 3, Rgb([40, 50, 60]));
+        image::codecs::png::PngEncoder::new(&mut flat)
+            .write_image(one_colour.as_raw(), 4, 3, image::ExtendedColorType::Rgb8)
+            .expect("encode flat png");
+        let rows = [
+            (
+                "T1",
+                png_unique(40, 30),
+                "fuzz = 8",
+                "recipe step 0 ('trim'): unknown key 'fuzz'; expected one of: color, tolerance",
+            ),
+            (
+                "T12",
+                png_unique(40, 30),
+                "tolerance = 8.0",
+                "recipe step 0 ('trim'): 'tolerance' must be an integer in 0..=255, got the float 8.0",
+            ),
+            (
+                "W1",
+                flat,
+                "",
+                "operation 'trim' failed: every pixel of this 4×3 px image matches its top-left pixel within 'tolerance' = 0, so a trim would leave nothing",
+            ),
+        ];
+        for (id, src, body, want) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"trim\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad trim is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
     }
 
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES

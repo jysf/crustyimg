@@ -66,6 +66,13 @@ After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md`
    it, it writes those lines in the same PR; if not, it files a STAGE-050 backlog item. SPEC-132
    fixed a Linux `--watch` loop in released 0.7.x and recorded it only as a deviation, which cost
    a punch-list round.
+7. **A verify's optional cleanups go into one punch list, and need no re-verify unless a claim
+   changed** (from SPEC-145's ship). SPEC-145's verify approved with four optional cleanups, and
+   fixing them took two punch lists and two re-verifies: about $5, against a $9.37 build. If every
+   fix is wording, a test bound tightened within what verify measured, or an added assert, the
+   orchestrator reads the punch list's diff and CI itself and marks the PR ready. A re-verify runs
+   only when the punch list changes what a doc, DEC or test **claims** to be true, because a new
+   claim is unproven (trap 17).
 
 ---
 
@@ -87,8 +94,9 @@ How the release went, for next time:
 - `just wt <branch>` for a branch that exists only on the remote creates a *new* branch from
   `main`. A fix prompt for a maintainer-opened PR must fetch and reset to `origin/<branch>`.
 - npm returned **404 on PUT** for a logged-in owner: the saved token could read but not
-  publish. `npm login`, then re-run. Publish npm from a detached worktree at the tag
-  (`git worktree add ../crustyimg-vX.Y.Z vX.Y.Z`), so a dirty main checkout doesn't block it.
+  publish. npm is now published by CI on the tag (SPEC-144, DEC-111). The hand route
+  (`npm login`, then `just wasm-npm-publish` from a detached worktree at the tag) is recovery
+  only; see RELEASING.md step 8.
 
 ### What is open now
 - **STAGE-054:** 1 shipped / 0 active / **16 pending**. These are the 0.8.1 candidates, including
@@ -114,7 +122,7 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
   needs no threshold at all.
 - **The `--name-template` pin ruling** — warn / honour-the-template / document-and-keep. Same family
   as the `-o`-extension pin ruling, which moved to PROJ-013 STAGE-037. Worth ruling together.
-- **STAGE-041's real status.** The repo has understated it since 2026-08-16. **Do not re-plan it
+- **STAGE-041's real status** (moved to PROJ-019 on 2026-11-11). The repo has understated it since 2026-08-16. **Do not re-plan it
   against what the repo says.**
 - **`mp4-atom` DEC** — blocks PROJ-012 from being specced at all.
 - **The two GitHub Action releases are still DRAFTS.** `v1.0.1` on `jysf/setup-crustyimg` and
@@ -193,12 +201,65 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     (`--show-output` on a dedicated step). **A row that may skip locally fails when an
     environment variable says its coverage is required**, and CI sets that variable on the step
     that must prove it ran (`CRUSTYIMG_REQUIRE_SYSTEM_FONT`).
+    **Every build or punch-list prompt whose tests probe the host** (a filesystem's behaviour, a
+    font, a tool on `PATH`) **carries this rule in its own text.** The rule was here and SPEC-157
+    still missed it: FT-35 and FT-36 skipped with an `eprintln!` when the temp folder's filesystem
+    did not merge two names, so the macOS CI log could not show they ran. Punch list 2 made them
+    fail when `CI` is set.
 12. **⚡ A MUTATION ROW NAMES WHERE IT IS APPLIED, AND EVERY TEST EXPECTED RED, ON BOTH PATHS.**
     SPEC-138's row "move the guard after the manifest loads" could be applied two ways. The build
     moved it into `run_build` only, which is off the watch path, and FT-11 and FT-12 went red. Verify
     applied it on both paths, and FT-8, FT-9 and FT-12 went red while FT-11 stayed green. Neither
     result matched the table. **A design names the code location for each mutation and lists every
     test expected red, including tests on the other path** (plain vs `--watch`, native vs wasm).
+13. **⚡ A RED ROW IS RED FOR ITS REASON ONLY IF ITS FAILURE MESSAGE SAYS SO, AND A GOLDEN GUARDS
+    THE BYTES ONLY IF ONE MUTATION TURNS IT RED BY HASH.** SPEC-143's FT-11 and FT-12 failed on
+    `main` because their small bases tripped the 5 % coverage cap, not because the mark drew
+    nothing. The build recorded them as RED, and FT-12 as "returned Ok", which was false. Its golden
+    test (FT-6) went red under every recorded mutation, but only because the mark was refused first.
+    `opacity × 0.999` on the 16-bit composite line stayed green. **The baseline quotes each RED row's
+    failure message, and the prompt names the likely wrong-reason message** (here, the coverage
+    cap). **A golden needs at least one mutation that goes red on a hash mismatch**, not on a
+    refusal or an exit code.
+14. **⚡ A TEST FOR A FIXED PATH CALLS THE PRODUCTION FUNCTION, AND THE OLD CODE PUT BACK VERBATIM
+    TURNS IT RED.** SPEC-141's first punch list fixed a missing-golden panic in `golden_path_for`,
+    and its new test (FT-9) drove the report builder through a closure that never called it. The
+    re-verify put the old line back unchanged: all 9 tests stayed green. A second punch list and a
+    second re-verify paid for it. **The control for a fix is the old code restored exactly**, not a
+    new mutation. **A bless or golden guard's design also drives the next user's path:** add a new
+    case by the README alone and record where it first goes green. That one row would have found
+    SPEC-141's missing dump and unnamed literals at design, not over two verify rounds.
+15. **⚡ A CI STEP THAT BRANCHES ON A COMMAND'S OUTPUT ASSIGNS IT FIRST, THEN VALIDATES IT; A
+    SUMMARY LINE COUNTS EVERY FAILURE KIND.** SPEC-142's `changes` step compared
+    `"$(… | scripts/ci-code-paths.sh)"` inside `[ … ]`. Under `bash -e` a failing substitution there
+    does not stop the step, so a crashing classifier reported docs-only and every heavy job skipped
+    green. Its harness also printed `16 rows, 0 failed` while a table check failed and the run
+    exited 1. **The design lists the command crashing (and printing junk) as mutation rows**, and a
+    summary count names each failure kind it can fail on. **Before moving code, grep its downstream
+    readers** (here the test bed's `check.py`, which read `GO_ADVANCE` from `edit.js`).
+16. **⚡ AN ENVIRONMENT VARIABLE SET ON A STEP APPLIES TO EVERY COMMAND IN THE STEP.** SPEC-144's
+    design set `npm_config_dry_run=true` on the PR dry-run step to make `npm publish` safe. The same
+    step's smoke test runs `npm pack`, which then wrote no tarball, so the step would have failed in
+    CI. The build replaced it with an `npm` wrapper that fakes only `publish`. **A design that sets
+    a step-level variable names every command in that step, and runs the whole step with the
+    variable set before writing it into a call.**
+17. **⚡ A BOUND WORKED OUT ON PAPER IS A CLAIM UNTIL ITS MAXIMISING INPUT IS DRIVEN.** SPEC-145's
+    verify called 0.4 px the "analytic maximum" of crop's drift between two image sizes. The
+    orchestrator's punch-list prompt passed it on as settled, and the punch list wrote it into
+    DEC-112. Re-verify found 0.6 at `f64` near-ties (`width = 0.009583333333333333`: 12 px at
+    1200, 57 px at 6000), and a seeded random sweep never lands that close to a tie. That cost a
+    second punch list and re-verify. **A prompt or DEC that carries a derived bound, maximum or
+    "can't happen" says whether it was driven, and names the input that maximises it** (for a
+    rounding bound, a `nextafter` search around each tie). An undriven bound is written as "measured
+    over this sweep", never as the maximum.
+18. **⚡ A TEST THAT GUARDS A COPIED LIST PROBES A LITERAL LIST, AND A MUTANT ON EACH SIDE TURNS IT
+    RED.** SPEC-157's FT-52 guards `READABLE_EXTENSIONS`, a copy of the source filter's list, and
+    two sessions wrote it as half a guard. The punch list's version wrote files only for the copy's
+    own entries, so removing `nef` from the copy stayed green. Punch list 2's first draft probed a
+    literal list but still missed an added `xyz`. **The test probes a literal list written in the
+    test, plus the copy's own entries, and asserts the original's verdict equals the copy's for
+    each.** The prompt names one mutant that removes an entry and one that adds one, and both must
+    turn it red.
 
 ## What is working, and worth keeping
 

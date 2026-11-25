@@ -1,0 +1,8 @@
+# Mirror left and right. No resampling, so the output is the same bytes on
+# every target.
+version = "2"
+name = "corpus-flip-horizontal"
+
+[[step]]
+op = "flip"
+axis = "horizontal"

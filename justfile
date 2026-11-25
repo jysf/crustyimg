@@ -195,6 +195,13 @@ wasm-check:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" build --lib --target wasm32-unknown-unknown {{_wasm_features}}
 
+# Lint the library as wasm32 sees it. Native clippy never compiles `wasm.rs` or
+# the other wasm-only code, so the crate's lint rules only reach it through this
+# build. Same feature set as the shipped artifact.
+wasm-clippy:
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+        "{{_wasm_bin}}/cargo" clippy --lib --target wasm32-unknown-unknown {{_wasm_features}} -- -D warnings
+
 # Build the release .wasm + JS bindings via wasm-pack → pkg/ (the npm-shaped
 # artifact STAGE-026 packages). Also reports the size SPEC-074 tunes.
 #
@@ -236,9 +243,10 @@ wasm-build-slim:
 # Runs through plain cargo (NOT `wasm-pack test`) so that `--test wasm_roundtrip`
 # actually scopes the build to the one wasm test target — see .cargo/config.toml for
 # why, and for the `wasm-bindgen-test-runner` shim that executes the .wasm in Node.
-# Needs: cargo install wasm-bindgen-cli --version <the pinned wasm-bindgen version>
+# Needs wasm-bindgen-test-runner at the exact wasm-bindgen version in Cargo.lock
+# (scripts/wasm-ci-check.sh lock-version). CI's wasm-roundtrip job runs this and wasm-test-slim.
 wasm-test:
-    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --version 0.2.126)"; exit 1; }
+    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --locked --version $(scripts/wasm-ci-check.sh lock-version))"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 
@@ -269,8 +277,10 @@ wasm-npm-smoke: wasm-npm-pkg
 # THE PUBLISH, chained so the unguarded path is no longer the shorter one.
 #
 # `npm publish` is outward-facing and effectively irreversible (npm's unpublish window
-# is narrow), and it stays SPEC-076's maintainer-gated decision. That gate is "a human
-# decides to publish" -- NOT "it must be typed as raw npm", which is what it had
+# is narrow). The decision to publish is the `v*` tag push (DEC-111): CI's
+# `publish-npm.yml` runs this recipe after the GitHub Release exists. Run by hand it is
+# the recovery path, not a channel. Either way, the publish must never be shorter than
+# the safe route -- NOT "it must be typed as raw npm", which is what it had
 # degenerated into: the chain stopped at wasm-npm-smoke, so the real publish was
 # `cd pkg && npm publish`, running no build, no size profile and no smoke test, and
 # EASIER TO TYPE than the safe route.
@@ -687,3 +697,33 @@ info:
 # so the canonical `just test` runs the app's `cargo test`.)
 template-test:
     @./scripts/test.sh
+
+# ----------------------------------------------------------------------------
+# ddphotos edit page: native vs wasm parity
+# ----------------------------------------------------------------------------
+
+# The Pillow the harness decodes with. Pillow shares no code with crustyimg, so a
+# decoding bug in the engine cannot hide on both sides of the comparison.
+_ddphotos_pillow := "12.3.0"
+
+# Run the page's recipes through native `apply` and the slim wasm `transform`, and
+# compare the decoded pixels (tests/ddphotos_parity.mjs). Everything is built under
+# target/ddphotos-parity/, so the repo's pkg-slim/ (what ddphotos-edit-install copies)
+# and the default target dir are untouched. The wasm package goes through
+# wasm-build-slim's feature set and the size profile, not a bare cargo call.
+ddphotos-parity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="target/ddphotos-parity"
+    mkdir -p "$out"
+    CARGO_TARGET_DIR="$out/native" cargo build --release
+    CARGO_TARGET_DIR="$out/wasm-target" just --set _wasm_features " --no-default-features --features avif" \
+        --set _wasm_out "$PWD/$out/pkg-slim" wasm-build
+    # Always a fresh venv: CI restores target/ from a cache that keeps venv/bin/python but
+    # not pip, so "is there a python" is not "is there a working venv".
+    rm -rf "$out/venv"
+    python3 -m venv "$out/venv"
+    "$out/venv/bin/pip" install --quiet "pillow=={{_ddphotos_pillow}}"
+    args=(--pkg "$out/pkg-slim" --bin "$out/native/release/crustyimg" --python "$out/venv/bin/python")
+    node tests/ddphotos_parity.mjs "${args[@]}"
+    node tests/ddphotos_parity.mjs "${args[@]}" --self-test
