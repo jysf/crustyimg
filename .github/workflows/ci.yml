@@ -196,6 +196,7 @@ jobs:
           components: clippy, rustfmt
 
       # Restores the dependency build from the last run of this branch, or of main.
+      # The AVIF probe's own build (target/tmp) is saved in the same cache.
       # The cache key already includes the OS, so each leg keeps its own.
       - uses: Swatinem/rust-cache@v2
         with:
