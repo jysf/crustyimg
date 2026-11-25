@@ -290,8 +290,8 @@ says that without the pin, 1, 4 and 14 threads give three different hashes. Quot
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
+- **Branch:** chore/spec-162-ci-runs-each-test-once
+- **PR (if applicable):** #271 (draft)
 - **All acceptance criteria met?** yes/no
 - **New decisions emitted:**
   - `DEC-NNN` — <title> (if any)
