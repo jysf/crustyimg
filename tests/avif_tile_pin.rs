@@ -150,17 +150,24 @@ fn both_encode_paths_set_the_thread_count() {
 // ── AC-2 / AC-5: the pin makes the OS core-count reading unreachable ───────────
 
 /// Build (once, memoized for the process) a probe `crustyimg` with
-/// `ravif/threading` reachable (`--features image/rayon`) in an isolated
-/// `CARGO_TARGET_DIR` — never the shared one
-/// ([[concurrent-differently-featured-builds-corrupt-a-shared-target-dir]]).
+/// `ravif/threading` reachable (`--features image/rayon`) in its own
+/// `CARGO_TARGET_DIR` — never the shared one, because a differently featured
+/// build in the shared target folder would corrupt it.
 /// A debug build is enough: this drives byte-identity, not speed.
+///
+/// The folder is `<target>/tmp/avif-probe`:
+/// - It is the same folder every run, so the nested build is incremental
+///   and only the first run pays for a cold build.
+/// - It lives under the cargo target directory, so `cargo clean` removes
+///   it and nothing accumulates in the system temp folder.
+/// - A `CARGO_TARGET_DIR` shared between checkouts is unsupported: cargo
+///   then reuses the other checkout's test binary, with that checkout's
+///   manifest path built in. Each checkout uses its own target folder, as
+///   for every other test.
 fn probe_binary() -> &'static PathBuf {
     static PROBE: OnceLock<PathBuf> = OnceLock::new();
     PROBE.get_or_init(|| {
-        let target_dir = std::env::temp_dir().join(format!(
-            "crustyimg-spec124-probe-target-{}",
-            std::process::id()
-        ));
+        let target_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("avif-probe");
         let status = Command::new("cargo")
             .args(["build", "--features", "image/rayon"])
             .env("CARGO_TARGET_DIR", &target_dir)

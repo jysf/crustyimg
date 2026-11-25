@@ -160,7 +160,7 @@ questions:
     raised_at: 2026-10-28
     assigned_to: null
     notes: |
-      TECHNICALLY NEARLY THERE; NOT NEEDED YET. Assessed in
+      TECHNICALLY READY ON WASM (T1 fired 2026-11-08); NOT NEEDED YET. Assessed in
       `docs/research/oxideav-adoption-assessment-2026-10.md`; reproducible probe
       at `docs/probes/oxideav-avif-differential/`.
 
@@ -171,6 +171,14 @@ questions:
       first decode (unconditional std::time::Instant stage timing in
       oxideav-av1); with that one call site stubbed it decodes byte-identical to
       native in a wasm VM (~337 KB brotli, standalone upper bound).
+
+      T1 FIRED 2026-11-08: OxideAV/oxideav-av1#33 (filed by us 2026-10-28) was
+      fixed in oxideav-av1 0.1.23. The probe's wasm tests now pass UNPATCHED at
+      oxideav-avif 0.0.17 + oxideav-av1 0.1.23 + oxideav-core 0.1.43, with the
+      same plane hashes as the native decode; 0.1.21 still panics (control).
+      This clears the wasm blocker but does not answer the question: there is
+      still no T2 demand, so the status stays open. Before any adoption, re-run
+      the native differential and fuzz at the new versions.
 
       Why not now: the demo already gets AVIF decode free from the browser
       (DEC-065); natively it is 2.6x slower than re_rav1d and raises MSRV
@@ -190,6 +198,41 @@ questions:
       HEIC is NOT part of this question: no trigger here clears the HEVC
       patent axis (DEC-052, see `avc-patent-exposure-for-an-independent-decoder`
       for the same shape). Do not re-open HEIC by re-probing oxideav-heif.
+
+  - id: heifer-heic-backend
+    question: "Should the opt-in `heic` feature switch from system libheif (`libheif-rs`) to the pure-Rust `heifer` decoder?"
+    priority: low
+    status: open
+    raised_by: human
+    raised_at: 2026-11-02
+    assigned_to: null
+    notes: |
+      STRONGEST CANDIDATE YET; NOT NEEDED YET. Assessed in
+      `docs/research/heifer-heic-assessment-2026-11.md`; reproducible probe at
+      `docs/probes/heifer-heic-differential/`.
+
+      Measured 2026-11-02 at heifer 0.3.20: all 223 HEVC items in 8 files (two
+      real iPhone grids, one with a gain map; macOS 36-tile wallpapers; alpha)
+      are byte-identical to ffmpeg raw YUV, with a negative control that
+      differs; 4:2:0/4:2:2/4:4:4 at 8/10/12-bit also identical; RGB differs from
+      libheif only by chroma upsampling; 13 corrupt files error cleanly.
+
+      Would buy: no system libheif, no LGPL notice, `heic` on Windows, and a C
+      decoder removed from the feature's attack surface. Would NOT buy any
+      distributed HEIC (DEC-052 patents), including the hosted wasm demo.
+
+      Why not now: 4 weeks old with one author and 28 releases; the `heifer`
+      facade always compiles its HEVC encoder (no feature to drop it); and no
+      user has asked.
+
+      Revisit when ANY fires: H1 a request for `heic` without libheif or on
+      Windows; H2 libheif-rs/system libheif breaks the `heic` CI job, or a
+      libheif/libde265 CVE hits the decode path; H3 heifer >= 0.4 AND an
+      optional encoder feature AND 6 months with no breaking change (earliest
+      2027-05-02). Before adopting: re-run the probe at the candidate version,
+      add Android, real 10-bit and rotated photos, run the `heic_decode` fuzz
+      target in a debug profile, then write the DEC superseding DEC-056's
+      libheif choice. Do not use this to re-open the patent question.
 
   # --- Raised 2026-09-30 from a pngquant / gifski comparison. All three are
   # --- investigation items, not decided work. Animated AVIF is NOT repeated here:
@@ -278,3 +321,30 @@ questions:
       exists, and do not resolve by re-probing crates.io without a stated
       reason); (c) should any release channel ship `webp-lossy`. The default
       stays constrained by `pure-rust-codecs-default`.
+
+  - id: allocation-cap-counts-bytes
+    question: "Should the operation size cap (MAX_AREA, 134,217,728 px) count bytes rather than pixels, so a float canvas cannot allocate four times what an RGBA8 one can?"
+    priority: medium
+    status: open
+    raised_by: claude
+    raised_at: 2026-11-06
+    assigned_to: human
+    notes: |
+      MAX_AREA is 512 MiB at RGBA8, but its unit is pixels, so the bytes
+      it allows depend on the sample type. Two routes reach about 2 GiB
+      (16 B/px) today:
+      - resize, from any input: since SPEC-122 the resample runs in
+        F32x4, so a target at the area cap allocates a 16 B/px buffer
+        even from a small 8-bit image;
+      - pad, on an Rgba32F input: the canvas keeps the input's variant,
+        so a padded canvas at the cap is 16 B/px (found at SPEC-151's
+        build; verify confirmed resize already reaches the same size).
+      The MAX_AREA comment in src/operation/mod.rs and DEC-095 both say
+      whether the bound moves is a decision about untrusted-input
+      allocation (constraint untrusted-input-hardening), not a tidy-up.
+      Until now it lived only in those comments, with no backlog entry.
+      Options: keep pixels and document the float multiple; cap bytes per
+      sample type; or cap the intermediate separately. Any change moves
+      the refusal messages: pad's are pinned by exact-text tests, and
+      resize's will be once STAGE-058's "Pin resize's cap message text"
+      entry lands.

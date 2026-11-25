@@ -33,10 +33,10 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `--jobs <N>` | `-j` | Parallel workers for batch (rayon). Default = CPU count. Placeholder in STAGE-001; honored in STAGE-005. |
 | `--format <FMT>` | | Force output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). |
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
-| `--verbose` | `-v` | Increase verbosity (repeatable: `-vv`). Logs to stderr. |
-| `--quiet` | `-Q` | Suppress non-error output. |
+| `--verbose` | `-v` | Dependency log records to stderr: `-v` warnings, `-vv` adds info and debug. Nothing without it; `-Q` wins. |
+| `--quiet` | `-Q` | Suppress non-error output, including `-v` log records. |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--keep-gps` | | Opt out of the default-drop-GPS policy on pixel-lane encodes. |
+| `--keep-gps` | | Refused on every command (exit 2): pixel-lane encodes drop all metadata; the message names `meta copy`. Hidden from `--help`. |
 | `--version` / `--help` | `-V` / `-h` | Standard clap. |
 
 ### stdin / stdout (`-`)
@@ -55,9 +55,9 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `0` | Success. |
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
-| `3` | Input not found / unreadable. |
-| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
-| `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
+| `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
+| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. Also a recipe step that writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG), refused before anything is written. |
+| `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035; a failed write leaves the existing file as it was). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
 
@@ -189,7 +189,7 @@ preserving aspect, **never upscaling** (widths above the source width are
 skipped with a warning; variants dedupe by actual width). `--formats`
 defaults to the input's format; a feature-gated unbuilt codec
 exits **4** up front (DEC-004). `-q` sets the lossy quality (default 80; ignored for
-lossless). Single input (no glob/batch in v1). Reuses the resize op + per-format
+lossless). Single input (no glob/batch in v1). Names are fixed; `--name-template` and `--format` are refused (exit 2). Reuses the resize op + per-format
 sink; no new dependency. (blurhash placeholder, perceptual-per-variant, and a
 `sizes` attribute are deferred.)
 
@@ -368,7 +368,7 @@ pixel-lane `Operation` (DEC-002) — the first that composes a second image, loa
 once at the CLI boundary (DEC-031). The base image's EXIF **orientation is baked
 into the pixels first** (SPEC-110), matching every other pixel-lane verb, so the
 overlay composites onto the display-correct orientation, not the stored one.
-`--opacity O` (0–1, default 1) scales the
+`--opacity O` (above 0, at most 1; default 1) scales the
 overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
@@ -381,7 +381,7 @@ text into an overlay composited through the same path. `--image` and
 `--text` are mutually exclusive — exactly one required (neither/both → exit **2**).
 Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrides it
 (missing/unreadable → exit **3**). `--size` (px, default 32) must be above 0 and at most
-1024; `--scale` above 0 and finite; `--opacity` in 0–1; `--color`
+1024; `--scale` above 0 and finite; `--opacity` above 0 and at most 1; `--color`
 (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white). A bad `--size`, `--scale`, `--opacity`,
 `--gravity` or `--color` is a usage error (exit **2**) reported **before any file is read** —
 before the inputs, `--font` and `--image` — so it wins over a missing file (exit **3**). The
@@ -409,6 +409,20 @@ the recipe path:
   conflicts with `--scale`/`--tile`): `recipe step N ('watermark'): 'scale' only
   applies to an image watermark (this step sets 'text')`, exit **1**, before any input
   is read. `tile = false` is accepted (crustyimg writes it for every mark).
+
+**A mark that would draw nothing is refused.** Decided from the mark alone, before any
+input is read, so it is an error for the whole invocation (nothing is written), not a
+per-image skip: exit **2** on `watermark`, exit **1** in a recipe (`apply`, `build`), and a thrown error from wasm `transform`.
+`--watch` reports the error lines and keeps watching; it does not exit. The mark has no
+visible pixel when its opacity is `0`, when its opacity is too small to leave any alpha (counted at 16-bit
+precision, from the mark's largest alpha), when `--text` has no visible characters, when
+`--size` is too small to draw the text, when `--color` has alpha `00`, or when `--image` is
+fully transparent. `--opacity 0` and `--color …00` are checked with the flags, before any
+file is read; the other causes need the rendered or loaded mark and are checked before any
+input is. A faint mark that still has a visible pixel is drawn as asked, even where it changes
+nothing on a particular image (white text on a white photo, or a very low opacity on an
+8-bit image). The library exposes the check as `Watermark::invisible_mark()`; the public
+constructors `new_image` and `new_text` stay infallible, so a caller must ask.
 
 **A mark that would damage the image is refused (SPEC-133, DEC-104).** Before
 anything is drawn, `watermark` checks the mark against each image, in pure geometry:
@@ -443,11 +457,51 @@ What happens next depends on the run:
   `watermark skipped on K of N images` (only when K > 0; hidden by `--quiet`); `build`
   adds `, watermark skipped on K` to its summary line (see `build` below).
 
+**Crop in a recipe.** `op = "crop"` is a registered operation taking a rectangle
+(`x`, `y`, `width`, `height`) or an aspect (`aspect`, `gravity`), in fractions of the
+image rather than pixels, so one recipe crops the same region at any image size. A bad
+key, a value out of range, a rectangle that runs past the image's edge and a malformed
+aspect are refused when the recipe loads (exit **1**, nothing read or written). A crop
+that rounds to 0 px on the image it meets fails at apply (`operation 'crop' failed: …`,
+exit **1** for one input) instead of being widened or skipped; wasm `transform` throws
+the same line. The keys and their ranges are in `docs/data-model.md`.
+
+**Rotate and flip in a recipe.** `op = "rotate"` turns the image by a multiple of 90
+(`angle`, positive clockwise) and `op = "flip"` mirrors it on `axis` (`horizontal` or
+`vertical`). A bad key, a bad value or an angle that is not a multiple of 90 is refused
+when the recipe loads (exit **1**, nothing read or written). Neither fails at apply, and
+wasm `transform` throws the same line. The pixel lane writes no Orientation tag after
+either, so a recipe meant as the photo is displayed starts with `auto-orient`.
+
+**Pad in a recipe.** `op = "pad"` grows the canvas to an aspect (`aspect`, `gravity`) or by
+a border (`border`, a fraction of the long edge), filled with a required `color`: hex with
+any alpha (`#RRGGBBAA`) or `transparent`. A bad key or value is refused when the recipe
+loads (exit **1**, nothing read or written). A fill alpha the output format can't store (any
+alpha below `ff` into JPEG, any alpha but `00` and `ff` into GIF) is refused once the
+format is known and before the pipeline runs: exit **4** for one input or for a batch with
+one format (`--format`, a name template's extension or `recipe.format`), nothing written;
+exit **6**, that input only, when each input keeps its own format; wasm `transform` throws
+the same line. The auto-decided format of a terminal `optimize` always keeps the alpha.
+A border that rounds to 0 px or a canvas
+past the size caps fails at apply (`operation 'pad' failed: …`, exit **1** for one input,
+exit **6** in a batch, with nothing written for that input); wasm `transform` throws the
+same line. The pixel lane writes no Orientation tag after it.
+
+**Trim in a recipe.** `op = "trim"` removes the outer rows and columns that match one colour
+(the stated `color`, which may be `transparent`, or the top-left pixel) within `tolerance`. A bad key or value is refused
+when the recipe loads (exit **1**, nothing read or written). An image in which every pixel
+matches fails at apply (`operation 'trim' failed: …`, exit **1** for one input, exit **6** in
+a batch, with nothing written for that input); an image with nothing to trim is written
+unchanged; wasm `transform` throws the same line. The pixel lane writes no Orientation tag
+after it.
+
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*
 Remove **all** container metadata (EXIF/IPTC/XMP/ICC) via `img-parts`
 segment/chunk removal — no pixel re-decode (decoded pixels byte-identical).
+On JPEG, APP0 (JFIF) and Adobe's colour-transform APP14 are kept: a decoder reads them, and without the
+APP14 some CMYK and RGB JPEGs decode to different colours.
 **v1 covers JPEG + PNG**; any other format → exit **4**. Fan-out mirrors the
 pixel ops (DEC-015): single input → stdout / `-o` / `--out-dir`; multiple inputs
 require `--out-dir`; a per-input failure in a batch → exit **6**; overwrite refused
@@ -486,20 +540,36 @@ fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
-#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
-One-shot multi-op on a single image — the "experiment like an editor" mode.
+#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
+One-shot multi-op on one image or a batch (`--out-dir`) — the "experiment like an editor" mode.
 Every invocation **bakes EXIF orientation first** (SPEC-110), before any of the
 flag-driven ops run — so `edit --invert` and `edit --resize-max N` are never
 sideways, matching every other pixel-lane verb. `--auto-orient` is now an
 **accepted no-op**: since baking is unconditional, the flag changes nothing
 about the output whether it is passed or not (kept because the CLI surface was
 frozen in STAGE-030; no opt-out flag exists). The remaining op flags build an
-ordered operation list (v1: `--resize-max N`, `--invert` — only ops that
-round-trip through the registry, DEC-005). **At least one op flag is required**
+ordered operation list (`--resize-max N`, `--invert`, `--crop`, `--rotate`,
+`--flip`, `--pad`, `--trim` — only ops that round-trip through the registry, DEC-005). **At least one op flag is required**
 (else exit 2) — `--auto-orient` alone still satisfies this and exits 0.
-Regardless of the order the flags are typed, ops apply in a fixed **canonical
-order: `auto-orient` → `resize` → `invert`** (orientation → geometry → color),
-so the result — and any saved recipe — is deterministic. Output, format,
+The op flags run **in the order they are typed**, and a saved recipe lists them
+in that order; orientation is always baked first, wherever `--auto-orient` is
+typed, and each op flag may be given once. A bad flag value, a repeated flag,
+`--crop-gravity` without `--crop` (or with a pixel crop), and zero op flags exit
+2 before any file is read. `--pad-color`/`--pad-gravity` without `--pad`,
+`--pad-gravity` with a border `--pad N`, and `--trim-color`/`--trim-tolerance`
+without `--trim` exit 2 before any file is read. A pixel `--crop WxH+X+Y` is in pixels of the image
+the step receives; one that runs past its edge exits 1, naming the flag and
+that image's size. A border `--pad N` is in pixels of the image the step
+receives: N past that image's long edge, or a canvas past the size caps, exits
+1. A `--pad-color` whose alpha the output format can't store exits 4 before
+anything is written (one input, or a batch whose format the flags fix), or
+fails that input in a batch that keeps each input's format (exit 6). `--trim`
+on an image that matches all over exits 1 (exit 6 in a batch). With
+`--save-recipe`, a pixel `--crop` is saved as fractions of the image the step
+received and needs **one input image**, and a border `--pad N` is saved as a
+fraction of the long edge and needs one input image too: a directory or glob
+naming several is exit 2 (an aspect `--crop W:H` or `--pad W:H` has no pixel
+length and saves from a batch). A failed run writes no recipe. Output, format,
 `-q`/`-y` behave as for the other pixel commands (`-o`/`-o -`/`--out-dir`;
 `--format` › `-o` ext › preserve). `--save-recipe FILE` serializes the exact op
 chain to a TOML recipe (DEC-005, `version = "1"`) that `apply --recipe FILE`
@@ -559,8 +629,8 @@ source's own extension and is not a literal one. With one input and `-o` given, 
 ignored, so the template is always the name and pins. `meta strip`/`clean`/`set`
 cannot convert (they keep the input's container), so they refuse with **exit 4**, before
 writing anything, when `-o` or the template names a different recognized format than an
-input's own; a refused batch writes nothing. Not yet covered: `responsive` accepts
-`--name-template` and ignores it.
+input's own; a refused batch writes nothing. `responsive` refuses `--name-template` and
+`--format` (exit 2): its names are fixed `{stem}-{width}w.{ext}`.
 
 Before SPEC-126 the two arities disagreed in both directions —
 one input with no `--format` wrote PNG whatever the source was, and multiple inputs ignored

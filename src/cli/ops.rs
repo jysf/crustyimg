@@ -5,24 +5,36 @@
 //! replays through (DEC-015). Split out of `cli/mod.rs` (SPEC-097) — no
 //! behavior change.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::registry::param_spec;
 use crate::operation::{
-    Gravity, OperationParams, OperationRegistry, RegistryError, Watermark, WATERMARK_PARAMS,
+    Crop, Gravity, IntroducedAlpha, InvisibleMark, Operation, OperationError, OperationParams,
+    OperationRegistry, Pad, Refusal, RegistryError, Watermark, MAX_AREA, MAX_EDGE,
+    WATERMARK_PARAMS,
 };
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
-use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
-use crate::source::{self, SourceError};
+use crate::sink::{Overwrite, Sink, SinkInput};
+use crate::source::{self, OnEmpty, SourceError};
 
 use super::common::{
-    name_pinned_format, report_skipped_images, resolve_format, warn_skipped_steps,
+    name_pinned_format, refuse_folder, report_skipped_images, resolve_format, warn_skipped_steps,
 };
 use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
-use super::{AutoQuality, CliError, GlobalArgs};
+use super::{AutoQuality, CliError, EditOp, GlobalArgs};
+
+/// The stderr warning printed when `set`/`clean`/`copy` drop a C2PA manifest
+/// that their edit would otherwise have invalidated — shared so all three
+/// print identical wording and the test suite asserts on one string. It lives
+/// with the CLI, not in `metadata`, because only the CLI prints it and the CLI
+/// is not compiled for wasm32.
+const MANIFEST_DROPPED_WARNING: &str =
+    "dropped the file's Content Credentials (C2PA) manifest — this edit would have invalidated its signature";
 
 /// The `view` path: resolve the single input, load the image, and render it
 /// via the display Sink. Resolves the FIRST input when a directory/glob yields
@@ -34,7 +46,7 @@ pub(super) fn run_view(
     height: Option<u32>,
     _global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let resolved = source::resolve(input, &mut std::io::stdin().lock())?;
+    let resolved = source::resolve_all(&[input], &mut std::io::stdin().lock(), OnEmpty::Fail)?;
     let first = resolved
         .into_iter()
         .next()
@@ -215,18 +227,8 @@ pub(super) fn output_format_for(
     recipe_format: Option<&str>,
     source_format: ::image::ImageFormat,
 ) -> Result<::image::ImageFormat, CliError> {
-    // 1. Explicit --format wins.
-    if let Some(fmt) = resolve_format(global.format.as_deref())? {
-        return Ok(fmt);
-    }
-
-    // 2. The output name's extension: -o <path>, else the --out-dir template.
-    // An unrecognized extension names the file only and falls through.
-    if let Some(path) = output_path {
-        if let Ok(fmt) = crate::sink::format_from_extension(path) {
-            return Ok(fmt);
-        }
-    } else if let Some(fmt) = template.and_then(crate::sink::template_literal_format) {
+    // 1-2. The format the flags and the output name fix.
+    if let Some(fmt) = format_fixed_by_flags(global, output_path, template)? {
         return Ok(fmt);
     }
 
@@ -238,6 +240,33 @@ pub(super) fn output_format_for(
 
     // 4. Preserve source format.
     Ok(source_format)
+}
+
+/// The output format that `--format` or the output name fixes, or `None` when
+/// neither does (rungs 1 and 2 of [`output_format_for`]).
+///
+/// Reads no input, so a batch whose format is the same for every image can ask
+/// it once, before any image is read.
+pub(super) fn format_fixed_by_flags(
+    global: &GlobalArgs,
+    output_path: Option<&Path>,
+    template: Option<&str>,
+) -> Result<Option<::image::ImageFormat>, CliError> {
+    // 1. Explicit --format wins.
+    if let Some(fmt) = resolve_format(global.format.as_deref())? {
+        return Ok(Some(fmt));
+    }
+
+    // 2. The output name's extension: -o <path>, else the --out-dir template.
+    // An unrecognized extension names the file only and falls through.
+    if let Some(path) = output_path {
+        if let Ok(fmt) = crate::sink::format_from_extension(path) {
+            return Ok(Some(fmt));
+        }
+    } else if let Some(fmt) = template.and_then(crate::sink::template_literal_format) {
+        return Ok(Some(fmt));
+    }
+    Ok(None)
 }
 
 // ── resize handler ─────────────────────────────────────────────────────────────
@@ -329,21 +358,26 @@ pub(super) fn run_pixel_op(
     auto: Option<AutoQuality>,
     never_bigger: bool,
 ) -> Result<(), CliError> {
+    // A forced format is the same for every input, so a step that writes alpha
+    // it can't store is refused once, here, before any input is read. An
+    // unforced format is resolved per input, so that check happens below, once
+    // the format is known, whenever a step adds alpha.
+    if let Some(refused) = forced_format.and_then(|fmt| pipeline.unstorable_alpha(fmt)) {
+        return Err(refused.into());
+    }
+
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
     // NOT partial-batch (exit 6). Partial-batch applies only to per-input
     // load/run/write failures AFTER successful resolution.
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        let resolved = source::resolve(arg, &mut stdin_lock)?;
-        all.extend(resolved);
-    }
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
-    if all.is_empty() {
-        let joined = inputs.join(" ");
-        return Err(CliError::Source(SourceError::NotFound(joined)));
-    }
+    // A caller that resolves the format per input checks a step's alpha against
+    // it here, but only when a step adds alpha. Every other pipeline keeps its
+    // exit codes: resolving the format before the pipeline runs would turn a
+    // pipeline failure, such as a crop past the edge, into a format error
+    // whenever `--format` is also wrong.
+    let alpha_check = forced_format.is_none() && pipeline.introduces_alpha();
 
     let overwrite = if global.yes {
         Overwrite::Allow
@@ -374,6 +408,23 @@ pub(super) fn run_pixel_op(
             eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
         }
 
+        // The output name and the template that fix the format. The template
+        // names the output only when it goes into --out-dir.
+        let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
+        let template = if output_path.is_none() && global.out_dir.is_some() {
+            global.name_template.as_deref()
+        } else {
+            None
+        };
+
+        // Before the pipeline runs, so one input is refused with nothing written.
+        if alpha_check {
+            let fmt = output_format_for(global, output_path, template, None, img.source_format())?;
+            if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                return Err(refused.into());
+            }
+        }
+
         // Captured BEFORE the pipeline (which may replace the pixels) consumes
         // `img` — only needed when `never_bigger` is set, but cheap to always take
         // (a snapshot of already-decoded fields, no re-decode).
@@ -382,20 +433,11 @@ pub(super) fn run_pixel_op(
         let out_img = pipeline.run(img.clone())?;
 
         // Resolve per-input output format (DEC-015): forced_format wins if Some.
-        let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
         let fmt = match forced_format {
             Some(f) => f,
             // No recipe on this path (`resize`/`thumbnail`/`watermark`/`edit`/
             // `auto-orient` build their pipeline directly from CLI flags).
-            None => {
-                // The template names the output only when it goes into --out-dir.
-                let template = if output_path.is_none() && global.out_dir.is_some() {
-                    global.name_template.as_deref()
-                } else {
-                    None
-                };
-                output_format_for(global, output_path, template, None, img.source_format())?
-            }
+            None => output_format_for(global, output_path, template, None, img.source_format())?,
         };
 
         // Build the sink with the resolved format.
@@ -458,6 +500,16 @@ pub(super) fn run_pixel_op(
             .clone()
             .unwrap_or_else(|| "{stem}.{ext}".to_owned());
 
+        // A format the flags fix for every input is checked once, before any
+        // image is read: refusing it per input would fail every input one by one.
+        if alpha_check {
+            if let Some(fmt) = format_fixed_by_flags(global, None, Some(&template))? {
+                if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                    return Err(refused.into());
+                }
+            }
+        }
+
         let total = all.len();
         let mut failed: usize = 0;
         let mut skipped_images: usize = 0;
@@ -482,6 +534,21 @@ pub(super) fn run_pixel_op(
                 // SPEC-119: see the single-input branch above.
                 if img.is_animated_input() {
                     eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
+                }
+
+                // A format that follows this input is known now, and before the
+                // pipeline runs: only this input fails.
+                if alpha_check {
+                    let fmt = output_format_for(
+                        global,
+                        None,
+                        Some(&template),
+                        None,
+                        img.source_format(),
+                    )?;
+                    if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+                        return Err(refused.into());
+                    }
                 }
 
                 // See the single-input branch above: captured before the pipeline
@@ -768,15 +835,7 @@ fn run_metadata_lane(
     warn_on_manifest_drop: bool,
 ) -> Result<(), CliError> {
     // Resolve + flatten every input arg (resolution errors are hard errors).
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        let resolved = source::resolve(arg, &mut stdin_lock)?;
-        all.extend(resolved);
-    }
-    if all.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
-    }
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
     refuse_a_name_asking_for_another_format(&all, global)?;
 
@@ -798,10 +857,7 @@ fn run_metadata_lane(
                 .path()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| input.stem().to_owned());
-            eprintln!(
-                "warning: {label}: {}",
-                crate::metadata::MANIFEST_DROPPED_WARNING
-            );
+            eprintln!("warning: {label}: {}", MANIFEST_DROPPED_WARNING);
         }
         let ext = metadata_output_ext(input, &raw);
 
@@ -867,10 +923,7 @@ fn run_metadata_lane(
                     && crate::metadata::has_manifest(&raw)
                     && !crate::metadata::has_manifest(&out_bytes)
                 {
-                    eprintln!(
-                        "warning: {label}: {}",
-                        crate::metadata::MANIFEST_DROPPED_WARNING
-                    );
+                    eprintln!("warning: {label}: {}", MANIFEST_DROPPED_WARNING);
                 }
                 let ext = metadata_output_ext(input, &raw);
 
@@ -975,6 +1028,8 @@ pub(super) fn run_set(
 pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Result<(), CliError> {
     // Read both inputs directly (no source::resolve glob fan-out). An I/O error
     // (missing/unreadable path) maps to exit 3 via ImageError::Io.
+    refuse_folder(from)?;
+    refuse_folder(to)?;
     let from_bytes = std::fs::read(from).map_err(ImageError::Io)?;
     let to_bytes = std::fs::read(to).map_err(ImageError::Io)?;
 
@@ -983,10 +1038,7 @@ pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Re
     // DST's own manifest, not SRC's, is what can be dropped here: the graft
     // rewrites DST's EXIF/ICC (see copy_metadata's doc comment).
     if crate::metadata::has_manifest(&to_bytes) && !crate::metadata::has_manifest(&out_bytes) {
-        eprintln!(
-            "warning: {to}: {}",
-            crate::metadata::MANIFEST_DROPPED_WARNING
-        );
+        eprintln!("warning: {to}: {}", MANIFEST_DROPPED_WARNING);
     }
 
     // The output extension: DST's own extension, or sniff (format is preserved).
@@ -1039,146 +1091,651 @@ pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Re
     Ok(())
 }
 
-// ── edit helpers (SPEC-032) ───────────────────────────────────────────────────
+// ── edit helpers ──────────────────────────────────────────────────────────────
 
-/// Build the ordered op list for `edit` from the active op flags (SPEC-032).
+/// The flags `edit` was given, as the op builders read them.
 ///
-/// Ops are appended in the canonical order regardless of which flags are set:
-///
-/// 1. `auto-orient` (orientation normalization → pixels)
-/// 2. `resize`      (geometry — `--resize-max N`)
-/// 3. `invert`      (color)
-///
-/// Each op is built through `OperationRegistry::with_builtins` (DEC-005) so the
-/// returned ops carry the same `name()` + `params()` that `Recipe::from_ops`
-/// records and `apply` can replay.
-///
-/// Errors:
-/// - Zero flags set → `CliError::Usage` (exit 2).
-/// - `resize` params rejected → `CliError::Usage` (exit 2).
-/// - Any other `RegistryError` (defensive) → `CliError::Usage` (exit 2).
-fn build_edit_ops(
-    auto_orient: bool,
-    resize_max: Option<u32>,
-    invert: bool,
-) -> Result<Vec<Box<dyn crate::operation::Operation>>, CliError> {
-    let registry = OperationRegistry::with_builtins();
-    let mut ops: Vec<Box<dyn crate::operation::Operation>> = Vec::new();
+/// Which op flags were typed, and in what order, comes from `order` alone; the
+/// value fields are read only for an op that `order` lists. `--auto-orient` is
+/// not in `order`: orientation is always baked first, so the flag only counts as
+/// an op flag.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EditFlags {
+    pub(crate) auto_orient: bool,
+    pub(crate) resize_max: Option<u32>,
+    pub(crate) crop: Option<String>,
+    pub(crate) crop_gravity: Option<String>,
+    pub(crate) rotate: Option<i64>,
+    pub(crate) flip: Option<String>,
+    pub(crate) pad: Option<String>,
+    pub(crate) pad_color: Option<String>,
+    pub(crate) pad_gravity: Option<String>,
+    pub(crate) trim_color: Option<String>,
+    pub(crate) trim_tolerance: Option<u8>,
+    pub(crate) order: Vec<EditOp>,
+}
 
-    if auto_orient {
-        let op = registry
-            .build("auto-orient", &OperationParams::empty())
-            .map_err(|e| match e {
-                RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
-                RegistryError::Unknown { name } => {
-                    CliError::Usage(format!("unknown operation '{name}'"))
-                }
-            })?;
-        ops.push(op);
+/// What `--save-recipe` writes for one step.
+enum StepRecord {
+    /// The op's own params, known when it was built.
+    Built(OperationParams),
+    /// A pixel `--crop` or a border `--pad N`: the fractions it worked out when it
+    /// ran, read after the run.
+    Resolved(Rc<RefCell<Option<OperationParams>>>),
+}
+
+/// One step of an `edit` run: the op to run and what to save for it.
+struct EditStep {
+    op: Box<dyn Operation>,
+    record: StepRecord,
+}
+
+/// A `--crop` value: pixels (`WxH+X+Y`) or an aspect (`W:H`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CropFlag {
+    Pixels { w: u32, h: u32, x: u32, y: u32 },
+    Aspect,
+}
+
+/// Digits only, no sign, and it must fit a `u32`.
+fn crop_number(text: &str) -> Option<u32> {
+    if text.is_empty() || !text.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let mut value: u64 = 0;
+    for c in text.bytes() {
+        value = value * 10 + u64::from(c - b'0');
+        if value > u64::from(u32::MAX) {
+            return None;
+        }
+    }
+    Some(value as u32)
+}
+
+/// Parse a `--crop` value. A `:` makes it an aspect (checked later by the op);
+/// otherwise it must be `WxH+X+Y` with a lowercase ASCII `x`, all four numbers
+/// present, and a width and height of at least 1.
+fn parse_crop_flag(s: &str) -> Result<CropFlag, CliError> {
+    if s.contains(':') {
+        return Ok(CropFlag::Aspect);
+    }
+    let bad_syntax = || {
+        CliError::Usage(format!(
+            "--crop must be WxH+X+Y in pixels, such as 800x600+10+20, or an aspect W:H, such \
+             as 16:9; got {s:?}"
+        ))
+    };
+    let rect = (|| {
+        let (w, rest) = s.split_once('x')?;
+        let (h, offsets) = rest.split_once('+')?;
+        let (x, y) = offsets.split_once('+')?;
+        Some((
+            crop_number(w)?,
+            crop_number(h)?,
+            crop_number(x)?,
+            crop_number(y)?,
+        ))
+    })();
+    let Some((w, h, x, y)) = rect else {
+        return Err(bad_syntax());
+    };
+    if w == 0 || h == 0 {
+        return Err(CliError::Usage(format!(
+            "--crop must keep at least 1 px each way; got {s:?}"
+        )));
+    }
+    Ok(CropFlag::Pixels { w, h, x, y })
+}
+
+/// The `crop` params for a pixel rectangle in an `iw`×`ih` image, as fractions.
+///
+/// Each is one `f64` division, written to the recipe untouched: a rounded or
+/// shortened fraction can replay as a rectangle that runs past the edge.
+fn crop_fractions(w: u32, h: u32, x: u32, y: u32, iw: u32, ih: u32) -> OperationParams {
+    use std::collections::BTreeMap;
+
+    let (fw, fh) = (f64::from(iw), f64::from(ih));
+    let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
+    map.insert("x".into(), toml::Value::Float(f64::from(x) / fw));
+    map.insert("y".into(), toml::Value::Float(f64::from(y) / fh));
+    map.insert("width".into(), toml::Value::Float(f64::from(w) / fw));
+    map.insert("height".into(), toml::Value::Float(f64::from(h) / fh));
+    OperationParams::from_map(map)
+}
+
+/// A pixel `--crop`. It works out its fractions from the image it receives,
+/// which is not the decoded image when an earlier step resized or turned it,
+/// and keeps them for `--save-recipe`.
+struct PixelCrop {
+    w: u32,
+    h: u32,
+    x: u32,
+    y: u32,
+    /// The flag value as typed, for messages.
+    typed: String,
+    resolved: Rc<RefCell<Option<OperationParams>>>,
+}
+
+impl Operation for PixelCrop {
+    fn name(&self) -> &'static str {
+        "crop"
     }
 
-    if let Some(n) = resize_max {
-        let params = resize_params(Some(n), None, None, None, None, None)?;
-        let op = registry.build("resize", &params).map_err(|e| match e {
-            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+    fn params(&self) -> OperationParams {
+        self.resolved
+            .borrow()
+            .clone()
+            .unwrap_or_else(OperationParams::empty)
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        let fail = |reason: String| OperationError::Apply { op: "crop", reason };
+        let (iw, ih) = (img.pixels().width(), img.pixels().height());
+        // Checked in pixels, before any conversion, so the message speaks pixels.
+        if u64::from(self.x) + u64::from(self.w) > u64::from(iw) {
+            return Err(fail(format!(
+                "--crop {} runs past the right edge of the {iw}\u{d7}{ih} px image it receives",
+                self.typed
+            )));
+        }
+        if u64::from(self.y) + u64::from(self.h) > u64::from(ih) {
+            return Err(fail(format!(
+                "--crop {} runs past the bottom edge of the {iw}\u{d7}{ih} px image it receives",
+                self.typed
+            )));
+        }
+        let params = crop_fractions(self.w, self.h, self.x, self.y, iw, ih);
+        let crop = Crop::from_params(&params).map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => fail(reason),
+            other => fail(other.to_string()),
+        })?;
+        let out = crop.apply(img)?;
+        *self.resolved.borrow_mut() = Some(params);
+        Ok(out)
+    }
+}
+
+/// A `--pad` value: pixels on every side (`N`) or an aspect (`W:H`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PadFlag {
+    Border(u32),
+    Aspect,
+}
+
+/// Parse a `--pad` value. A `:` makes it an aspect (checked later by the op);
+/// otherwise it must be whole pixels, at least 1.
+fn parse_pad_flag(s: &str) -> Result<PadFlag, CliError> {
+    if s.contains(':') {
+        return Ok(PadFlag::Aspect);
+    }
+    match crop_number(s) {
+        Some(n) if n >= 1 => Ok(PadFlag::Border(n)),
+        _ => Err(CliError::Usage(format!(
+            "--pad must be N, a whole number of pixels of at least 1, or an aspect W:H, such \
+             as 4:5; got {s:?}"
+        ))),
+    }
+}
+
+/// A border `--pad N`. It works out `border` (N over the long edge) from the
+/// image it receives, which is not the decoded image when an earlier step
+/// resized or turned it, and keeps it for `--save-recipe`.
+struct PixelPad {
+    n: u32,
+    /// The `--pad-color` value as typed; it is saved as written.
+    color: String,
+    /// What a translucent fill adds, carrying the flag that set it. Without
+    /// this forward, the alpha checks pass and a JPEG gets a black border.
+    alpha: Option<IntroducedAlpha>,
+    resolved: Rc<RefCell<Option<OperationParams>>>,
+}
+
+impl Operation for PixelPad {
+    fn name(&self) -> &'static str {
+        "pad"
+    }
+
+    fn params(&self) -> OperationParams {
+        self.resolved
+            .borrow()
+            .clone()
+            .unwrap_or_else(OperationParams::empty)
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        let fail = |reason: String| OperationError::Apply { op: "pad", reason };
+        let (iw, ih) = (img.pixels().width(), img.pixels().height());
+        let long = iw.max(ih);
+        // Checked in pixels, before any conversion, so the messages speak pixels.
+        // A recipe's `border` is at most 1, so a wider N has no saved form.
+        if self.n > long {
+            return Err(fail(format!(
+                "--pad {} is wider than the {long} px long edge of the {iw}\u{d7}{ih} px image \
+                 it receives; a border can be at most as wide as the long edge",
+                self.n
+            )));
+        }
+        let (cw, ch) = (
+            u64::from(iw) + 2 * u64::from(self.n),
+            u64::from(ih) + 2 * u64::from(self.n),
+        );
+        if cw > u64::from(MAX_EDGE) || ch > u64::from(MAX_EDGE) {
+            return Err(fail(format!(
+                "--pad {} on this {iw}\u{d7}{ih} px image needs a {cw}\u{d7}{ch} px canvas, \
+                 which exceeds the maximum edge limit of {MAX_EDGE} px",
+                self.n
+            )));
+        }
+        if cw * ch > MAX_AREA {
+            return Err(fail(format!(
+                "--pad {} on this {iw}\u{d7}{ih} px image needs a {cw}\u{d7}{ch} px canvas = {} \
+                 px, which exceeds the maximum area of {MAX_AREA} px",
+                self.n,
+                cw * ch
+            )));
+        }
+        // One `f64` division, written to the recipe untouched: `pad` rounds
+        // `border * long` back to N px.
+        let border = f64::from(self.n) / f64::from(long);
+        let params = pad_params([
+            ("border", toml::Value::Float(border)),
+            ("color", toml::Value::String(self.color.clone())),
+        ]);
+        let pad = Pad::from_params(&params).map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => fail(reason),
+            other => fail(other.to_string()),
+        })?;
+        let out = pad.apply(img)?;
+        *self.resolved.borrow_mut() = Some(params);
+        Ok(out)
+    }
+
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        self.alpha.clone()
+    }
+}
+
+/// `pad` or `trim` params from key/value pairs.
+fn pad_params<const N: usize>(pairs: [(&str, toml::Value); N]) -> OperationParams {
+    OperationParams::from_map(
+        pairs
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+    )
+}
+
+/// An aspect `--pad` and `--trim`, wrapped so the messages name the flags the
+/// user typed. It forwards every `Operation` method; the alpha it forwards
+/// carries the flag that set it, and an apply failure has each `'key' = ` of
+/// the op's own wording replaced by its flag.
+struct FlagWorded {
+    inner: Box<dyn Operation>,
+    /// `(recipe key, flag)` pairs.
+    keys: &'static [(&'static str, &'static str)],
+}
+
+impl FlagWorded {
+    fn flag_for(&self, key: &str) -> Option<&'static str> {
+        self.keys.iter().find(|(k, _)| *k == key).map(|(_, f)| *f)
+    }
+}
+
+impl Operation for FlagWorded {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn params(&self) -> OperationParams {
+        self.inner.params()
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        self.inner.apply(img).map_err(|e| match e {
+            OperationError::Apply { op, mut reason } => {
+                for (key, flag) in self.keys {
+                    reason = reason.replace(&format!("'{key}' = "), &format!("{flag} "));
+                }
+                OperationError::Apply { op, reason }
+            }
+            other => other,
+        })
+    }
+
+    fn refusal(&self, img: &Image) -> Option<Refusal> {
+        self.inner.refusal(img)
+    }
+
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        self.inner.introduced_alpha().map(|a| IntroducedAlpha {
+            flag: self.flag_for(a.key),
+            ..a
+        })
+    }
+}
+
+/// `pad`'s keys and the flags that set them.
+const PAD_FLAGS: [(&str, &str); 3] = [
+    ("aspect", "--pad"),
+    ("gravity", "--pad-gravity"),
+    ("color", "--pad-color"),
+];
+
+/// `trim`'s keys and the flags that set them.
+const TRIM_FLAGS: [(&str, &str); 2] =
+    [("color", "--trim-color"), ("tolerance", "--trim-tolerance")];
+
+/// Build one op through the registry. A refusal names the flag the user typed
+/// instead of the recipe key: each `(key, flag)` swaps the first `'key'` in the
+/// op's message for `flag`.
+fn build_flag_op(
+    op: &'static str,
+    params: &OperationParams,
+    keys: &[(&str, &str)],
+) -> Result<Box<dyn Operation>, CliError> {
+    OperationRegistry::with_builtins()
+        .build(op, params)
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { mut reason, .. } => {
+                for (key, flag) in keys {
+                    reason = reason.replacen(&format!("'{key}'"), flag, 1);
+                }
+                CliError::Usage(reason)
+            }
             RegistryError::Unknown { name } => {
                 CliError::Usage(format!("unknown operation '{name}'"))
             }
-        })?;
-        ops.push(op);
-    }
+        })
+}
 
-    if invert {
-        let op = registry
-            .build("invert", &OperationParams::empty())
-            .map_err(|e| match e {
-                RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
-                RegistryError::Unknown { name } => {
-                    CliError::Usage(format!("unknown operation '{name}'"))
-                }
-            })?;
-        ops.push(op);
-    }
+/// A step whose saved params are the op's own.
+fn built(op: Box<dyn Operation>) -> EditStep {
+    let record = StepRecord::Built(op.params());
+    EditStep { op, record }
+}
 
-    if ops.is_empty() {
+/// A single-key param set.
+fn one_param(key: &str, value: toml::Value) -> OperationParams {
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(key.to_owned(), value);
+    OperationParams::from_map(map)
+}
+
+/// The error for an op that `order` lists but whose value is missing: a bug,
+/// never user input.
+fn missing_edit_value(flag: &str) -> CliError {
+    CliError::Usage(format!("internal: {flag} was listed but has no value"))
+}
+
+/// Build the steps for `edit`, one per op flag, in the order the flags were
+/// typed. `--auto-orient` adds no step: orientation is baked first, always.
+///
+/// Every op is built through `OperationRegistry::with_builtins`, so a saved step
+/// loads again in `apply`. A bad value is `CliError::Usage` (exit 2), raised
+/// before any file is read and naming the flag.
+///
+/// Errors:
+/// - No op flag and no `--auto-orient` → `CliError::Usage`.
+/// - A value the op or the `--crop` syntax rejects → `CliError::Usage`.
+fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
+    if flags.order.is_empty() && !flags.auto_orient {
         return Err(CliError::Usage(
-            "edit requires at least one operation flag (--auto-orient, --resize-max, --invert)"
+            "edit requires at least one operation flag (--auto-orient, --resize-max, --invert, \
+             --crop, --rotate, --flip, --pad, --trim)"
                 .into(),
         ));
     }
 
-    Ok(ops)
+    let mut steps = Vec::new();
+    for edit_op in &flags.order {
+        match edit_op {
+            EditOp::ResizeMax => {
+                let n = flags
+                    .resize_max
+                    .ok_or_else(|| missing_edit_value("--resize-max"))?;
+                let params = resize_params(Some(n), None, None, None, None, None)?;
+                steps.push(built(build_flag_op("resize", &params, &[])?));
+            }
+            EditOp::Invert => {
+                steps.push(built(build_flag_op(
+                    "invert",
+                    &OperationParams::empty(),
+                    &[],
+                )?));
+            }
+            EditOp::Rotate => {
+                let angle = flags.rotate.ok_or_else(|| missing_edit_value("--rotate"))?;
+                let params = one_param("angle", toml::Value::Integer(angle));
+                steps.push(built(build_flag_op(
+                    "rotate",
+                    &params,
+                    &[("angle", "--rotate")],
+                )?));
+            }
+            EditOp::Flip => {
+                let axis = flags
+                    .flip
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--flip"))?;
+                let params = one_param("axis", toml::Value::String(axis.to_owned()));
+                steps.push(built(build_flag_op(
+                    "flip",
+                    &params,
+                    &[("axis", "--flip")],
+                )?));
+            }
+            EditOp::Crop => {
+                let typed = flags
+                    .crop
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--crop"))?;
+                match parse_crop_flag(typed)? {
+                    CropFlag::Aspect => {
+                        let mut params = one_param("aspect", toml::Value::String(typed.to_owned()));
+                        if let Some(g) = &flags.crop_gravity {
+                            params = OperationParams::from_map(
+                                params
+                                    .iter()
+                                    .map(|(k, v)| (k.to_owned(), v.clone()))
+                                    .chain([("gravity".to_owned(), toml::Value::String(g.clone()))])
+                                    .collect(),
+                            );
+                        }
+                        steps.push(built(build_flag_op(
+                            "crop",
+                            &params,
+                            &[("aspect", "--crop"), ("gravity", "--crop-gravity")],
+                        )?));
+                    }
+                    CropFlag::Pixels { w, h, x, y } => {
+                        if flags.crop_gravity.is_some() {
+                            return Err(CliError::Usage(
+                                "--crop-gravity only places an aspect --crop W:H; a pixel --crop \
+                                 WxH+X+Y is placed by its +X+Y"
+                                    .into(),
+                            ));
+                        }
+                        let resolved = Rc::new(RefCell::new(None));
+                        steps.push(EditStep {
+                            op: Box::new(PixelCrop {
+                                w,
+                                h,
+                                x,
+                                y,
+                                typed: typed.to_owned(),
+                                resolved: Rc::clone(&resolved),
+                            }),
+                            record: StepRecord::Resolved(resolved),
+                        });
+                    }
+                }
+            }
+            EditOp::Pad => {
+                let typed = flags
+                    .pad
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--pad"))?;
+                let color = flags
+                    .pad_color
+                    .as_deref()
+                    .ok_or_else(|| missing_edit_value("--pad-color"))?;
+                match parse_pad_flag(typed)? {
+                    PadFlag::Aspect => {
+                        let mut params = pad_params([
+                            ("aspect", toml::Value::String(typed.to_owned())),
+                            ("color", toml::Value::String(color.to_owned())),
+                        ]);
+                        if let Some(g) = &flags.pad_gravity {
+                            params = OperationParams::from_map(
+                                params
+                                    .iter()
+                                    .map(|(k, v)| (k.to_owned(), v.clone()))
+                                    .chain([("gravity".to_owned(), toml::Value::String(g.clone()))])
+                                    .collect(),
+                            );
+                        }
+                        let inner = build_flag_op("pad", &params, &PAD_FLAGS)?;
+                        steps.push(built(Box::new(FlagWorded {
+                            inner,
+                            keys: &PAD_FLAGS,
+                        })));
+                    }
+                    PadFlag::Border(n) => {
+                        if flags.pad_gravity.is_some() {
+                            return Err(CliError::Usage(
+                                "--pad-gravity only places an aspect --pad W:H; a border --pad N \
+                                 adds the same width on every side"
+                                    .into(),
+                            ));
+                        }
+                        // A stand-in with `border = 1`: it runs the colour through
+                        // `pad`'s own parser before any file is read, and says
+                        // what alpha the fill adds. The real border is worked out
+                        // from the image the step receives.
+                        let stand_in = build_flag_op(
+                            "pad",
+                            &pad_params([
+                                ("border", toml::Value::Float(1.0)),
+                                ("color", toml::Value::String(color.to_owned())),
+                            ]),
+                            &PAD_FLAGS,
+                        )?;
+                        let alpha = stand_in.introduced_alpha().map(|a| IntroducedAlpha {
+                            flag: Some("--pad-color"),
+                            ..a
+                        });
+                        let resolved = Rc::new(RefCell::new(None));
+                        steps.push(EditStep {
+                            op: Box::new(PixelPad {
+                                n,
+                                color: color.to_owned(),
+                                alpha,
+                                resolved: Rc::clone(&resolved),
+                            }),
+                            record: StepRecord::Resolved(resolved),
+                        });
+                    }
+                }
+            }
+            EditOp::Trim => {
+                // Only what was typed is saved, so the recipe replays what ran.
+                let mut map = std::collections::BTreeMap::new();
+                if let Some(c) = &flags.trim_color {
+                    map.insert("color".to_owned(), toml::Value::String(c.clone()));
+                }
+                if let Some(t) = flags.trim_tolerance {
+                    map.insert("tolerance".to_owned(), toml::Value::Integer(i64::from(t)));
+                }
+                let inner = build_flag_op("trim", &OperationParams::from_map(map), &TRIM_FLAGS)?;
+                steps.push(built(Box::new(FlagWorded {
+                    inner,
+                    keys: &TRIM_FLAGS,
+                })));
+            }
+        }
+    }
+    Ok(steps)
 }
 
-/// Wire the `edit` subcommand: build an ordered op pipeline from the active
-/// flags, run it on `input`, write the result, and — when `--save-recipe` is
-/// given — serialize the op chain to a TOML recipe file (SPEC-032, DEC-005).
+/// Run `edit`: build the steps from the typed flags, run them on `input`, write
+/// the result, and, with `--save-recipe`, save the steps that ran.
 ///
-/// Flow (order matters for the round-trip + write-after-success guarantee):
+/// Flow:
 ///
-/// 1. Build the ordered ops via `build_edit_ops` (canonical order; DEC-005).
-/// 2. Capture the recipe object NOW before moving ops into the pipeline:
-///    `Recipe::from_ops(&ops)` borrows `&[Box<dyn Operation>]`; this must
-///    precede the `into_iter().fold` that consumes `ops`.
-/// 3. Fold ops onto the shared auto-orient prefix (SPEC-110) to build a
-///    `Pipeline`. `--auto-orient` is now an accepted no-op (STAGE-030 froze the
-///    CLI surface, so the flag cannot be removed): every `edit` invocation
-///    already bakes orientation via the prefix, so an explicit `auto-orient`
-///    op from `build_edit_ops` — when the flag IS passed — runs a harmless
-///    second time (the first bake already dropped the metadata bundle the op
-///    reads, so the repeat is a true no-op, not a double rotation).
-/// 4. Delegate to `run_pixel_op` for the full load→run→sink fan-out (DEC-015).
-/// 5. On success, if `--save-recipe` was given, serialize + write the recipe.
-///    A serialization failure → `CliError::Recipe` (exit 1); an I/O write
-///    failure → `CliError::Sink(SinkError::Io)` (exit 5). An orphan recipe is
-///    never written when the edit itself fails.
-///
-/// The saved recipe (step 2) records `auto-orient` EXPLICITLY as its first
-/// step whenever it is not already there from `--auto-orient` (SPEC-111
-/// decision 2), matching what the CLI prefix always bakes (step 3). SPEC-110
-/// baked orientation on the CLI path without recording it in `--save-recipe`
-/// output, so `edit`'s own replayed recipe silently stopped reproducing what
-/// `edit` did (DEC-086) — a hand-written recipe that named `auto-orient`
-/// itself replayed fine, so this closes the gap for the ones that didn't
-/// name it. A recipe is a record of what happened; `recipes/web.toml` already
-/// names `auto-orient` as an explicit first step, and saved recipes now match.
+/// 1. `build_edit_ops` builds every step before any file is read, so a bad flag
+///    value exits 2 with nothing written.
+/// 2. A pixel `--crop` and a border `--pad N` are converted to fractions of the
+///    image they receive, which differs per image; with `--save-recipe` that is
+///    only well defined for one input image, so a batch is refused up front
+///    (exit 2). Listing the input reads no image.
+/// 3. The steps run after the orientation bake, which every `edit` does first
+///    wherever `--auto-orient` is typed (the flag is an accepted no-op).
+/// 4. `run_pixel_op` does the load → run → sink fan-out.
+/// 5. Only after a successful run, `--save-recipe` writes the recipe: an
+///    `auto-orient` step, then each step that ran, in run order, with a pixel
+///    crop's fractions as it resolved them. It is built after the run because the
+///    fractions need each step's image. A failed run writes no recipe. An
+///    existing recipe without `--yes` is refused before the run, so a refused
+///    recipe leaves the image output unwritten too. A serialization failure is
+///    `CliError::Recipe` (exit 1), a write failure `SinkError::WriteFailed` or
+///    `SinkError::DirNotWritable` (exit 5), with the old recipe kept.
 pub(super) fn run_edit(
     input: &str,
-    auto_orient: bool,
-    resize_max: Option<u32>,
-    invert: bool,
+    flags: &EditFlags,
     save_recipe: Option<&str>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    // 1. Build ordered ops (canonical order; fails on zero flags or bad params).
-    let ops = build_edit_ops(auto_orient, resize_max, invert)?;
+    // 1. Build every step (fails on zero flags or a bad value).
+    let steps = build_edit_ops(flags)?;
 
-    // 2. Capture the recipe before consuming ops (from_ops borrows &[Box<dyn Op>]).
-    //    Record `auto-orient` explicitly (SPEC-111 decision 2) when it is not
-    //    already the first step from `--auto-orient` — `edit` always bakes it
-    //    via the shared prefix (step 3 below) regardless of that flag, so the
-    //    saved recipe must say so too, or replaying it loses the bake.
-    let recipe = save_recipe.map(|_| {
-        let mut r = Recipe::from_ops(&ops);
-        if !auto_orient {
-            r.steps.insert(
-                0,
-                RecipeStep {
-                    op: "auto-orient".to_owned(),
-                    params: OperationParams::empty(),
-                },
-            );
+    // The recipe's destination is guarded before anything is written, so a
+    // refused recipe leaves the image output unwritten too.
+    if let Some(path) = save_recipe {
+        let path = Path::new(path);
+        crate::sink::reject_symlink_destination(path)?;
+        let overwrite = if global.yes {
+            Overwrite::Allow
+        } else {
+            Overwrite::Forbid
+        };
+        crate::sink::guard_overwrite(path, overwrite)?;
+    }
+
+    // 2. A pixel crop or a border pad saved as fractions needs exactly one image
+    // to be about. The first such step, in typed order, picks the message.
+    let first_pixel_step = steps
+        .iter()
+        .find(|s| matches!(s.record, StepRecord::Resolved(_)));
+    if let (Some(step), Some(_), true) = (first_pixel_step, save_recipe, input != "-") {
+        let listed =
+            source::resolve_all(&[input.to_owned()], &mut std::io::empty(), OnEmpty::Fail)?;
+        let count = listed.len();
+        if count > 1 {
+            return Err(CliError::Usage(if step.op.name() == "pad" {
+                format!(
+                    "--save-recipe with a border --pad N needs one input image, and {input:?} \
+                     names {count}: the border is saved as a fraction of the image it ran on; \
+                     use an aspect --pad W:H, or edit each image on its own"
+                )
+            } else {
+                format!(
+                    "--save-recipe with a pixel --crop needs one input image, and {input:?} \
+                     names {count}: the crop is saved as fractions of the image it ran on; use \
+                     an aspect --crop W:H, or edit each image on its own"
+                )
+            }));
         }
-        r
-    });
+    }
 
-    // 3. Fold ops onto the shared auto-orient prefix (SPEC-110).
-    let pipeline = ops
-        .into_iter()
-        .fold(auto_orient_prefix()?, |p, op| p.push(op));
+    // 3. Fold the steps onto the orientation bake, keeping what to save for each.
+    let mut plan: Vec<(&'static str, StepRecord)> = Vec::new();
+    let mut pipeline = auto_orient_prefix()?;
+    for step in steps {
+        plan.push((step.op.name(), step.record));
+        pipeline = pipeline.push(step.op);
+    }
 
-    // 4. Load → run → sink via the established single/multi fan-out helper.
-    //    `input` is a &str; wrap it in a one-element Vec<String> slice.
+    // 4. Load → run → sink via the single/multi fan-out helper.
     let input_vec = [input.to_owned()];
     run_pixel_op(
         pipeline,
@@ -1190,12 +1747,30 @@ pub(super) fn run_edit(
         false,
     )?;
 
-    // 5. On success, write the recipe file if requested.
-    if let (Some(path), Some(r)) = (save_recipe, recipe) {
-        // Guard: refuse to write through a symlink (DEC-035, SPEC-037).
-        crate::sink::reject_symlink_destination(std::path::Path::new(path))?;
-        let toml = r.to_toml()?;
-        std::fs::write(path, toml).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
+    // 5. The run succeeded: save what ran.
+    if let Some(path) = save_recipe {
+        let mut recipe = Recipe::from_ops(&[]);
+        recipe.steps.push(RecipeStep {
+            op: "auto-orient".to_owned(),
+            params: OperationParams::empty(),
+        });
+        for (name, record) in plan {
+            let params = match record {
+                StepRecord::Built(p) => p,
+                StepRecord::Resolved(cell) => cell.borrow().clone().ok_or_else(|| {
+                    CliError::Operation(OperationError::Apply {
+                        op: name,
+                        reason: format!("internal: the {name} step never ran"),
+                    })
+                })?,
+            };
+            recipe.steps.push(RecipeStep {
+                op: name.to_owned(),
+                params,
+            });
+        }
+        let toml = recipe.to_toml()?;
+        crate::sink::publish_file(Path::new(path), toml.as_bytes())?;
     }
 
     Ok(())
@@ -1378,6 +1953,41 @@ fn flag_value_text(v: f32) -> String {
     }
 }
 
+/// The refusal for a mark that would draw nothing, naming the flags as typed.
+fn invisible_mark_error(
+    cause: InvisibleMark,
+    src: &WatermarkSource<'_>,
+    size: f32,
+    opacity: f32,
+) -> CliError {
+    CliError::Usage(match cause {
+        InvisibleMark::OpacityZero => {
+            "--opacity 0 draws no mark; to leave an image unmarked, do not run watermark".to_owned()
+        }
+        InvisibleMark::TooFaint => format!(
+            "--opacity {} is too faint: the mark would draw no visible pixel; \
+             use a larger --opacity",
+            flag_value_text(opacity)
+        ),
+        InvisibleMark::BlankText => {
+            "--text has no visible characters; use text with at least one visible character"
+                .to_owned()
+        }
+        InvisibleMark::TextTooSmall => format!(
+            "--text draws no visible pixel at --size {}; use a larger --size",
+            flag_value_text(size)
+        ),
+        InvisibleMark::TransparentColor => format!(
+            "--color {} is fully transparent; use an alpha above 00, or RRGGBB",
+            src.color.unwrap_or_default()
+        ),
+        InvisibleMark::TransparentImage => format!(
+            "--image {} is fully transparent; use an image with visible pixels",
+            src.image.unwrap_or_default()
+        ),
+    })
+}
+
 /// Build the watermark overlay (`DynamicImage`) + its round-trip identity from
 /// the source mode. Every flag has been checked by now; this is where files
 /// are first read.
@@ -1394,7 +2004,14 @@ fn watermark_overlay(
 ) -> Result<ResolvedOverlay, CliError> {
     if let Some(image) = src.image {
         // Image mode: load the overlay once at the IO boundary (DEC-031).
-        let overlay = Image::load(image)?;
+        // Read and decode separately so an unreadable file names itself, while a
+        // decode failure keeps its own error and exit code (SPEC-149).
+        let bytes = std::fs::read(image).map_err(|source| CliError::WatermarkAssetUnreadable {
+            what: "watermark image",
+            path: image.to_owned(),
+            source,
+        })?;
+        let overlay = Image::decode_path(image, &bytes)?;
         return Ok(ResolvedOverlay::Image {
             overlay: overlay.pixels().clone(),
             path: image.to_owned(),
@@ -1407,7 +2024,15 @@ fn watermark_overlay(
 
     // Load the font at the IO boundary (--font → exit 3) or use the bundled default.
     let font_owned: Option<Vec<u8>> = match &font_path {
-        Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?),
+        Some(path) => {
+            Some(
+                std::fs::read(path).map_err(|source| CliError::WatermarkAssetUnreadable {
+                    what: "font file",
+                    path: path.clone(),
+                    source,
+                })?,
+            )
+        }
         None => None,
     };
     let font_bytes: &[u8] = match font_owned.as_deref() {
@@ -1452,6 +2077,24 @@ pub(super) fn run_watermark(
     };
     let size = src.size.unwrap_or(32.0);
     let opacity = opacity.unwrap_or(1.0);
+    // The two causes the flags alone decide: both are true whatever the font
+    // or overlay turns out to be, so they come before either is read.
+    if opacity == 0.0 {
+        return Err(invisible_mark_error(
+            InvisibleMark::OpacityZero,
+            src,
+            size,
+            opacity,
+        ));
+    }
+    if src.image.is_none() && color[3] == 0 {
+        return Err(invisible_mark_error(
+            InvisibleMark::TransparentColor,
+            src,
+            size,
+            opacity,
+        ));
+    }
 
     // Build the overlay (image load OR text rasterization) + its round-trip identity.
     let resolved = watermark_overlay(src, color, size)?;
@@ -1475,6 +2118,11 @@ pub(super) fn run_watermark(
             overlay, text, font_path, size, color, gravity, opacity, scale, margin, tile,
         ),
     };
+
+    // The rest need the rendered or loaded mark; still before any input is read.
+    if let Some(cause) = op.invisible_mark() {
+        return Err(invisible_mark_error(cause, src, size, opacity));
+    }
 
     let pipeline = auto_orient_prefix()?.push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)
@@ -1809,65 +2457,141 @@ mod tests {
         assert_eq!(p.get_u32("height"), Some(64));
     }
 
-    // ── SPEC-032: edit + --save-recipe ────────────────────────────────────────
+    // ── edit: typed order and the op builders ─────────────────────────────────
 
-    /// `build_edit_ops` with all three flags set returns ops in the canonical
-    /// order: auto-orient → resize → invert, regardless of arg order.
-    #[test]
-    fn edit_ops_canonical_order() {
-        let ops = build_edit_ops(true, Some(8), true).expect("should succeed");
-        assert_eq!(ops.len(), 3, "expected 3 ops");
-        assert_eq!(ops[0].name(), "auto-orient");
-        assert_eq!(ops[1].name(), "resize");
-        assert_eq!(ops[2].name(), "invert");
+    /// The names of the steps `build_edit_ops` builds, in run order.
+    fn step_names(flags: &EditFlags) -> Vec<&'static str> {
+        build_edit_ops(flags)
+            .expect("should succeed")
+            .iter()
+            .map(|s| s.op.name())
+            .collect()
     }
 
-    /// Only resize + invert flags set → two ops in canonical order (no auto-orient).
+    /// Steps come out in the order `order` lists them, not in a fixed order, and
+    /// `--auto-orient` adds none.
     #[test]
-    fn edit_ops_subset_order() {
-        let ops = build_edit_ops(false, Some(8), true).expect("should succeed");
-        assert_eq!(ops.len(), 2, "expected 2 ops");
-        assert_eq!(ops[0].name(), "resize");
-        assert_eq!(ops[1].name(), "invert");
+    fn edit_steps_follow_typed_order() {
+        let flags = EditFlags {
+            auto_orient: true,
+            resize_max: Some(8),
+            order: vec![EditOp::Invert, EditOp::ResizeMax],
+            ..EditFlags::default()
+        };
+        assert_eq!(step_names(&flags), ["invert", "resize"]);
+
+        let flags = EditFlags {
+            resize_max: Some(8),
+            rotate: Some(90),
+            flip: Some("vertical".into()),
+            crop: Some("2:1".into()),
+            order: vec![
+                EditOp::Flip,
+                EditOp::ResizeMax,
+                EditOp::Crop,
+                EditOp::Rotate,
+            ],
+            ..EditFlags::default()
+        };
+        assert_eq!(step_names(&flags), ["flip", "resize", "crop", "rotate"]);
+
+        // A pixel crop is a "crop" step too.
+        let flags = EditFlags {
+            crop: Some("3x3+0+0".into()),
+            order: vec![EditOp::Crop],
+            ..EditFlags::default()
+        };
+        assert_eq!(step_names(&flags), ["crop"]);
     }
 
-    /// No flags set → `CliError::Usage` ("requires at least one operation flag").
+    /// No op flag and no `--auto-orient` → `CliError::Usage`; `--auto-orient`
+    /// alone is accepted.
     #[test]
-    fn edit_ops_requires_at_least_one() {
-        let result = build_edit_ops(false, None, false);
-        assert!(result.is_err(), "expected Err");
-        // Extract the error without relying on Debug on dyn Operation.
-        let err = result.err().expect("is_err was just confirmed");
+    fn edit_steps_require_an_op_flag() {
+        let err = build_edit_ops(&EditFlags::default())
+            .err()
+            .expect("zero flags must be refused");
         assert_eq!(err.code(), 2, "usage error must be code 2");
         assert!(
             err.to_string()
                 .contains("requires at least one operation flag"),
             "message must mention 'requires at least one operation flag': {err}"
         );
+        let only_orient = EditFlags {
+            auto_orient: true,
+            ..EditFlags::default()
+        };
+        assert!(build_edit_ops(&only_orient).is_ok());
+        assert!(step_names(&only_orient).is_empty());
     }
 
-    /// The resize op built by `build_edit_ops(resize_max=Some(16))` carries the
-    /// same params as `run_resize` builds for `--max 16`: `{mode:"max", width:16}`.
-    /// This pins the round-trip equivalence between `edit` and `apply`.
+    /// The resize step built for `--resize-max 16` carries the same params as
+    /// `run_resize` builds for `--max 16`: `{mode:"max", width:16}`.
     #[test]
-    fn edit_ops_resize_params_match_resize_command() {
-        // Build the op via build_edit_ops (edit path).
-        let edit_ops = build_edit_ops(false, Some(16), false).expect("should succeed");
-        assert_eq!(edit_ops.len(), 1);
-        let edit_params = edit_ops[0].params();
+    fn edit_resize_params_match_resize_command() {
+        let flags = EditFlags {
+            resize_max: Some(16),
+            order: vec![EditOp::ResizeMax],
+            ..EditFlags::default()
+        };
+        let steps = build_edit_ops(&flags).expect("should succeed");
+        assert_eq!(steps.len(), 1);
+        let edit_params = steps[0].op.params();
 
-        // Build the equivalent op the way run_resize does it (registry path).
         let resize_params_val =
             resize_params(Some(16), None, None, None, None, None).expect("resize_params ok");
         let registry_op = OperationRegistry::with_builtins()
             .build("resize", &resize_params_val)
             .expect("build resize ok");
-        let registry_params = registry_op.params();
-
-        // Both must carry identical TOML params.
         assert_eq!(
-            edit_params, registry_params,
+            edit_params,
+            registry_op.params(),
             "edit resize params must match run_resize params for --max 16"
         );
+    }
+
+    #[test]
+    fn parse_crop_flag_cases() {
+        assert_eq!(
+            parse_crop_flag("800x600+10+20").ok(),
+            Some(CropFlag::Pixels {
+                w: 800,
+                h: 600,
+                x: 10,
+                y: 20
+            })
+        );
+        assert_eq!(parse_crop_flag("16:9").ok(), Some(CropFlag::Aspect));
+        for bad in [
+            "10X10+0+0",
+            "10x10",
+            "10\u{d7}10+0+0",
+            "-1x10+0+0",
+            "+10x10+0+0",
+            "10x10+0+0+0",
+            "99999999999x1+0+0",
+            "0x10+0+0",
+            "10x0+0+0",
+            "",
+        ] {
+            let err = parse_crop_flag(bad).err();
+            assert!(err.is_some(), "{bad:?} must be refused");
+            assert_eq!(err.map(|e| e.code()), Some(2));
+        }
+    }
+
+    /// The converter divides by the size it is given, in `f64`, with no rounding.
+    #[test]
+    fn crop_fractions_divide_by_the_given_size() {
+        let p = crop_fractions(631, 2, 9, 0, 640, 2);
+        assert_eq!(p.get_f64("x"), Some(9.0 / 640.0));
+        assert_eq!(p.get_f64("width"), Some(631.0 / 640.0));
+        assert_eq!(p.get_f64("y"), Some(0.0));
+        assert_eq!(p.get_f64("height"), Some(2.0 / 2.0));
+        let p = crop_fractions(7, 3, 11, 5, 30, 20);
+        assert_eq!(p.get_f64("x"), Some(11.0 / 30.0));
+        assert_eq!(p.get_f64("y"), Some(5.0 / 20.0));
+        assert_eq!(p.get_f64("width"), Some(7.0 / 30.0));
+        assert_eq!(p.get_f64("height"), Some(3.0 / 20.0));
     }
 }

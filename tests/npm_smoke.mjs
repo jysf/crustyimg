@@ -14,7 +14,8 @@
 //   * the packaged .wasm is the size-profiled `just wasm-build` artifact
 //     (DEC-066), not a bare `cargo build --target wasm32` (+109 KB on the wire).
 //
-// Run: `just wasm-npm-smoke`. No npm publish — that is SPEC-076, and gated.
+// Run: `just wasm-npm-smoke`. No npm publish — that is `just wasm-npm-publish`, run by CI
+// on a tag (DEC-111).
 
 import { execFileSync } from "node:child_process";
 import {

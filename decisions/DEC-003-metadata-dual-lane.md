@@ -23,6 +23,9 @@ superseded_by: null
 affected_scope:
   - src/metadata/**
   - src/sink/**
+  - src/cli/mod.rs
+  - src/cli/global_flags.rs
+  - tests/fixtures/metadata/**
 
 tags:
   - architecture
@@ -115,6 +118,50 @@ sweep surfaces evidence ICC is also being silently dropped against this record's
 is a separate finding, filed as its own spec, not fixed here.
 
 `AGENTS.md`'s "Default-preserve policy" glossary entry is corrected to match (§14).
+
+## Amendment (2026-11-06, SPEC-149)
+
+**`--keep-gps` is refused (exit 2) on every command.** It never kept GPS: driven at SPEC-149's
+frame, a pixel-lane encode of a JPEG or PNG carrying GPS, `Artist` and `Copyright` keeps none of
+them, so "drop GPS unless `--keep-gps`" described a flag that was accepted and ignored. The refusal
+names the container-lane workaround, `crustyimg meta copy --from <in> --to <out> -y` (JPEG only; "JPEG and
+PNG" here was wrong, corrected by the SPEC-150 amendment below),
+and the flag is hidden from `--help` but kept in the parser, as a placeholder for the real feature
+(filed on PROJ-013 STAGE-052). The guard lives in `src/cli/global_flags.rs`. The ICC and
+copyright/artist half of this record's preserve claim is not corrected here (STAGE-063 finding C).
+
+## Amendment (2026-11-06, SPEC-150)
+
+**Pixel-lane encodes drop all metadata.** The default-preserve policy above (keep orientation, ICC and
+copyright/artist; drop GPS) does not describe the code, and this amendment replaces it: orientation is baked into the
+pixels (the SPEC-110 amendment), and the encode then keeps **no** metadata: no ICC profile, no copyright/artist, no
+GPS, no other EXIF. Driven at SPEC-150's frame and again at its design: `resize --max 8` and `convert --format jpeg`
+of `tests/fixtures/c2pa/signed_gps.jpg`, which carries an `sRGB IEC61966-2.1` ICC profile, write a JPEG with no
+`ICC_PROFILE` segment and no `Exif` segment; SPEC-149's frame drove Artist/Copyright dropped. The `meta` commands
+(the container lane) are the only path that keeps or edits metadata.
+
+**Correction to the SPEC-149 amendment:** the workaround it names, `crustyimg meta copy`, works on **JPEG only**
+(DEC-030); with a PNG on either side it exits 4 (driven). The `--keep-gps` refusal message already says
+"(JPEG only)". A selective preserve (a working `--keep-gps`, ICC kept) remains PROJ-013 STAGE-052's work. The
+glossary (`AGENTS.md`) and `docs/architecture.md` are corrected by SPEC-150's build.
+
+## Amendment (2026-11-23, SPEC-156)
+
+**`strip` keeps the two segments a JPEG decoder needs to read the scan.** The Validation line above
+says *"`strip` removes everything"*, and DEC-029's probe recorded *"decoded pixels byte-identical"*. Both
+held only because the probe JPEG had no Adobe APP14. Strip's JPEG sweep removed APP14 (`0xEE`), whose
+transform byte tells a decoder how the scan's components are coded; without it a decoder guesses from the
+component ids. Driven at SPEC-156's frame and design: an Adobe YCCK JPEG
+(`tests/fixtures/lint/cmyk_16x16.jpg`) went from `srgb(191,64,32)` to `srgb(93,134,30)` at (8,8) in
+libjpeg-turbo, ImageMagick and crustyimg's own decoder (SSIMULACRA2 41.94), and a 3-component Adobe RGB JPEG
+with component ids 1,2,3 broke the same way (SSIMULACRA2 −35.79).
+
+**Corrected claim:** `strip` removes all metadata segments and keeps APP0 (JFIF) and Adobe's
+colour-transform APP14: an APP14 whose payload starts with `Adobe` and is at least 12 bytes long, the test
+libjpeg and zune-jpeg apply before reading the transform. Any other APP14 is removed. Its promise is that the
+image decodes to the same pixels, not only that the scan bytes are unchanged. It still drops ICC and EXIF
+orientation, which can change how a viewer shows the image (STAGE-063's orientation entry; the ICC question
+under the SPEC-150 amendment above).
 
 ## References
 

@@ -1,0 +1,6 @@
+# v2_flip_horizontal: what this recipe produces on each fixture.
+# Written by `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+# A changed line means an existing recipe's output changed.
+rgb8_2600x1730 pixels dims=2600x1730 colour=Rgb8 depth=8 sha256=08843ae07789c960abde642649351c592514f313eb35e86dbecfaad5967d210b
+rgba8_1730x2600 pixels dims=1730x2600 colour=Rgba8 depth=8 sha256=4ef12f0dbd024c96127eb9c5d001225bd848e2733a492db953b8842df1b33ae0
+rgba16_2600x1730 pixels dims=2600x1730 colour=Rgba16 depth=16 sha256=3296cc73a93605cefce24a60269b190e32ce83d75b6892483fba626558f1bd95

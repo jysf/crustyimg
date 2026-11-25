@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-060
-  status: proposed
+  status: active
   priority: medium
   target_complete: null
 
@@ -80,12 +80,29 @@ spec ships; the straighten half waits for STAGE-059.
 
 In build order.
 
-- [ ] **SPEC-142** (verified with a punch list 2026-10-30, PR #234) — [S] **The parity harness, first.** Before any UI: a test that takes
+- [x] **SPEC-142** (merged 2026-11-01, PR #234) — [S] **The parity harness, first.** Before any UI: a test that takes
   a recipe string, runs it through native `apply` and wasm `transform` on the same fixture,
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
   differ by one pixel of crop and require red.
-- [ ] (not yet written) — [M] **Crop on the page.** Free-form and aspect-preset crop over
+- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
+  orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
+  tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
+  photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
+  key (for example `orientation = "match"`). Leaving it off keeps SPEC-145's meaning, so no
+  existing recipe or golden changes. Design decides what a square image gets, the key's name, and
+  the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
+  frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
+  unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
+  SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
+  tall as crop's does, and this entry's spec adds the key to both ops with one rule.
+  **Moved here from STAGE-058 on 2026-11-11** (maintainer ruling at SPEC-160's frame): the page's aspect
+  presets are this key's first user, and it changes no shipped output, so STAGE-058 closes without it.
+  **Ahead of SPEC-161 (maintainer ruling 2026-11-22, at SPEC-161's frame):** the page's presets emit
+  `aspect`, not a box, so a recipe copied from the page reads `aspect = "3:2"` and works on any
+  photo. To work on a folder of mixed photos it needs this key, so SPEC-161 emits it and this
+  entry builds first. Builds after the STAGE-063 P1 fixes ship.
+- [ ] **SPEC-161** (framed 2026-11-22) — [M] **Crop on the page.** Free-form and aspect-preset crop over
   the preview, emitting a fractional `crop` step ahead of `resize` in both `pixelRecipe` and
   `cliRecipe` (`integrations/ddphotos/edit/edit.js`). Parity rows for each preset, plus the
   4× replay. ⚠ The page's existing "Made smaller to fit this photo" watermark logic runs after
@@ -97,14 +114,40 @@ In build order.
   `crustyimg info` reports the stored size too, and wasm `info()` is its twin. Found in SPEC-142's
   design; rows 15–16 of its harness pin the transposed prediction. Harmless today, because
   photogen publishes WebP copies that are already oriented.
+  **Split at frame (2026-11-22):** SPEC-161 is the half Node can test: `recipe.js`'s crop model,
+  the oriented-size fix, the parity rows and the 4× replay. The crop mode is the next entry.
+  **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
+  reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
+  orientation-key entry above.
+- [ ] (not yet written) — [M] **Crop on the page: the crop mode.** The second half of the entry
+  above, split at SPEC-161's frame. A "Crop" button shows the oriented base image (rendered once at
+  load by SPEC-161's worker) with a DOM box over it; dragging renders nothing, and "Done" schedules
+  one finished preview. Preset buttons (1:1, 4:5, 3:2, 16:9) that follow the photo's orientation,
+  with a swap, and emit `aspect` until the box is dragged; Pointer Events with `touch-action: none`; a focusable box that arrow keys move and
+  Alt+arrow resizes; a live size line. The CLI panel says to run the recipe on the original or any
+  file at least as large as the copy (a smaller one gives a smaller output, or a refused watermark).
+  Calls SPEC-161's `recipe.js` functions and adds no recipe logic. Its browser check is the
+  "Test-bed round and README" entry. After SPEC-161. See SPEC-161's `## Frame` for the interaction.
 - [ ] (not yet written) — [S] **Straighten on the page.** An angle control emitting a
   `rotate` step in `crop-to-fit` mode, ordered before `crop` so a straighten-then-crop is the
   natural flow. Parity rows within STAGE-059's stated bound. Waits for STAGE-059.
 - [ ] (not yet written) — [S] **Test-bed round and README.** Rerun the test bed's browser
   checks on all three servers with the new controls. Update the README and the CLI panel's
   wording. Record the wasm size delta.
+- [x] (folded into SPEC-161) — [S] **Label the parity harness's table checks.** The three P5 checks
+  (rows 4, 8, 12) all print `P5:`, so the closing count line shows `P5, P5, P5` and cannot say
+  which recipe text moved. A comment in `tests/ddphotos_parity.mjs` also says "P1-P5" though there
+  is no P1. Give each check its own label and fix the comment; no behaviour change. Found by
+  SPEC-142's re-verify. Do it alongside the crop spec's first harness rows, not on its own.
+- [ ] (not yet written) — [S] **Gate the slim wasm bundle's size.** The page ships the slim build
+  (`--no-default-features --features avif`, `pkg-slim`), but the CI size gate
+  (`scripts/lib/wasm-artifact.mjs`, used by `demo-assemble.mjs` and `npm_smoke.mjs`) measures only
+  the full build. `just wasm-size` on the slim build reports (raw 4,147,159 B, brotli 833,239 B at
+  SPEC-161's frame) but asserts nothing, so this stage's "stays inside its size gate" criterion has
+  no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
+  Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 2 resolved (1 shipped spec, 1 folded) / 1 active / 5 pending — re-derived 2026-11-22 at SPEC-161's frame, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (1), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
 
 ## Design Notes
 

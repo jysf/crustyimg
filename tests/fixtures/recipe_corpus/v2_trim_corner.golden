@@ -1,0 +1,15 @@
+version = "2"
+name = "corpus-trim-corner"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#ffffff"
+
+[[step]]
+op = "pad"
+border = 0.01
+color = "#000000"
+
+[[step]]
+op = "trim"

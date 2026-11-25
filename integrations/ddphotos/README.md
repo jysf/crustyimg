@@ -57,7 +57,7 @@ That builds the slim wasm package (below) and copies the page into
 photogen does not need to run again. A running dev server picks the page up without a
 restart. Then open `/edit/index.html`.
 
-The page and its JavaScript are about 35 KB. The engine is a separate `.wasm`: the
+The page and its JavaScript are about 38 KB. The engine is a separate `.wasm`: the
 **slim build**, the full browser build without SVG input, which a ddphotos site never
 feeds it (`just wasm-build-slim`, into `pkg-slim/`). It downloads only when someone
 opens a photo in the editor, never on the gallery pages or the album and photo
@@ -124,9 +124,9 @@ has not been measured.
 - **It edits the published copy, not the original.** ddphotos publishes a 1600 px lossy
   WebP. The originals stay with the site owner. The CLI recipe on each result is the way
   to make the same edit from the original.
-- **No crop, rotate or colour.** crustyimg recipes have only `resize`, `auto-orient`,
-  `watermark` and `invert` today. Crop and rotate need a spec. Colour grading is planned
-  in PROJ-015.
+- **No crop, rotate, flip, pad, trim or colour on the page yet.** Recipes can crop, rotate, flip, pad and trim
+  (`op = "crop"`, `op = "rotate"`, `op = "flip"`, `op = "pad"`, `op = "trim"`), but the edit page doesn't offer any of them
+  yet. Colour grading is planned in PROJ-015.
 - **Edits are not saved.** The site is static, so the page can only download files.
 - **No way in from the lightbox.** ddphotos has no hook for adding a button to its
   photo viewer, so visitors reach `/edit/` by URL. A small upstream change to ddphotos
@@ -159,3 +159,8 @@ command on the originals were all exercised in headless Chromium, and every down
 was decoded with independent decoders. The picker, editor and a JPEG export were also
 run on a site built with the DD Photos app's Build and Serve tabs. Not yet tested on
 nginx or on a live Cloudflare Pages deploy.
+
+The page's recipes (`edit/recipe.js`, shared with the worker) are also checked against the
+CLI: `just ddphotos-parity` runs 16 edits through the slim wasm build and through native
+`crustyimg apply` on the same bytes and compares the decoded pixels (`tests/ddphotos_parity.mjs`).
+No-resize edits match exactly. Resized ones may differ by 1/255 on a handful of pixels.

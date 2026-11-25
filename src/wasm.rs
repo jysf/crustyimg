@@ -234,13 +234,19 @@ pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Ve
     let registry = OperationRegistry::with_builtins();
     if let Some((index, op, key)) = first_unresolvable_asset(&pixel_recipe, &registry) {
         return Err(JsError::new(&format!(
-            "recipe step {index} ('{op}') needs its '{key}' asset resolved from a file, \
-             which the wasm surface cannot do (no filesystem) — supplying assets over this \
-             boundary is out of scope (SPEC-128)"
+            "recipe step {index} ('{op}') reads its '{key}' from a file, and crustyimg-wasm \
+             has no filesystem access, so steps that read files are out of scope here: \
+             remove the step, or run the recipe with the crustyimg CLI"
         )));
     }
 
     let pipeline = pixel_recipe.build_pipeline(&registry).map_err(js_err)?;
+    // The format is resolved above, before any pixel work, so a step that
+    // writes alpha this format can't store is refused with the same line the
+    // CLI prints (without its `error: ` prefix).
+    if let Some(refused) = pipeline.unstorable_alpha(fmt) {
+        return Err(JsError::new(&refused.to_string()));
+    }
     let out = pipeline.run(img).map_err(js_err)?;
 
     sink::encode_to_bytes(&out, fmt, quality).map_err(js_err)

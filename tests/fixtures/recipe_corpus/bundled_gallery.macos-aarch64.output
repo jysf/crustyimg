@@ -1,0 +1,7 @@
+# bundled_gallery: what this recipe produces on each fixture.
+# Written by `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+# A changed line means an existing recipe's output changed.
+rgb8_2600x1730 pixels dims=2560x1703 colour=Rgb8 depth=8 sha256=c3b378089d92196453a6e8db0278d0b6498506231793f7679d85e58945a9d58e
+rgb8_2600x1730 optimize format=avif
+rgba8_1730x2600 pixels dims=1703x2560 colour=Rgba8 depth=8 sha256=73e86e9b357a7ac9dd0a1e92f9c2ee541d0f3e68515b94be2a92127f8cc8a395
+rgba16_2600x1730 pixels dims=2560x1703 colour=Rgba16 depth=16 sha256=edf182aa25b666f2b29615d2d663a5c221ed7cff371a57e67593e6d09f38f475

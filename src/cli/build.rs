@@ -3,7 +3,8 @@
 //! SPEC-064, SPEC-066, SPEC-067; DEC-057/DEC-058/DEC-059/DEC-060). Split out of
 //! `cli/mod.rs` (SPEC-097) — no behavior change.
 
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -12,12 +13,12 @@ use sha2::{Digest as _, Sha256};
 use crate::error::ImageError;
 use crate::operation::OperationRegistry;
 use crate::recipe::{split_terminal_optimize, Recipe};
-use crate::sink::Overwrite;
-use crate::source::{self, SourceError};
+use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
+use crate::source::{self, OnEmpty};
 
 use super::common::{
     encode_one, load_recipe, resolve_format, resolve_recipe_assets, warn_skipped_steps,
-    write_encoded, BATCH_PROGRESS_TEMPLATE,
+    BATCH_PROGRESS_TEMPLATE,
 };
 use super::optimize::encode_one_optimize_decided;
 use super::{CliError, GlobalArgs};
@@ -225,6 +226,13 @@ struct PreparedTarget<'a> {
     recipe_hash: crate::build::cache::Hash,
     format_plan: OutputFormatPlan,
     inputs: Vec<crate::source::Input>,
+    /// Where this target's outputs go: the resolved, absolute `out` folder. Set
+    /// only by [`check_destinations`]; every write reads it, and nothing falls
+    /// back to the `out` as spelled in the manifest.
+    out_dir: PathBuf,
+    /// [`out_dir`](Self::out_dir) from the build root, with `/` separators
+    /// (empty for the root itself): the folder part of every lock path.
+    rel_dir: String,
 }
 
 /// How one input's output came to exist, for the build summary (SPEC-064).
@@ -322,18 +330,23 @@ fn prepare_target<'a>(
     // an asset is/isn't resolvable. A missing/unreadable asset surfaces here,
     // once per TARGET, before a single input is touched (Call 2).
     let recipe = resolve_recipe_assets(&recipe, registry)?;
-    recipe.build_pipeline(registry)?;
+    let probe = recipe.build_pipeline(registry)?;
+    // A target whose format is pinned (a literal name extension or the
+    // recipe's `format`) is checked once, before any input is read. A target
+    // that keeps each input's format is checked per input in `encode_one`, and
+    // one that auto-decides keeps any alpha a step adds.
+    if let OutputFormatPlan::Pinned(fmt) = format_plan {
+        if let Some(refused) = probe.unstorable_alpha(fmt) {
+            return Err(refused.into());
+        }
+    }
     let recipe_hash = target_recipe_hash(&recipe, format_plan, registry)?;
 
-    let mut inputs: Vec<crate::source::Input> = Vec::new();
-    for pattern in target.source.as_slice() {
-        inputs.extend(source::resolve(pattern, &mut std::io::empty())?);
-    }
-    if inputs.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(
-            target.source.as_slice().join(" "),
-        )));
-    }
+    let inputs = source::resolve_all(
+        target.source.as_slice(),
+        &mut std::io::empty(),
+        OnEmpty::Fail,
+    )?;
 
     Ok(PreparedTarget {
         target,
@@ -341,6 +354,8 @@ fn prepare_target<'a>(
         recipe_hash,
         format_plan,
         inputs,
+        out_dir: PathBuf::new(),
+        rel_dir: String::new(),
     })
 }
 
@@ -361,51 +376,506 @@ fn prepare_target<'a>(
 /// so the two cannot drift apart.
 const EXT_SENTINEL: &str = "{ext}";
 
-/// The output path one input of `target` would be written to, with `{ext}` left
-/// as [`EXT_SENTINEL`] — the equality key for collision detection.
+/// The build root: the working directory, canonicalized. Manifest paths resolve
+/// against it, and every destination is measured from it.
+fn build_root() -> Result<PathBuf, CliError> {
+    let cwd = std::env::current_dir().map_err(|e| CliError::Image(ImageError::Io(e)))?;
+    std::fs::canonicalize(cwd).map_err(|e| CliError::Image(ImageError::Io(e)))
+}
+
+/// The one rule for deciding two paths are the same file: compare them
+/// lower-cased, on every OS. macOS and Windows merge names that differ only in
+/// letter case, so a manifest relying on `a.png` and `A.png` being two files
+/// would break there; refusing it everywhere keeps one manifest meaning one
+/// thing. No Unicode normalization and no full case folding: that needs tables
+/// `std` does not have. Names this misses (`ß`/`SS`, NFC/NFD) are caught for a
+/// file that already exists by [`Reads::by_file`], which compares the file
+/// itself.
+fn fold_case(path: &str) -> String {
+    path.to_lowercase()
+}
+
+/// Resolve a target's `out` folder to one absolute path, without creating it.
 ///
-/// Mirrors `write_encoded`'s placement exactly (`out` dir + the expanded name
-/// template) so the key stands for the real destination. The `out` dir is
-/// normalized by path components — `dist`, `dist/`, and `./dist` are one
-/// directory — but NOT canonicalized: it need not exist yet.
-fn output_collision_key(target: &crate::build::Target, input: &crate::source::Input) -> String {
-    let file_name =
-        crate::sink::expand_template(target.template(), input.stem(), EXT_SENTINEL, input.path());
-    let dir: PathBuf = Path::new(&target.out)
+/// `.` components are dropped; the longest leading part that exists is
+/// canonicalized (links followed, `..` after a link applied the way the kernel
+/// applies it, on-disk letter case taken); the rest is appended with `..`
+/// applied lexically. The lexical tail is exact: a folder that does not exist
+/// yet cannot be a link, and the sink builds exactly that path.
+fn resolve_out_dir(root: &Path, out: &str) -> PathBuf {
+    let rest: PathBuf = Path::new(out)
         .components()
-        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .filter(|c| !matches!(c, Component::CurDir))
         .collect();
-    dir.join(file_name).display().to_string()
+    let full = root.join(rest);
+    let parts: Vec<Component> = full.components().collect();
+    for n in (1..=parts.len()).rev() {
+        let prefix: PathBuf = parts[..n].iter().collect();
+        if let Ok(canonical) = std::fs::canonicalize(&prefix) {
+            let mut resolved = canonical;
+            for part in &parts[n..] {
+                match part {
+                    Component::ParentDir => {
+                        resolved.pop();
+                    }
+                    Component::CurDir => {}
+                    other => resolved.push(other.as_os_str()),
+                }
+            }
+            return resolved;
+        }
+    }
+    full
+}
+
+/// `path` from the build root, with `/` separators; empty for the root itself.
+fn root_relative(root: &Path, path: &Path) -> String {
+    to_slash(path.strip_prefix(root).unwrap_or(path))
+}
+
+/// `dir/name`, or just `name` when `dir` is the root.
+fn join_rel(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// The first leading part of `out`, as the manifest spells it, that is a link.
+/// Only used to name the link in a message; falls back to `out` itself.
+fn first_link(root: &Path, out: &str) -> String {
+    let mut spelled = PathBuf::new();
+    for part in Path::new(out).components() {
+        if matches!(part, Component::CurDir) {
+            continue;
+        }
+        spelled.push(part.as_os_str());
+        let is_link = std::fs::symlink_metadata(root.join(&spelled))
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false);
+        if is_link {
+            return to_slash(&spelled);
+        }
+    }
+    out.to_owned()
+}
+
+/// Every extension the sink can write: the range of
+/// [`crate::sink::extension_for_format`]. A name ending in `{ext}` is checked
+/// under each of these when the target's format is not pinned.
+const OUTPUT_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "gif", "bmp", "tiff", "ico", "webp", "pnm", "tga", "dds", "hdr", "exr", "ff",
+    "avif", "qoi", "bin",
+];
+
+/// The output path one input would be written to, from the build root, with
+/// `{ext}` left as [`EXT_SENTINEL`]: the equality key for collision detection.
+///
+/// `rel_dir` is the target's resolved `out` ([`PreparedTarget::rel_dir`]), so
+/// every spelling of one folder (`dist`, `./dist`, `a/../dist`, a link to it)
+/// gives one key.
+fn output_collision_key(rel_dir: &str, template: &str, input: &crate::source::Input) -> String {
+    let file_name =
+        crate::sink::expand_template(template, input.stem(), EXT_SENTINEL, input.path());
+    join_rel(rel_dir, &file_name)
 }
 
 /// Reject a build whose resolved targets would write two inputs to the same
-/// output path (SPEC-065; DEC-057's injective source→output constraint).
+/// output path, compared by [`fold_case`].
 ///
-/// Run **once, globally**, over every prepared target — so a collision between
-/// two *different* targets writing the same `out`/name is caught too — and
-/// before phase 2 opens the cache or writes anything, so a rejected build leaves
-/// the destination untouched.
+/// Run **once, globally**, over every prepared target (so a collision between
+/// two *different* targets writing the same folder and name is caught too) and
+/// before the lockfile is read, the store opens or anything is written, so a
+/// rejected build leaves the destination untouched.
 fn check_output_injective(prepared: &[PreparedTarget]) -> Result<(), CliError> {
     let mut entries: Vec<(String, String)> =
         Vec::with_capacity(prepared.iter().map(|p| p.inputs.len()).sum());
+    // The first claimant's output as spelled, for the message.
+    let mut shown: HashMap<String, String> = HashMap::new();
     for p in prepared {
         for input in &p.inputs {
             let label = match input {
                 crate::source::Input::Path(path) => path.display().to_string(),
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
-            entries.push((output_collision_key(p.target, input), label));
+            let output = output_collision_key(&p.rel_dir, p.target.template(), input);
+            let folded = fold_case(&output);
+            shown.entry(folded.clone()).or_insert(output);
+            entries.push((folded, label));
         }
     }
 
     match crate::build::find_output_collision(&entries) {
         Some(c) => Err(CliError::OutputCollision {
-            output: c.output,
+            output: shown.remove(&c.output).unwrap_or(c.output),
             first: c.first,
             second: c.second,
         }),
         None => Ok(()),
     }
+}
+
+/// The key a read file is looked up by: its canonical absolute path, folded. A
+/// file that does not exist yet (the lockfile on a first build) is placed under
+/// the root.
+fn identity_of(root: &Path, path: &Path) -> String {
+    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| root.join(path));
+    fold_case(&abs.to_string_lossy())
+}
+
+/// Every file this build reads, with the clause that says who reads it. The
+/// first reader of a file wins.
+struct Reads {
+    /// By folded canonical path.
+    by_name: HashMap<String, String>,
+    /// By device and inode, for the read files that exist (links followed, as
+    /// the reads were). Two names for one file (a name `fold_case` does not
+    /// merge but the filesystem does, or a hard link) share one entry. Unix
+    /// only: on Windows NTFS's case mapping does not merge `ß` and `SS` and
+    /// NTFS does not normalize, so the folded name is already the file's
+    /// identity there.
+    #[cfg(unix)]
+    by_file: HashMap<(u64, u64), String>,
+}
+
+/// Every file this build reads, by folded canonical path, with the clause that
+/// says who reads it. The first reader of a file wins. Order: the manifest, the
+/// lockfile, then per target in manifest order its resolved sources, its recipe
+/// file and the files its recipe names through an asset key.
+fn reads_of(
+    root: &Path,
+    prepared: &[PreparedTarget],
+    registry: &OperationRegistry,
+    manifest_path: &Path,
+) -> Reads {
+    let mut reads = Reads {
+        by_name: HashMap::new(),
+        #[cfg(unix)]
+        by_file: HashMap::new(),
+    };
+    let mut note = |path: &Path, clause: String| {
+        #[cfg(unix)]
+        if let Ok(meta) = std::fs::metadata(path) {
+            use std::os::unix::fs::MetadataExt;
+            reads
+                .by_file
+                .entry((meta.dev(), meta.ino()))
+                .or_insert_with(|| clause.clone());
+        }
+        reads
+            .by_name
+            .entry(identity_of(root, path))
+            .or_insert(clause);
+    };
+    note(manifest_path, "which is the build manifest".to_owned());
+    note(
+        Path::new(crate::build::lock::DEFAULT_LOCK_FILE),
+        "which is the build lockfile".to_owned(),
+    );
+    for (j, p) in prepared.iter().enumerate() {
+        for input in &p.inputs {
+            if let crate::source::Input::Path(path) = input {
+                note(path, format!("which target #{j} reads as a source"));
+            }
+        }
+        if Path::new(&p.target.recipe).is_file() {
+            note(
+                Path::new(&p.target.recipe),
+                format!("which is the recipe of target #{j}"),
+            );
+        }
+        for step in &p.recipe.steps {
+            for &key in registry.asset_keys(&step.op) {
+                if let Some(asset) = step.params.get_str(key) {
+                    note(
+                        Path::new(asset),
+                        format!("which target #{j}'s recipe reads as its {} {key}", step.op),
+                    );
+                }
+            }
+        }
+    }
+    reads
+}
+
+/// The source extensions the source filter accepts when it lists a folder or
+/// expands a glob (a copy of the source module's private list, which this file
+/// may not widen; `readable_extensions_match_the_source_filter` drives it against
+/// the real filter so the two cannot drift apart unnoticed). A planned output
+/// with one of these would be read by the next build.
+const READABLE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "webp", "avif", "svg", "nef", "nrw",
+    "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw", "rwl", "raw",
+    "heic", "heif",
+];
+
+fn is_readable_name(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            READABLE_EXTENSIONS
+                .iter()
+                .any(|r| e.eq_ignore_ascii_case(r))
+        })
+}
+
+/// A source argument that lists files at build time rather than naming one: a
+/// glob or a folder. A file it would list next time includes this build's own
+/// outputs.
+enum Lister {
+    /// A glob. `pattern` is the argument with its literal prefix resolved the
+    /// way `out` is (links followed, `.`/`..`/case normalized) and made
+    /// root-relative, so it can be matched against a planned output, which is
+    /// root-relative too.
+    Glob {
+        shown: String,
+        pattern: glob::Pattern,
+    },
+    /// A folder, listed non-recursively: the resolved absolute folder.
+    Folder { shown: String, dir: PathBuf },
+}
+
+impl Lister {
+    fn shown(&self) -> &str {
+        match self {
+            Lister::Glob { shown, .. } | Lister::Folder { shown, .. } => shown,
+        }
+    }
+}
+
+/// The globs and folders among one target's source arguments. A plain file
+/// source is not here: it is a read, and a read is checked by name and file.
+fn listers_of(root: &Path, target: &crate::build::Target) -> Vec<Lister> {
+    let mut found = Vec::new();
+    for arg in target.source.as_slice() {
+        if crate::source::looks_like_glob(arg) {
+            // Split at the first component that holds a metacharacter: the
+            // part before it is a folder path, the rest is matched as written.
+            let mut literal = PathBuf::new();
+            let mut rest: Vec<String> = Vec::new();
+            for part in Path::new(arg).components() {
+                let text = part.as_os_str().to_string_lossy().into_owned();
+                if rest.is_empty() && !crate::source::looks_like_glob(&text) {
+                    literal.push(part.as_os_str());
+                } else {
+                    rest.push(text);
+                }
+            }
+            let dir = resolve_out_dir(root, &literal.to_string_lossy());
+            if !dir.starts_with(root) {
+                continue; // a pattern outside the tree cannot match an output
+            }
+            let rooted = root_relative(root, &dir);
+            let escaped = glob::Pattern::escape(&rooted);
+            let joined = join_rel(&escaped, &rest.join("/"));
+            if let Ok(pattern) = glob::Pattern::new(&joined) {
+                found.push(Lister::Glob {
+                    shown: arg.clone(),
+                    pattern,
+                });
+            }
+        } else if Path::new(arg).is_dir() {
+            found.push(Lister::Folder {
+                shown: arg.clone(),
+                dir: resolve_out_dir(root, arg),
+            });
+        }
+    }
+    found
+}
+
+/// Would `lister` list a file planned at `rel` (root-relative, `/` separators)
+/// in the folder `dir`, named `name`, on the next build?
+fn lister_reads(lister: &Lister, rel: &str, dir: &Path, name: &str) -> bool {
+    if !is_readable_name(name) {
+        return false;
+    }
+    match lister {
+        // The options `glob::glob` walks with, except that `*` stops at `/`:
+        // the walk matches one path component at a time.
+        Lister::Glob { pattern, .. } => pattern.matches_with(
+            rel,
+            glob::MatchOptions {
+                case_sensitive: true,
+                require_literal_separator: true,
+                require_literal_leading_dot: false,
+            },
+        ),
+        Lister::Folder { dir: folder, .. } => {
+            !name.contains('/')
+                && fold_case(&folder.to_string_lossy()) == fold_case(&dir.to_string_lossy())
+        }
+    }
+}
+
+/// Resolve every target's `out` once and refuse the build, before anything is
+/// written, when a destination is not safe. First failure wins, in this order:
+/// an `out` that resolves outside the build tree through a link, two outputs
+/// that are one file, then per output (target order, input order) a path under
+/// `.crustyimg/` and a file the build reads.
+///
+/// Fills in each target's `out_dir` and `rel_dir`, which the sink and the lock
+/// use from here on.
+fn check_destinations(
+    prepared: &mut [PreparedTarget],
+    registry: &OperationRegistry,
+    manifest_path: &Path,
+) -> Result<(), CliError> {
+    let root = build_root()?;
+
+    for (i, p) in prepared.iter_mut().enumerate() {
+        let dir = resolve_out_dir(&root, &p.target.out);
+        if !dir.starts_with(&root) {
+            return Err(CliError::OutputOutsideTree {
+                target: i,
+                out: p.target.out.clone(),
+                link: first_link(&root, &p.target.out),
+            });
+        }
+        p.rel_dir = root_relative(&root, &dir);
+        p.out_dir = dir;
+    }
+
+    check_output_injective(prepared)?;
+
+    let reads = reads_of(&root, prepared, registry, manifest_path);
+    let listers: Vec<Vec<Lister>> = prepared
+        .iter()
+        .map(|p| listers_of(&root, p.target))
+        .collect();
+    for (i, p) in prepared.iter().enumerate() {
+        for input in &p.inputs {
+            let file_name = crate::sink::expand_template(
+                p.target.template(),
+                input.stem(),
+                EXT_SENTINEL,
+                input.path(),
+            );
+            let planned = join_rel(&p.rel_dir, &file_name);
+            let first = Path::new(&planned)
+                .components()
+                .next()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if fold_case(&first) == ".crustyimg" {
+                return Err(CliError::OutputInCacheDir {
+                    target: i,
+                    output: planned,
+                });
+            }
+
+            // The extension is only known after a decode, so an `{ext}` name is
+            // compared under every extension the sink can write, or just the
+            // pinned one.
+            let pinned;
+            let exts: &[&str] = match p.format_plan {
+                OutputFormatPlan::Pinned(fmt) => {
+                    pinned = [crate::sink::extension_for_format(fmt)];
+                    &pinned
+                }
+                _ => OUTPUT_EXTENSIONS,
+            };
+            for ext in exts {
+                let name = file_name.replace(EXT_SENTINEL, ext);
+                let abs = p.out_dir.join(&name);
+                let rel = join_rel(&p.rel_dir, &name);
+                let overlap = |what: &str| {
+                    let chained =
+                        what.ends_with("reads as a source") && !what.contains(&format!("#{i} "));
+                    let what = if chained {
+                        format!("{what}; one target's output cannot be another target's source")
+                    } else {
+                        what.to_owned()
+                    };
+                    CliError::OutputOverlap {
+                        target: i,
+                        output: rel.clone(),
+                        what,
+                    }
+                };
+                if let Some(what) = reads.by_name.get(&fold_case(&abs.to_string_lossy())) {
+                    return Err(overlap(what));
+                }
+                // The same file under a name `fold_case` does not merge (`ß` and
+                // `SS`, NFC and NFD on APFS, a hard link): compare the file.
+                #[cfg(unix)]
+                if let Ok(meta) = std::fs::metadata(&abs) {
+                    use std::os::unix::fs::MetadataExt;
+                    if let Some(what) = reads.by_file.get(&(meta.dev(), meta.ino())) {
+                        return Err(overlap(what));
+                    }
+                }
+                // A glob or folder source that would list this output next time.
+                for (j, listed) in listers.iter().enumerate() {
+                    for lister in listed {
+                        if lister_reads(lister, &rel, &p.out_dir, &name) {
+                            let kind = match lister {
+                                Lister::Glob { .. } => "pattern",
+                                Lister::Folder { .. } => "folder",
+                            };
+                            let what = format!(
+                                "which target #{j}'s source {kind} `{}` would read on the next build",
+                                lister.shown()
+                            );
+                            return Err(if j == i {
+                                overlap(&what)
+                            } else {
+                                overlap(&format!(
+                                    "{what}; one target's output cannot be another target's source"
+                                ))
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Write one encoded output into its target's resolved folder.
+///
+/// Creates the folder, resolves it again, and refuses the write if it is no
+/// longer where planning put it (a folder swapped for a link in between). The
+/// file name is joined with `safe_join`, which refuses a name that holds a
+/// separator (planning joins the name as written, so `src/a.{ext}` is compared
+/// as `<out>/src/a.png` and may be refused as an overlap first); a link at the
+/// file itself is refused by the sink even with `--yes`.
+fn write_planned(
+    bytes: &[u8],
+    ext: &str,
+    input: &crate::source::Input,
+    out_dir: &Path,
+    template: &str,
+    overwrite: Overwrite,
+) -> Result<(), CliError> {
+    let create_error = |source: std::io::Error| SinkError::OutDirCreate {
+        path: out_dir.display().to_string(),
+        source,
+    };
+    std::fs::create_dir_all(out_dir).map_err(create_error)?;
+    let now = std::fs::canonicalize(out_dir).map_err(create_error)?;
+    if fold_case(&now.to_string_lossy()) != fold_case(&out_dir.to_string_lossy()) {
+        return Err(SinkError::Traversal(out_dir.display().to_string()).into());
+    }
+
+    let file_name = crate::sink::expand_template(template, input.stem(), ext, input.path());
+    let path = crate::sink::safe_join(out_dir, &file_name)?;
+    let sink_input = SinkInput {
+        stem: input.stem(),
+        path: input.path(),
+    };
+    // `format` is unused by `write_bytes` (the extension is passed explicitly).
+    Sink::File { path, format: None }.write_bytes(
+        bytes,
+        &sink_input,
+        ext,
+        overwrite,
+        &mut std::io::sink(),
+    )?;
+    Ok(())
 }
 
 /// The cache key for one input of a prepared target, plus the input's bytes.
@@ -458,26 +928,22 @@ fn to_slash(path: &Path) -> String {
         .join("/")
 }
 
-/// The output path a lock entry names: `out` dir + the expanded name template,
-/// with the **real** output extension (known only after the encode, or from the
-/// cache entry on a hit).
+/// The output path a lock entry names: the target's resolved folder from the
+/// build root (`rel_dir`) + the expanded name template, with the **real** output
+/// extension (known only after the encode, or from the cache entry on a hit).
 ///
-/// The same composition `write_encoded` uses, so a lock entry names exactly the
-/// file that was written. It is the post-decode twin of `output_collision_key`,
-/// which must leave `{ext}` unexpanded because it runs before any decode.
+/// The same composition [`write_planned`] uses, so a lock entry names exactly
+/// the file that was written, however `out` was spelled. It is the post-decode
+/// twin of `output_collision_key`, which must leave `{ext}` unexpanded because it
+/// runs before any decode.
 fn lock_output_path(
-    target: &crate::build::Target,
+    rel_dir: &str,
+    template: &str,
     input: &crate::source::Input,
     ext: &str,
 ) -> String {
-    let file_name =
-        crate::sink::expand_template(target.template(), input.stem(), ext, input.path());
-    let dir = to_slash(Path::new(&target.out));
-    if dir.is_empty() {
-        file_name
-    } else {
-        format!("{dir}/{file_name}")
-    }
+    let file_name = crate::sink::expand_template(template, input.stem(), ext, input.path());
+    join_rel(rel_dir, &file_name)
 }
 
 /// The lock entry for one written output.
@@ -495,7 +961,7 @@ fn lock_record(
         crate::source::Input::Stdin { .. } => return None,
     };
     Some(crate::build::lock::LockOutput {
-        path: lock_output_path(prepared.target, input, ext),
+        path: lock_output_path(&prepared.rel_dir, prepared.target.template(), input, ext),
         source,
         recipe: prepared.target.recipe.clone(),
         key: key.to_hex(),
@@ -545,7 +1011,7 @@ fn build_one(
     prepared: &PreparedTarget,
     input: &crate::source::Input,
 ) -> Result<BuildOutcome, CliError> {
-    let out_dir = Path::new(&prepared.target.out);
+    let out_dir = prepared.out_dir.as_path();
     let template = prepared.target.template();
     // A build owns its declared outputs and overwrites them (DEC-057) — which is
     // also what lets a hit restore an output the user deleted.
@@ -564,7 +1030,7 @@ fn build_one(
         if let Ok(Some(hit)) = cache.lookup(key) {
             // The entry is self-describing: it carries the extension the output
             // was encoded as, so no decode is needed to write it to the right path.
-            write_encoded(&hit.bytes, &hit.ext, input, out_dir, template, overwrite)?;
+            write_planned(&hit.bytes, &hit.ext, input, out_dir, template, overwrite)?;
             return Ok(BuildOutcome {
                 built: Built::Cached,
                 record: lock_record(prepared, input, key, &hit.ext, &hit.bytes),
@@ -617,7 +1083,7 @@ fn build_one(
             (ext, bytes, skipped)
         }
     };
-    write_encoded(&bytes, &ext, input, out_dir, template, overwrite)?;
+    write_planned(&bytes, &ext, input, out_dir, template, overwrite)?;
 
     if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
         if let Err(e) = cache.store(key, &ext, &bytes) {
@@ -665,22 +1131,18 @@ fn load_lock(path: &str) -> Result<Option<crate::build::lock::BuildLock>, CliErr
     Ok(Some(BuildLock::from_toml(&text)?))
 }
 
-/// Write the lockfile atomically: stage beside it, then `rename` into place.
+/// Write the lockfile atomically: staged beside it and renamed into place, like
+/// every file output.
 ///
 /// A reader (a concurrent `--check`, a `git status`) therefore never sees a
-/// half-written lockfile — the same temp→rename discipline the cache store uses.
+/// half-written lockfile, and a failed write keeps the old one.
 fn write_lock(path: &str, contents: &str) -> Result<(), CliError> {
-    let write_err = |source: std::io::Error| CliError::LockWrite {
-        path: path.to_owned(),
-        source,
-    };
-    let tmp = format!("{path}.tmp{}", std::process::id());
-    std::fs::write(&tmp, contents).map_err(write_err)?;
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(write_err(e));
-    }
-    Ok(())
+    crate::sink::publish_file_io(Path::new(path), contents.as_bytes()).map_err(|source| {
+        CliError::LockWrite {
+            path: path.to_owned(),
+            source,
+        }
+    })
 }
 
 /// The `build` path: run every `[[target]]` in a declared build manifest.
@@ -740,10 +1202,12 @@ pub(super) fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), C
         }
     }
 
-    // A build must map sources to outputs injectively, or two inputs race one
-    // destination (DEC-057). Checked here — after every target is resolved, before
-    // the store opens and before any write — so a collision costs nothing on disk.
-    check_output_injective(&prepared)?;
+    // Every destination is resolved once, here, and refused if it is not safe: two
+    // inputs racing one file, an output over a file the build reads, an `out` that
+    // leaves the tree through a link. After every target is resolved and before the
+    // lockfile is read, the store opens or anything is written, so a refusal costs
+    // nothing on disk, `--check` included.
+    check_destinations(&mut prepared, &registry, Path::new(path))?;
 
     // Load the committed lockfile before anything is written, so a malformed one
     // (or, under `--check`, a missing one) costs nothing on disk. `None` here is
@@ -893,11 +1357,15 @@ pub(super) fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), C
     // records the ambiguity.
     let entries: Vec<(String, String)> = records
         .iter()
-        .map(|r| (r.path.clone(), r.source.clone()))
+        .map(|r| (fold_case(&r.path), r.source.clone()))
         .collect();
     if let Some(c) = crate::build::find_output_collision(&entries) {
+        let output = records
+            .iter()
+            .find(|r| fold_case(&r.path) == c.output)
+            .map_or(c.output, |r| r.path.clone());
         return Err(CliError::OutputCollision {
-            output: c.output,
+            output,
             first: c.first,
             second: c.second,
         });
@@ -1085,7 +1553,65 @@ fn watch_set_for(
     registry: &OperationRegistry,
 ) -> crate::build::watch::WatchSet {
     let assets = recipe_asset_paths(manifest, registry);
-    crate::build::watch::watch_roots(manifest, manifest_path, &assets)
+    let mut set = crate::build::watch::watch_roots(manifest, manifest_path, &assets);
+    // `watch_roots` only knows each `out` as spelled. The watcher reports real
+    // paths, so a link or an `a/../dist` spelling would let the build's own
+    // writes wake it: exclude where each `out` really resolves too.
+    if let Ok(root) = build_root() {
+        for target in &manifest.target {
+            let dir = resolve_out_dir(&root, &target.out);
+            if !set.excluded.contains(&dir) {
+                set.excluded.push(dir);
+            }
+        }
+    }
+    set
+}
+
+/// Every file the build reads, by folded canonical path: the manifest, each
+/// target's resolved sources, recipe files and recipe assets. A change to one
+/// always rebuilds, even inside an excluded `out` folder.
+///
+/// The build refuses an output that is one of these files, so its own writes
+/// never match. Errors are ignored: the build reports them, and a source that
+/// does not resolve yet is not a read yet.
+#[cfg(feature = "watch")]
+fn watch_reads(
+    manifest: &crate::build::BuildManifest,
+    manifest_path: &Path,
+    registry: &OperationRegistry,
+) -> Vec<String> {
+    let Ok(root) = build_root() else {
+        return Vec::new();
+    };
+    let mut reads = vec![identity_of(&root, manifest_path)];
+    for target in &manifest.target {
+        if let Ok(inputs) = source::resolve_all(
+            target.source.as_slice(),
+            &mut std::io::empty(),
+            OnEmpty::Skip,
+        ) {
+            for input in inputs {
+                if let crate::source::Input::Path(path) = input {
+                    reads.push(identity_of(&root, &path));
+                }
+            }
+        }
+        reads.push(identity_of(&root, Path::new(&target.recipe)));
+    }
+    for asset in recipe_asset_paths(manifest, registry) {
+        reads.push(identity_of(&root, &asset));
+    }
+    reads
+}
+
+/// Whether a watcher event on `path` is a change to a file the build reads.
+#[cfg(feature = "watch")]
+fn is_read(path: &Path, reads: &[String]) -> bool {
+    match build_root() {
+        Ok(root) => reads.contains(&identity_of(&root, path)),
+        Err(_) => false,
+    }
 }
 
 /// The real `--watch` loop (behind the `watch` feature): set up the watcher, run an
@@ -1102,6 +1628,7 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     // hard exit; see the initial build below.)
     let manifest = load_manifest(path)?;
     let mut set = watch_set_for(&manifest, Path::new(path), &registry);
+    let mut reads = watch_reads(&manifest, Path::new(path), &registry);
 
     let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
     let mut watcher = make_watcher(&tx)?;
@@ -1124,7 +1651,12 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     while let Some(batch) = watch::debounce(&rx, WATCH_DEBOUNCE) {
         // Drop a batch that is entirely the build's OWN writes, so a build never
         // wakes itself (the correctness crux; see `watch::is_excluded`).
-        if batch.iter().all(|p| watch::is_excluded(p, &set.excluded)) {
+        // A change to a file the build reads still counts inside an excluded `out`
+        // folder; the build refuses to write one, so its own writes never match.
+        if batch
+            .iter()
+            .all(|p| watch::is_excluded(p, &set.excluded) && !is_read(p, &reads))
+        {
             continue;
         }
 
@@ -1139,6 +1671,7 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
         // only when the set differs or a root that failed can be watched now, so a
         // still-missing root is not re-warned about on every rebuild.
         if let Ok(m) = load_manifest(path) {
+            reads = watch_reads(&m, Path::new(path), &registry);
             let next = watch_set_for(&m, Path::new(path), &registry);
             let retry = unwatched.iter().any(|root| root.is_dir());
             if next != set || retry {
@@ -1152,7 +1685,10 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-#[cfg(all(test, feature = "watch"))]
+// Two attributes, not `cfg(all(test, ...))`: clippy only treats a plain
+// `cfg(test)` module as test code, where unwrap is allowed.
+#[cfg(test)]
+#[cfg(feature = "watch")]
 mod watch_tests {
     use super::*;
 
@@ -1280,9 +1816,16 @@ mod tests {
         }
     }
 
+    /// The collision key for `out` resolved under a fresh, canonical root, the way
+    /// planning does it.
     fn key(out: &str, name: Option<&str>, path: &str) -> String {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let rel = root_relative(&root, &resolve_out_dir(&root, out));
+        let t = target(out, name);
         output_collision_key(
-            &target(out, name),
+            &rel,
+            t.template(),
             &crate::source::Input::Path(PathBuf::from(path)),
         )
     }
@@ -1316,7 +1859,7 @@ mod tests {
     fn collision_key_normalizes_the_out_dir() {
         // `dist`, `dist/`, and `./dist` are one directory — two targets naming it
         // differently still collide. (Not canonicalized: it may not exist yet.)
-        let expected = Path::new("dist").join("logo.{ext}").display().to_string();
+        let expected = "dist/logo.{ext}";
         assert_eq!(key("dist", None, "a/logo.png"), expected);
         assert_eq!(key("dist/", None, "a/logo.png"), expected);
         assert_eq!(key("./dist", None, "a/logo.png"), expected);
@@ -1331,21 +1874,21 @@ mod tests {
         // The real output extension is substituted — the post-decode twin of the
         // collision key, which must leave `{ext}` as a sentinel.
         assert_eq!(
-            lock_output_path(&target("dist", None), &input, "webp"),
+            lock_output_path("dist", "{stem}.{ext}", &input, "webp"),
             "dist/a.webp"
         );
         assert_eq!(
-            lock_output_path(&target("dist/img", Some("{stem}_web.{ext}")), &input, "jpg"),
+            lock_output_path("dist/img", "{stem}_web.{ext}", &input, "jpg"),
             "dist/img/a_web.jpg"
         );
 
         // `./dist` normalizes; a bare `.` out dir leaves just the file name. The
         // separator is always `/`, so a lockfile committed on one OS reads on another.
         assert_eq!(
-            lock_output_path(&target("./dist", None), &input, "png"),
+            lock_output_path("dist", "{stem}.{ext}", &input, "png"),
             "dist/a.png"
         );
-        assert_eq!(lock_output_path(&target(".", None), &input, "png"), "a.png");
+        assert_eq!(lock_output_path("", "{stem}.{ext}", &input, "png"), "a.png");
     }
 
     #[test]
@@ -1367,6 +1910,8 @@ mod tests {
             recipe,
             format_plan: OutputFormatPlan::Preserve,
             inputs: Vec::new(),
+            out_dir: PathBuf::from("dist"),
+            rel_dir: "dist".to_owned(),
         };
         let input = crate::source::Input::Path(PathBuf::from("src/a.png"));
         let key = cache::compute_key(
@@ -1393,6 +1938,114 @@ mod tests {
             stem: "x".into(),
         };
         assert!(lock_record(&prepared, &stdin, &key, "png", b"").is_none());
+    }
+
+    // ── destinations: the resolver and the sink's re-check ──────────────────
+
+    #[test]
+    fn fold_case_lowers_every_letter_not_only_ascii() {
+        assert_eq!(fold_case("DIST/A.png"), "dist/a.png");
+        assert_eq!(fold_case("\u{c9}t\u{c9}.PNG"), "\u{e9}t\u{e9}.png");
+    }
+
+    /// `READABLE_EXTENSIONS` is a copy of the source filter's list. Probe the
+    /// real filter with a literal list of the extensions it accepts (so an
+    /// extension dropped from the copy is still probed), the copy's own members
+    /// (so one added to the copy is probed too) and the sink's, and require the
+    /// filter and the copy to agree on each.
+    #[test]
+    fn readable_extensions_match_the_source_filter() {
+        const SOURCE_EXTENSIONS: &[&str] = &[
+            "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "webp", "avif", "svg", "nef",
+            "nrw", "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw",
+            "rwl", "raw", "heic", "heif",
+        ];
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut probed: Vec<&str> = SOURCE_EXTENSIONS.to_vec();
+        probed.extend(READABLE_EXTENSIONS);
+        probed.extend(OUTPUT_EXTENSIONS);
+        probed.sort_unstable();
+        probed.dedup();
+        for ext in &probed {
+            std::fs::write(dir.path().join(format!("f.{ext}")), b"x").unwrap();
+        }
+        let listed: std::collections::BTreeSet<String> = crate::source::resolve_all(
+            &[dir.path().to_string_lossy().into_owned()],
+            &mut std::io::empty(),
+            OnEmpty::Fail,
+        )
+        .unwrap()
+        .iter()
+        .map(|i| {
+            i.path()
+                .unwrap()
+                .extension()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+        for ext in &probed {
+            assert_eq!(
+                listed.contains(*ext),
+                is_readable_name(&format!("f.{ext}")),
+                "the source filter and READABLE_EXTENSIONS disagree on `.{ext}`"
+            );
+        }
+    }
+
+    #[test]
+    fn output_extensions_cover_every_format_the_sink_names() {
+        for fmt in ::image::ImageFormat::all() {
+            let ext = crate::sink::extension_for_format(fmt);
+            assert!(
+                OUTPUT_EXTENSIONS.contains(&ext),
+                "{fmt:?} writes `.{ext}`, which OUTPUT_EXTENSIONS lacks"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_planned_refuses_a_dir_that_became_a_link_after_planning() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let other = tempfile::TempDir::new().unwrap();
+
+        // Planning: `dist` does not exist yet.
+        let planned = resolve_out_dir(&root, "dist");
+        assert_eq!(planned, root.join("dist"));
+
+        // Then `dist` becomes a link to somewhere else.
+        std::os::unix::fs::symlink(other.path(), root.join("dist")).unwrap();
+
+        let input = crate::source::Input::Path(PathBuf::from("src/a.png"));
+        let result = write_planned(
+            b"bytes",
+            "png",
+            &input,
+            &planned,
+            "{stem}.{ext}",
+            Overwrite::Allow,
+        );
+        let err = result.expect_err("a moved folder must refuse the write");
+        assert_eq!(err.code(), 5, "the sink's refusal exits 5");
+        assert_eq!(
+            std::fs::read_dir(other.path()).unwrap().count(),
+            0,
+            "the folder it moved to stays empty"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_out_dir_on_windows() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        assert!(root.to_string_lossy().starts_with(r"\\?\"));
+        let dir = resolve_out_dir(&root, "dist\\");
+        assert_eq!(dir, root.join("dist"));
+        assert_eq!(root_relative(&root, &dir), "dist");
     }
 
     // ── SPEC-111: the format plan a target's name template implies ──────────

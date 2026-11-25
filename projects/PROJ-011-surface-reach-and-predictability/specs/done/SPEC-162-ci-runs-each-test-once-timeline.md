@@ -1,0 +1,33 @@
+# SPEC-162 timeline
+
+Architect appends as cycles are designed. Executors update status as
+they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complete · `[?]` blocked.
+
+Cycle prompts live in `prompts/SPEC-162-<cycle>.md`.
+
+## Instructions
+
+- [x] **frame + design** (2026-11-24, orchestrator, Opus) — folded into the spec: the measurement of run
+  45501714010 is the frame; `## Outputs`, the ACs and the mutation table are the design. No separate sessions.
+- [x] **build** (2026-11-25, Sonnet, $2.17 measured before its last edits) — draft PR #271 at `e54e5b5`; code last
+  changed at `ecf0dc7` (run 45539781614 green). 102.6 → 62.3 runner-minutes; cache kept (Build + Test −43/−23/−47%).
+  M3 did not match AC-5: a shared `CARGO_TARGET_DIR` serves stale outer artifacts across worktrees (the AC's mistake).
+- [x] **verify** (2026-11-25, Opus, $3.37 measured before its final message) — PUNCH LIST at `e54e5b5`. Two claims:
+  macOS's Build + Test saving holds on one of two warm runs (−22.5%, then −15.5% in run 45541262385); the cache
+  step has no `if:`, so a docs-only run restores ~1.75 GB for nothing. One wording item: the probe hash protects
+  nothing (a shared target folder serves the other checkout's outer test binary — a 1 s false green), the `ci.yml`
+  comment is loose, and AC-5, M3/M4 and Build Completion misstate. Numbers re-checked against the API by the
+  orchestrator. Three out-of-spec findings filed in `guidance/ideas.yaml` (`ci-classifier-pr-diffs-the-whole-branch`,
+  `native-lean-plus-avif-build`, `rust-cache-on-feature-legs`); the optional skip-name guard was declined.
+  Rulings: the cache stays, with AC-7 restated to the Build step (−70–90% on every warm leg); the hash goes.
+- [x] **punch list** (2026-11-25, Sonnet, $1.34 measured before its last push) — PR #271 at `793dc0c`. `9897c9a`
+  gates the cache step and drops the probe hash; `793dc0c` restates AC-5/AC-7 and fixes the spec text. Run
+  45556625777 green, 66.9 runner-min; Build step ubuntu 27 s, macOS 21 s, windows 50 s; the probe built cold once
+  (folder renamed). A full key match saves nothing, so the PR's cache never gains `avif-probe`; `main` has no
+  `check` entry, so its first post-merge run should save one with it. Diff checked by the orchestrator.
+- [x] **re-verify** (2026-11-25, Opus, $1.70 measured before its final message) — APPROVED at `793dc0c`, no claims.
+  From rust-cache's source: a full key match saves nothing, and `main`'s first green run after the merge saves a
+  `check` entry including `target/tmp/avif-probe`. Two wording items left for ship (the AC-5 row in Build
+  Completion; tick the other ACs).
+- [x] **merge** (2026-11-25, maintainer) — PR #271 as 73f13ad, head 288a367 (a merge of `main` into the approved 793dc0c; no change of its own).
+- [x] **ship** (2026-11-25, Sonnet, ~$0.7 measured after the push; total spec cost in `cost.totals`) — PR #271 merged as 73f13ad; reflected and archived. `main`'s CI was still running at ship (macOS and Windows `check`, macOS `heic`), so the three-entry cache check is open.

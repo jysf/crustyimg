@@ -47,10 +47,17 @@ pub enum TextError {
 ///
 /// Accepts `RRGGBB`, `#RRGGBB` (alpha defaults to `255`), and `RRGGBBAA`
 /// (`#RRGGBBAA` too). Each pair is a base-16 byte. Any other length, a non-hex
-/// digit, or an empty string → [`TextError::Color`].
+/// digit (a sign counts), or an empty string → [`TextError::Color`].
 pub fn parse_color(s: &str) -> Result<[u8; 4], TextError> {
     let hex = s.strip_prefix('#').unwrap_or(s);
     let bad = || TextError::Color(s.to_owned());
+    // Every byte must be a hex digit. `from_str_radix` alone reads a leading
+    // `+` ("+f" is 15), so a sign would load as a different colour, and the
+    // pairs below are sliced by byte index, which panics inside a multi-byte
+    // character.
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(bad());
+    }
 
     let bytes = match hex.len() {
         6 => {
@@ -347,5 +354,32 @@ mod tests {
             large.height(),
             small.height()
         );
+    }
+
+    #[test]
+    fn parse_color_refuses_non_ascii() {
+        // Six bytes, so the length check passes; slicing it would split a
+        // character.
+        assert!(matches!(parse_color("aéaaa"), Err(TextError::Color(_))));
+        assert!(matches!(parse_color("#éééé"), Err(TextError::Color(_))));
+        // Eight bytes, the other length.
+        assert!(matches!(parse_color("aéaaaaa"), Err(TextError::Color(_))));
+    }
+
+    #[test]
+    fn parse_color_refuses_a_sign() {
+        // A sign, a prefix or a space makes a pair that `from_str_radix` alone
+        // would read, so each must be refused before the pairs are parsed.
+        for bad in [
+            "+f+f+f", "#+f+f+f", "+f+f+f+f", "-f-f-f", "+0+0+0", "0x0f0f", " fffff",
+        ] {
+            assert!(
+                matches!(parse_color(bad), Err(TextError::Color(_))),
+                "{bad:?} must be refused"
+            );
+        }
+        assert_eq!(parse_color("#0f0f0f").unwrap(), [15, 15, 15, 255]);
+        assert_eq!(parse_color("0F0F0F0F").unwrap(), [15, 15, 15, 15]);
+        assert_eq!(parse_color("AbCdEf").unwrap(), [0xab, 0xcd, 0xef, 255]);
     }
 }

@@ -188,6 +188,7 @@ cargo run -- view path/to/image.jpg # run a subcommand
 # test
 cargo test                          # all tests (unit + integration)
 cargo test <name>                   # single test or module, e.g. `cargo test recipe_round_trip`
+just wasm-test && just wasm-test-slim   # wasm round-trip in Node; needs wasm-bindgen-test-runner; not in just check, CI's wasm-roundtrip job runs both
 
 # lint / format ("typecheck" = clippy; Rust type-checks as part of build)
 cargo clippy --all-targets -- -D warnings         # lint, warnings are errors
@@ -422,6 +423,9 @@ Read the stage, or `just backlog --all` once that project is active.
 - **TDD:** Tests live in the spec's `## Failing Tests` section, written
   during **design**, made to pass during **build** (constraint
   `test-before-implementation`).
+- **Paths in assertions:** compare a path after normalising separators
+  (or build the expected value with `Path::join`), never as a `/` literal.
+  CI runs Windows; SPEC-160's `/in/a.jpg` asserts failed only there.
 
 ---
 
@@ -498,14 +502,50 @@ Read the stage, or `just backlog --all` once that project is active.
   (`kamadak-exif`, `img-parts`, `little_exif`) that never re-decodes pixels.
   Separate from the pixel lane (DEC-003).
 - **Default-preserve policy** — On pixel-lane encodes: **bake** orientation
-  into pixels (not preserved as a tag — SPEC-110, amending DEC-003); keep
-  ICC + copyright/artist; drop GPS unless `--keep-gps` (DEC-003).
+  into pixels (SPEC-110, amending DEC-003) and drop all other metadata, ICC and
+  copyright/artist included (DEC-003, amended by SPEC-150). `--keep-gps` is
+  refused (SPEC-149); `meta copy` (JPEG only) copies metadata back.
 - **Gravity** — A compass anchor (north/south/east/west/center and
   combinations) for placing a watermark or crop region within an image.
 
 ---
 
 ## 15. Cycle-Specific Rules
+
+### During **design**
+
+Before handing off, list what this change makes false and sweep for it:
+re-read every DEC the spec writes or amends against the spec's own design
+corrections, and grep DECs, code comments and docs for the old rule.
+SPEC-159's DEC-115 contradicted its own correction 2; SPEC-160 fixed the
+DEC and missed the same rule in `run_pixel_op`'s comment.
+
+Before writing the mutation table, build its coverage map and put it in
+the spec:
+- **Shapes × reads.** List every shape of input the change reads (for a
+  path: missing, regular file, symlink to a file, dangling symlink,
+  symlink to a directory, read-only, and another spelling of the same
+  file: case, Unicode normalization, a hard link) against every step or
+  clause that reads it. For a predicate, take each clause in turn with an
+  input that passes every *other* clause.
+- **Between steps.** For an ordering that matters (create, set mode,
+  write, rename), list what an observer or a killed process sees between
+  each pair of steps, not only at the end. The next run is an observer
+  too: list what it sees of this run's output (a folder source that now
+  lists the file this run wrote).
+
+Each cell gets a test row or a one-line reason it needs none. A mutation
+table only tests the rows someone thought to write: SPEC-156 missed the
+one clause of its APP14 check without a row, and SPEC-155's two verify
+claims (a symlinked destination, a mode applied after the write) were
+cells no row covered. SPEC-157's two verify claims were the two cells
+added above: `ß`/`SS` overwriting a source on APFS, and a glob source
+that built once and then refused every later build.
+
+A refusal added at a punch list gets the map too, and at least one
+"must not refuse" row: an input next to the refused one that must still
+build. A new refusal is a new claim, and its false positives are the
+half no fix row tests.
 
 ### During **build**
 
@@ -518,8 +558,17 @@ Before writing code:
 4. Read `/guidance/constraints.yaml`.
 5. If anything is ambiguous, add to `/guidance/questions.yaml` and stop.
 
+A change that compiles for wasm (`src/wasm.rs`, or any module the wasm
+build pulls in) runs `just wasm-check` and `just wasm-test` before the
+push, and its file list includes what they touch (`tests/wasm_roundtrip.rs`,
+`scripts/wasm-ci-check.sh`). SPEC-159's wasm leg found both after the push.
+
 When done:
 1. Fill in spec's `## Build Completion` (including reflection).
+   Drive each doc sentence the build wrote that states behaviour, on every
+   exit path the spec names (one input, a batch, a batch with one failing
+   input), and quote the result. This catches a wrong sentence, not a
+   missing one; verify still reads the docs for an omitted consequence.
 2. Append a build cost session entry to `cost.sessions`.
 3. `just advance-cycle SPEC-NNN verify`.
 4. Create `DEC-*` files for non-trivial build decisions. When a
@@ -590,6 +639,43 @@ aggregate-only stderr. Verify had to rule whether that was a deviation or an
 imprecise AC. Prefer "the verb's report, defined here as …" over naming a
 channel that may not exist.
 
+#### A bound or "can't happen" is a claim until its worst input is driven
+
+A spec, prompt or DEC that states a bound, a maximum or "no case exists" says
+whether it was driven, by whom, and over what range, and names the input that
+maximises it (for a rounding bound, a search around each tie). An undriven bound
+is written as "measured over this sweep", never as the maximum. SPEC-145's
+"0.4 px analytic maximum" was 0.6 at `f64` near-ties, and that cost a second
+punch list and re-verify.
+
+The same holds for a mutation row marked **expected all green**. A green row
+proves no *test* tells the mutant apart, not that no *input* does, so the row
+names the search that found no input where the mutant and the code differ.
+SPEC-151's M14 (`border` read as `f32`) was reasoned all green and confirmed
+green at build; verify found `0.01` on a 50 px edge gives 1 px in `f64` and 0 px
+in `f32`.
+
+A mutation row's red set is read off one run of **every** test target
+(`cargo test --no-fail-fast`), not off the Failing Tests list. When the
+mutant does not compile, `cargo test` stops before any integration target
+runs, so the row says so and runs the targets separately. SPEC-160's four
+missed reds all sat outside the four targets its table re-ran.
+
+#### Classify every finding; only a claim needs a re-verify
+
+Each punch item and optional cleanup is one of:
+- **wording** — a doc, comment or table cell that misstates what the code
+  already does;
+- **assert** — a missing or loose assertion where the behaviour is right;
+- **claim** — a fix that changes what a doc, DEC or test claims is true, or the
+  code's behaviour.
+
+All of a verify's items go into **one** punch list. If none is a claim, the
+orchestrator reads the punch list's diff and CI itself and marks the PR ready;
+a re-verify runs only for a claim, because a new claim is unproven. SPEC-145's
+four optional cleanups took two punch lists and two re-verifies (about $5 on a
+$9.37 build); SPEC-147 and SPEC-151 used this rule and needed none.
+
 Append a verify cost session entry to `cost.sessions`.
 
 Output: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.
@@ -601,12 +687,17 @@ session entry, then compute `cost.totals`. Then
 `just archive-spec SPEC-NNN`. If stage backlog is complete, run the
 Stage Ship prompt.
 
+The orchestration handoff is
+`projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`; a ship
+reflection that checks "HANDOFF" reads that file. Four ship reflections
+(SPEC-152, 153, 159, 160) said the repo had none.
+
 ---
 
 ## 16. Session Hygiene (claude-only specific)
 
 Because one agent plays multiple roles, context contamination is a real
-risk. Five habits keep it at bay:
+risk. Six habits keep it at bay:
 
 1. **New session per cycle where possible.** Especially design → build
    and build → verify.
@@ -622,6 +713,13 @@ risk. Five habits keep it at bay:
    commit landed on the wrong branch). `git worktree add <path> <branch>`,
    work there, commit + push, then `git worktree remove`. Always check
    `git branch --show-current` before any commit.
+6. **Never poll CI, and never write your own wait loop.** Run
+   `gh pr checks <N> --watch` in the background, and when it exits take one
+   snapshot at the PR's true head SHA. If it exits at once with "no checks",
+   wait for CI to register and start it again. A hand-written loop fails
+   silently: SPEC-151's build stored a run id and SHA in one variable, zsh did
+   not split it, `gh run view` failed on every pass, and the loop polled for
+   3.5 hours after CI had finished green.
 
 ---
 

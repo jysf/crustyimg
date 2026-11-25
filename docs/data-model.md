@@ -119,7 +119,7 @@ cares about. It is read with `kamadak-exif` (read-only) and edited with
 | Orientation | preserved | container lane |
 | ICC profile | preserved | container lane |
 | Copyright / Artist | preserved | `meta set` (little_exif) |
-| GPS | **dropped** unless `--keep-gps` | `meta clean --gps` removes |
+| GPS | **dropped** (`--keep-gps` is refused, exit 2; `meta copy` restores it on JPEG only) | `meta clean --gps` removes |
 | All other EXIF/IPTC/XMP | dropped on pixel lane | `meta strip` removes; `meta copy` transfers |
 
 ## Recipe Schema (TOML)
@@ -159,9 +159,9 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds five
-operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
-(SPEC-128) — and `tests/docs_ops.rs` asserts that every `op` named in this
+**Every `op` below is a real registry key.** The registry holds ten
+operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`,
+`crop`, `rotate`, `flip`, `pad` and `trim` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 
@@ -233,6 +233,11 @@ wrong-typed value):
 | `scale` | number (integer or float) | finite, `> 0` |
 | `margin` | integer (a float is refused) | `0..=4294967295` |
 | `tile` | boolean | — |
+
+A watermark step whose mark would draw no visible pixel (`opacity = 0`, an opacity too small
+to leave any alpha, blank `text`, a `size` too small to draw it, a `color` with alpha `00`, a
+fully transparent `image`) is refused at load, though each key is in range here. A faint
+mark that still has a visible pixel is accepted.
 
 The `watermark` CLI checks `--size`, `--scale` and `--opacity` against these same rows,
 before it reads any file. It parses them as 32-bit floats, so a value within one f32 step of a
@@ -319,6 +324,126 @@ error at recipe build time (`RecipeError::InvalidOperation`, via
 `RegistryError::InvalidParams`) — not a silent skip and not
 `UnknownOperation`. (Before 0.8.0 a wrong-typed key was refused only when it
 was a required one, and with a message about the missing key.)
+
+### `crop` step param keys
+
+A `crop` step is a **rectangle** (`x`, `y`, `width`, `height`, all four) or an
+**aspect** (`aspect`, and optionally `gravity`). The two forms share no key, so
+the keys present choose the form; mixing them is refused at load, and so is
+`gravity` on a rectangle.
+
+| Key | Type | Range |
+|---|---|---|
+| `x`, `y` | number (integer or float) | `0.0..=1.0` |
+| `width`, `height` | number (integer or float) | `> 0 and <= 1` |
+| `aspect` | string | two whole numbers 1–65535 as `W:H`, such as `"16:9"` |
+| `gravity` | string | one of the nine compass names; default `center` |
+
+Every length is a **fraction of the image the step receives**: `x` and `width`
+of its width, `y` and `height` of its height. There are no pixel units in a
+recipe, so `width = 800` is refused rather than read as pixels. Each edge is
+rounded to the nearest pixel on its own (halves up), so every edge sits within
+half a pixel of its exact position at any image size. `x + width` and
+`y + height` may not pass `1`. A crop that rounds to 0 px fails when the step
+runs (it needs the image size); it is never widened to 1 px.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+x = 0.25
+y = 0.1
+width = 0.5
+height = 0.6
+```
+
+### `rotate` and `flip` step param keys
+
+| Op | Key | Type | Range |
+|---|---|---|---|
+| `rotate` | `angle` | number (integer or float) | `-360.0..=360.0`, a multiple of 90 |
+| `flip` | `axis` | string | `horizontal` or `vertical` |
+
+A positive `angle` turns the image clockwise as it is displayed after any earlier
+step; `-90` turns it anticlockwise. `0`, `360` and `-360` change nothing. Any other
+angle is refused when the recipe loads. `horizontal` mirrors left and right;
+`vertical` mirrors top and bottom. Both act on the image as the step receives it,
+and only move pixels: the colour type and bit depth are the input's.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "rotate"
+angle = -90
+
+[[step]]
+op = "flip"
+axis = "horizontal"
+```
+
+### `pad` step param keys
+
+| Key | Type | Range |
+|---|---|---|
+| `aspect` | string | `"W:H"`, whole numbers 1 to 65535 |
+| `gravity` | string | one of the nine names, default `center`; aspect form only |
+| `border` | number | `> 0` and `<= 1`, a fraction of the long edge |
+| `color` | string | required: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or `transparent` |
+
+A pad is an aspect (`aspect`, `gravity`) or a border (`border`), never both. The canvas
+grows around the image and every input pixel is copied unchanged; the new pixels are
+the fill, alpha included. An image with no alpha gains it for a fill below `ff` (grey plus
+alpha for a grey fill such as `transparent`, RGBA otherwise). A border that rounds to 0 px on
+an image, or a canvas past the size caps, fails that image.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "fit"
+width = 1080
+height = 1080
+
+[[step]]
+op = "pad"
+aspect = "1:1"
+color = "#ffffff"
+```
+
+### `trim` step param keys
+
+| Key | Type | Range |
+|---|---|---|
+| `color` | string | optional: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or `transparent`; default the top-left pixel |
+| `tolerance` | integer | 0 to 255, default 0, in 8-bit steps per channel (× 257 at 16 bits) |
+
+A trim removes the outer rows and columns in which every pixel matches the colour
+within the tolerance, each side on its own. Every kept pixel is copied unchanged. An
+image with nothing to trim is written unchanged; an image in which every pixel matches
+fails, because a trim would leave nothing.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "trim"
+tolerance = 8
+```
 
 ### Step keys are checked at load
 

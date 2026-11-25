@@ -1,0 +1,22 @@
+version = "2"
+format = "jpeg"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1000
+
+[[step]]
+op = "watermark"
+color = "ffffff"
+gravity = "southeast"
+margin = 20
+opacity = 0.85
+size = 40
+text = "© ddphotos"
+
+[[step]]
+op = "optimize"

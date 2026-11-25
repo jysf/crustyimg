@@ -124,11 +124,11 @@ alongside build/cache as the work velocity actually compresses.
 
 Ordered by dependency. Specs inside each stage are listed in build order.
 
-- [ ] STAGE-058 (proposed) — Lossless geometry: crop, quarter-turn rotate, flip, pad, trim, and their `edit` flags
+- [x] STAGE-058 (shipped 2026-11-13) — Lossless geometry: crop, quarter-turn rotate, flip, pad, trim, and their `edit` flags
 - [ ] STAGE-059 (proposed) — Straighten: rotate by any angle, resampled in linear light, crop-to-fit or expand
-- [ ] STAGE-060 (proposed) — The ddphotos edit page crops and straightens, and its recipe replays on the original
+- [ ] STAGE-060 (active) — The ddphotos edit page crops and straightens, and its recipe replays on the original
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 1 shipped / 1 active / 1 pending
 
 STAGE-060's crop half can start once STAGE-058's crop spec ships. Its straighten half
 waits for STAGE-059.
@@ -163,6 +163,43 @@ Total: 13 specs (3 M, 10 S). Lines 1–8 need nothing outside this project.
 prompts are `specs/prompts/SPEC-141-frame.md` and `SPEC-142-frame.md`, and the two can run at
 the same time. SPEC-139 is taken on another branch, and SPEC-140 is left for PROJ-016 (DEC-107).
 Later lines get their ids at frame.
+
+**Reserved (2026-11-04):** line 2 (`crop`) is **SPEC-145**. Its frame prompt is
+`specs/prompts/SPEC-145-frame.md`.
+
+**Reserved (2026-11-05):** line 4 (`rotate` and `flip`) is **SPEC-147**. Its frame prompt is
+`specs/prompts/SPEC-147-frame.md`.
+
+**Reserved (2026-11-06):** line 5 (`pad`) is **SPEC-151**. SPEC-149 and SPEC-150 are PROJ-011's
+(STAGE-063). Its frame prompt is `specs/prompts/SPEC-151-frame.md`.
+
+**Reserved (2026-11-06):** line 6 (`trim`) is **SPEC-152**. Its frame prompt is
+`specs/prompts/SPEC-152-frame.md`.
+
+**Reserved (2026-11-10):** line 8 (`edit` flags and the ordering rule) is **SPEC-153**, the last
+STAGE-058 spec. Its frame prompt is `specs/prompts/SPEC-153-frame.md`.
+
+**Reserved (2026-11-22):** STAGE-060's "Crop on the page" is **SPEC-161**. Its frame prompt is
+`specs/prompts/SPEC-161-frame.md`.
+
+### Handed in from PROJ-011 (not yet scheduled)
+
+PROJ-011 is closing, and the maintainer ruled on 2026-11-05 that PROJ-017 takes three
+recipe-validation items. Their full text stays in PROJ-011's
+`stages/STAGE-054-recipe-reach-follow-through.md`, each marked "handed to PROJ-017". This list
+only points at them. None is on the build order above, and none blocks a geometry spec.
+
+- **A recipe's `format = "bogus"` is refused as an "extension"** (exit 4, at encode). It should
+  name the key and the step, and may belong at load (exit 1).
+- **A recipe's `quality = 101` is accepted as 100.** Refuse it at load like every other ranged
+  key, and `-q` too, or document the clamp.
+- **A wasm `validate(recipe_toml)` export** that returns per-step errors without an image. It's
+  the recipe playground's prerequisite (`guidance/ideas.yaml`, `wasm-validate-export`).
+
+When one is framed, it takes a spec id here and moves to a stage: probably a small
+recipe-validation stage after STAGE-058, since none is geometry. Mark its STAGE-054 line
+`(moved to PROJ-017, SPEC-NNN)` at the same time. The first two touch recipe load, as every
+STAGE-058 op does, so frame them after STAGE-058's ops land to avoid sharing files with a build.
 
 ## Dependencies
 

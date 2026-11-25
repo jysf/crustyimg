@@ -70,10 +70,23 @@ impl Input {
 /// Errors resolving a CLI input argument into inputs (DEC-007).
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
-    /// The argument named a path that does not exist / is unreadable, or a
-    /// glob that matched nothing.
+    /// The argument named a path that does not exist or cannot be read
+    /// (a folder that cannot be listed included).
     #[error("input not found or unreadable: {0}")]
     NotFound(String),
+
+    /// A readable folder holds no image at its top level. Folders are not
+    /// searched, so the message points at a glob that searches them. Carries
+    /// the folder name with any trailing separator removed.
+    #[error(
+        "no images in folder '{0}': only its top level is read; to include subfolders, use a glob such as {glob}",
+        glob = subfolder_glob(.0)
+    )]
+    NoImagesInFolder(String),
+
+    /// A valid glob pattern matched no image.
+    #[error("no images matched '{0}'")]
+    NoImagesMatched(String),
 
     /// The glob pattern itself was syntactically invalid.
     #[error("invalid glob pattern '{pattern}': {reason}")]
@@ -160,7 +173,9 @@ pub fn looks_like_glob(arg: &str) -> bool {
 /// Unreadable / non-image entries inside a glob or directory are skipped
 /// silently (keeping `-o -` stdout pipes clean; see SPEC-007 for verbosity).
 /// A missing single file, an empty glob match, or an invalid pattern is a
-/// typed [`SourceError`].
+/// typed [`SourceError`]. A readable folder with no top-level image is
+/// `Ok(empty)`, the only way this returns an empty list; [`resolve_all`]
+/// turns that into [`SourceError::NoImagesInFolder`] when nothing resolves.
 pub fn resolve(arg: &str, reader: &mut impl Read) -> Result<Vec<Input>, SourceError> {
     if arg == "-" {
         return resolve_stdin(reader);
@@ -172,6 +187,80 @@ pub fn resolve(arg: &str, reader: &mut impl Read) -> Result<Vec<Input>, SourceEr
         return resolve_directory(arg);
     }
     resolve_single_file(arg)
+}
+
+/// What [`resolve_all`] does with an argument that resolves to no input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnEmpty {
+    /// A missing path or a glob that matched nothing stops the run at once.
+    Fail,
+    /// A missing path or a glob that matched nothing is skipped, so the other
+    /// arguments still run (`lint`). Any other error still stops the run.
+    Skip,
+}
+
+/// Resolve every argument in order and concatenate the inputs.
+///
+/// A readable folder with no top-level image contributes nothing, under either
+/// [`OnEmpty`] mode, so `resize a.png empty/` still runs on `a.png`. Under
+/// [`OnEmpty::Skip`], [`SourceError::NotFound`] and
+/// [`SourceError::NoImagesMatched`] are skipped the same way; every other error,
+/// and every error under [`OnEmpty::Fail`], is returned at once.
+///
+/// If no argument yields an input, the error is the first argument's cause, in
+/// argument order: [`SourceError::NoImagesInFolder`] (the name with trailing
+/// `/` and `\` removed) for an empty folder, or the skipped error itself.
+///
+/// The folder cause comes from `resolve` returning `Ok(empty)`, never from
+/// asking the path again afterwards: a folder that cannot be listed is
+/// `NotFound` and must stay so.
+pub fn resolve_all<S: AsRef<str>>(
+    args: &[S],
+    reader: &mut impl Read,
+    on_empty: OnEmpty,
+) -> Result<Vec<Input>, SourceError> {
+    let mut inputs = Vec::new();
+    let mut first_cause: Option<SourceError> = None;
+    for arg in args {
+        let arg = arg.as_ref();
+        match resolve(arg, reader) {
+            Ok(found) if found.is_empty() => {
+                first_cause.get_or_insert_with(|| {
+                    SourceError::NoImagesInFolder(folder_name(arg).to_owned())
+                });
+            }
+            Ok(found) => inputs.extend(found),
+            Err(e @ (SourceError::NotFound(_) | SourceError::NoImagesMatched(_)))
+                if on_empty == OnEmpty::Skip =>
+            {
+                first_cause.get_or_insert(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    if inputs.is_empty() {
+        return Err(first_cause.unwrap_or_else(|| SourceError::NotFound(String::new())));
+    }
+    Ok(inputs)
+}
+
+/// The glob that reaches into `folder`'s subfolders, quoted so it pastes into
+/// the host shell as one argument (a folder named `it's` would otherwise
+/// close the quote early).
+fn subfolder_glob(folder: &str) -> String {
+    let glob = format!("{folder}/**/*");
+    crate::lint::quote_for_host_shell(std::path::Path::new(&glob)).unwrap_or(glob)
+}
+
+/// A folder argument without its trailing separators (`sub/` → `sub`), so the
+/// message and its glob hint read cleanly. `/` alone stays `/`.
+fn folder_name(arg: &str) -> &str {
+    let trimmed = arg.trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        arg
+    } else {
+        trimmed
+    }
 }
 
 // ── Private dispatch functions ────────────────────────────────────────────────
@@ -189,7 +278,7 @@ fn resolve_stdin(reader: &mut impl Read) -> Result<Vec<Input>, SourceError> {
 }
 
 /// Glob branch: expand the pattern, filter to image extensions + symlink-
-/// escape check, sort, and return. Empty match → `NotFound`.
+/// escape check, sort, and return. Empty match → `NoImagesMatched`.
 fn resolve_glob(pattern: &str) -> Result<Vec<Input>, SourceError> {
     let paths_iter = glob::glob(pattern).map_err(|e| SourceError::InvalidPattern {
         pattern: pattern.into(),
@@ -244,7 +333,7 @@ fn resolve_glob(pattern: &str) -> Result<Vec<Input>, SourceError> {
     results.sort();
 
     if results.is_empty() {
-        return Err(SourceError::NotFound(pattern.into()));
+        return Err(SourceError::NoImagesMatched(pattern.into()));
     }
 
     Ok(results.into_iter().map(Input::Path).collect())
@@ -525,5 +614,124 @@ mod tests {
         let mut expected = vec![a, b, c];
         expected.sort();
         assert_eq!(paths, expected);
+    }
+
+    // ── resolve_all ───────────────────────────────────────────────────────
+
+    /// A temp dir with `img/a.png`, `empty/` and `sub/inner/a.png`; returns the
+    /// dir and the three folder paths as strings.
+    fn folders() -> (tempfile::TempDir, String, String, String) {
+        let tmp = tempfile::tempdir().unwrap();
+        let img = tmp.path().join("img");
+        let empty = tmp.path().join("empty");
+        let inner = tmp.path().join("sub").join("inner");
+        std::fs::create_dir(&img).unwrap();
+        std::fs::create_dir(&empty).unwrap();
+        std::fs::create_dir_all(&inner).unwrap();
+        write_tiny_png(&img.join("a.png"));
+        write_tiny_png(&inner.join("a.png"));
+        let s = |p: PathBuf| p.to_str().unwrap().to_owned();
+        let sub = s(tmp.path().join("sub"));
+        (tmp, s(img), s(empty), sub)
+    }
+
+    fn all(args: &[&str], on_empty: OnEmpty) -> Result<Vec<Input>, SourceError> {
+        resolve_all(args, &mut std::io::empty(), on_empty)
+    }
+
+    #[test]
+    fn resolve_all_explains_an_empty_result_by_its_cause() {
+        let (tmp, img, empty, _) = folders();
+
+        match all(&[&empty], OnEmpty::Fail) {
+            Err(SourceError::NoImagesInFolder(name)) => assert_eq!(name, empty),
+            other => panic!("empty folder: {other:?}"),
+        }
+        // A trailing separator is trimmed from the name.
+        let slashed = format!("{empty}/");
+        match all(&[&slashed], OnEmpty::Fail) {
+            Err(SourceError::NoImagesInFolder(name)) => assert_eq!(name, empty),
+            other => panic!("empty folder with a slash: {other:?}"),
+        }
+        let glob = format!("{empty}/*.png");
+        match all(&[&glob], OnEmpty::Fail) {
+            Err(SourceError::NoImagesMatched(pattern)) => assert_eq!(pattern, glob),
+            other => panic!("glob with no match: {other:?}"),
+        }
+        let missing = tmp.path().join("missing");
+        let missing = missing.to_str().unwrap();
+        match all(&[missing], OnEmpty::Fail) {
+            Err(SourceError::NotFound(name)) => assert_eq!(name, missing),
+            other => panic!("missing path: {other:?}"),
+        }
+        assert_eq!(all(&[&img], OnEmpty::Fail).unwrap().len(), 1);
+
+        assert_eq!(
+            SourceError::NoImagesInFolder("sub".into()).to_string(),
+            "no images in folder 'sub': only its top level is read; to include subfolders, use a glob such as 'sub/**/*'"
+        );
+        assert_eq!(folder_name("/"), "/");
+        assert_eq!(folder_name(r"d\"), "d");
+    }
+
+    #[test]
+    fn resolve_all_skips_or_fails_per_on_empty_and_names_the_first_cause() {
+        let (tmp, img, empty, sub) = folders();
+        let missing = tmp.path().join("missing");
+        let missing = missing.to_str().unwrap();
+
+        // An empty folder among others is not an error.
+        assert_eq!(all(&[&img, &empty], OnEmpty::Fail).unwrap().len(), 1);
+        match all(&[&sub, &empty], OnEmpty::Fail) {
+            Err(SourceError::NoImagesInFolder(name)) => assert_eq!(name, sub),
+            other => panic!("[sub, empty]: {other:?}"),
+        }
+        match all(&[missing, &sub], OnEmpty::Skip) {
+            Err(SourceError::NotFound(name)) => assert_eq!(name, missing),
+            other => panic!("[missing, sub] skip: {other:?}"),
+        }
+        match all(&[&sub, missing], OnEmpty::Skip) {
+            Err(SourceError::NoImagesInFolder(name)) => assert_eq!(name, sub),
+            other => panic!("[sub, missing] skip: {other:?}"),
+        }
+        // Under Fail a missing path stops the run even when another resolves.
+        assert!(matches!(
+            all(&[&img, missing], OnEmpty::Fail),
+            Err(SourceError::NotFound(_))
+        ));
+        // An invalid pattern is never skipped.
+        assert!(matches!(
+            all(&["bad[", &img], OnEmpty::Skip),
+            Err(SourceError::InvalidPattern { .. })
+        ));
+        // No arguments at all: an error, never a panic.
+        assert!(matches!(
+            resolve_all::<&str>(&[], &mut std::io::empty(), OnEmpty::Fail),
+            Err(SourceError::NotFound(_))
+        ));
+    }
+
+    /// A folder that cannot be listed is not found, even where `lint` skips
+    /// missing paths: it must never be called a folder with no images.
+    #[cfg(unix)]
+    #[test]
+    fn resolve_all_keeps_an_unreadable_folder_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, _, _, _) = folders();
+        let locked = tmp.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        write_tiny_png(&locked.join("a.png"));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let readable = std::fs::read_dir(&locked).is_ok();
+        let got = all(&[locked.to_str().unwrap()], OnEmpty::Skip);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            !readable,
+            "precondition: running as root? an unreadable folder cannot be made here"
+        );
+        assert!(
+            matches!(got, Err(SourceError::NotFound(_))),
+            "unreadable folder: {got:?}"
+        );
     }
 }

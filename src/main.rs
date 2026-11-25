@@ -3,6 +3,15 @@
 //! Delegates entirely to `crustyimg::cli::run()`. The clap subcommand surface,
 //! dispatch, and exit-code mapping live in `src/cli/` (DEC-012, DEC-007).
 
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::unreachable
+)]
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> std::process::ExitCode {
     crustyimg::cli::run()

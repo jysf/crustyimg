@@ -883,3 +883,28 @@ fn meta_set_matches_old_set() {
         "`meta set` bytes must be byte-identical to set_tags() (the old `set`)"
     );
 }
+
+#[test]
+fn meta_strip_keeps_the_colours_of_an_adobe_cmyk_jpeg() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/lint/cmyk_16x16.jpg"
+    );
+    let file = std::fs::read(path).unwrap();
+
+    let output = Command::new(BIN)
+        .args(["meta", "strip", path, "-o", "-"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "strip should exit 0");
+    let stripped = decode_rgba(&output.stdout);
+    let at = (8 * 16 + 8) * 4;
+    assert_eq!(&stripped[at..at + 4], [191, 64, 32, 255], "pixel (8,8)");
+    assert_eq!(
+        stripped,
+        decode_rgba(&file),
+        "stripped file decodes differently"
+    );
+    assert_eq!(output.stdout, file, "nothing to strip: bytes unchanged");
+}
