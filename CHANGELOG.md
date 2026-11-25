@@ -59,6 +59,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `+f+f+f+f` as a translucent `#0f0f0f0f`. A recipe's `color` (`pad`, `trim`, `watermark`) with a
   sign now fails to load (`apply` and `build` exit 1), and `watermark --color` exits 2, with the
   colour message.
+- `build` refuses an `out` that resolves outside the project through a link (exit 2). Build inside the
+  project and copy the outputs.
+- `build` refuses one target's output being another target's source (exit 2). Before, this failed on a clean
+  tree and silently overwrote the source on a warm one.
+- `build` ignores letter case when it checks that outputs are distinct, on every OS: `a.png` and `A.png`
+  written to one folder are refused on Linux too. Only what `str::to_lowercase` folds counts as one name
+  (`ß` and `SS` do not). The check compares outputs with the files the build reads, never two outputs with
+  each other by file identity: an output that is already a file the build reads is caught that way, but two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build.
+- `crustyimg.build.lock` records each output's path from the build root. A lockfile written with an `out`
+  spelled through `..`, a link, or a case that differs from the folder on disk reports path drift once
+  under `build --check`; run `crustyimg build` once to refresh it.
 
 ### Fixed
 
@@ -79,6 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JPEG came back with orange turned green, and some RGB JPEGs changed colour too. Strip now keeps
   that segment (and JFIF, as before), so the stripped file decodes to the same pixels; it is
   16 bytes larger than before for a typical file. Any other APP14 is still removed.
+- `build` no longer overwrites a file it reads or writes two outputs to one file. An `out` that pointed at a
+  source folder (`out = "src"`), at the recipe or a watermark file by name, or that reached another
+  target's `out` through `..` or a link replaced that file or recorded one file twice in
+  `crustyimg.build.lock`, and exited 0. Each target's `out` is now resolved before anything is written, and
+  such a build is refused with exit 2. So is a source that would list its own output on the next build:
+  `source = "src/*.png"` or `"src"` with `out = "src"` and `name = "{stem}_w.{ext}"` built once and then
+  exited 2 on every later run; it is now refused on the first.
+- `build --watch` no longer rebuilds in a loop when `out` is a link into a watched source folder, and no
+  longer misses an edit to a source that sits inside an `out` folder.
 
 ### Breaking
 

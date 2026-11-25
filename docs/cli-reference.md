@@ -49,7 +49,7 @@ Available on every command (before or after the subcommand):
 |---|---|
 | `0` | Success. |
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
-| `2` | Usage error (bad args) — clap's standard code. |
+| `2` | Usage error (bad args) — clap's standard code; also a `build` refused before it writes (a malformed manifest, or outputs that collide, replace a file the build reads, or resolve outside the tree). |
 | `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
 | `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`), or a recipe step writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG). |
 | `5` | Output write refused or failed (exists without `--yes`; path traversal; symlinked destination; a read-only destination; a directory that can't take a new file; the write itself failed, in which case the existing file is left as it was). |
@@ -377,8 +377,28 @@ through the same parallel per-input path as `apply`: per-output failures are sum
 and exit `6`; a malformed manifest exits `2`; a missing manifest or recipe exits `3`.
 
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
-owns its output tree and must be re-runnable. It only ever writes inside each
-target's `out` directory.
+owns its output tree and must be re-runnable. It never overwrites a file the build reads.
+
+Before anything is written, each target's `out` is resolved inside the build tree (the working
+directory), with `..` applied and links followed. The build is refused with exit `2`, and writes
+nothing, when:
+
+- two inputs resolve to one output file, however `out` is spelled (`dist`, `./dist`, `a/../dist`, or a
+  link to `dist`). Letter case is ignored on every OS as `str::to_lowercase` folds it, so `a.png` and
+  `A.png` in one folder collide on Linux too, while `ß` and `SS` stay two names. The check compares
+  outputs with the files the build reads, never two outputs with each other by file identity, so two
+  outputs whose names only a Mac's filesystem merges (`ß`/`SS`, NFC/NFD) are not caught, on any build;
+- an output would replace a file the build reads: a source of any target, a recipe file, a file a
+  recipe names (a watermark's image or font), the manifest, or the lockfile. So one target's output
+  cannot be another target's source. An output that already exists and is the same file as one of
+  these is refused too, whatever its name (a hard link; on a Mac, `ß` for `SS` or NFC for NFD);
+- a target's source is a glob or a folder that would list one of its outputs on the next build
+  (`source = "src/*.png"`, `out = "src"`, `name = "{stem}_w.{ext}"`), which would feed the output back in;
+- an output would land in `.crustyimg/`;
+- an `out` resolves outside the build tree through a link. A link to a folder inside the tree is fine;
+  to publish outside the tree, build inside it and copy.
+
+When a name ends in `{ext}` and the format is not pinned, every extension the build can write is checked.
 
 `build` takes no `-o`/`--output`, `--out-dir`, `--name-template` or `--format`: each
 target's `out` and `name` say where it writes, and the name's extension or the recipe's
@@ -408,9 +428,9 @@ crustyimg build --watch         # rebuild on every change; Ctrl-C to stop
 `build --watch` runs the build, then re-runs it whenever a source, a recipe, or the
 manifest changes, or a file a recipe names (a watermark's image or font). A folder that
 does not exist yet is picked up at the next rebuild. Edits are debounced (an editor's save
-burst is one rebuild), and the build's own outputs, `.crustyimg/`, and the
-lockfile are ignored — so a rebuild never
-triggers itself. The cache makes each re-run incremental. A failing cycle is reported and
+burst is one rebuild), and the build's own outputs (wherever `out` resolves, links included), `.crustyimg/`, and the lockfile
+are ignored — so a rebuild never triggers itself. A change to a file the build reads still triggers a
+rebuild, even inside an `out` folder. The cache makes each re-run incremental. A failing cycle is reported and
 the loop keeps watching; `Ctrl-C` stops it. A `--watch` cycle does **not** rewrite the
 lockfile, and `--watch` cannot be combined with `--check`/`--frozen`/`--locked` (a watch
 loop refreshes outputs; those verify against a pin).
@@ -444,16 +464,20 @@ is written, and every input is rebuilt.
 #### The lockfile (`--check` / `--frozen`)
 
 Every build writes **`crustyimg.build.lock`** next to the manifest — commit it. It records
-one entry per output: the file it wrote, the source and recipe that produced it, the
+one entry per output: the file it wrote (its path from the build root, so `./dist`,
+`a/../dist` and a link to `dist` record where the file really is), the source and recipe that produced it, the
 **cache key** (an identity of the *inputs*), the **hash** of the bytes written, and their
 size — plus one `[env]` block naming the crustyimg version, `arch-os`, and features the
 build ran under. Outputs are sorted by path, so two clean builds on one machine produce a
 byte-identical lockfile and a review diff shows only what actually moved.
 
-`build --check` re-runs the build and compares it against the committed lockfile instead of
-refreshing it. It exits **0** when they agree and **7** on drift, naming each output that
-moved, and it **never modifies the lockfile**. `--frozen` and `--locked` are aliases (there
-is no network to lock out). A missing lockfile under these flags is drift, not an error.
+`build --check` re-runs the build and compares what it produced against the committed lockfile instead
+of refreshing it. It exits **0** when they agree and **7** on drift, naming each output that moved. It
+**never modifies the lockfile**, but it does write: every output is written again and the cache is
+refilled, as in a plain build, and it compares the bytes this run produced, not the files already on
+disk. A build refused before it starts (exit `2`) writes nothing under `--check` either. `--frozen` and
+`--locked` are aliases (there is no network to lock out). A missing lockfile under these flags is drift,
+not an error.
 
 ```sh
 crustyimg build --check           # the CI gate: exit 7 if the build drifted

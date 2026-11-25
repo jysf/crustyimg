@@ -117,7 +117,8 @@ pub struct GlobalArgs {
     pub no_cache: bool,
 
     /// `build` only: check the build against the committed `crustyimg.build.lock` instead of
-    /// refreshing it: exit 7 on drift, and never modify the lockfile.
+    /// refreshing it: exit 7 on drift, and never modify the lockfile (outputs and the
+    /// cache are still written).
     ///
     /// `--frozen` and `--locked` are aliases of `--check`: crustyimg never uses the
     /// network, so cargo's "don't update" and "don't hit the registry" mean the same
@@ -539,7 +540,9 @@ pub enum Commands {
     /// FILE defaults to `./crustyimg.build.toml`. Each target binds sources (a
     /// glob / dir / path, or a list) to a recipe file, an output directory, and
     /// an optional name template. Unlike `apply`, `build` overwrites its own
-    /// declared outputs without `--yes` — a build must be re-runnable.
+    /// declared outputs without `--yes` — a build must be re-runnable. It never
+    /// overwrites a file the build reads, and refuses (exit 2, nothing written)
+    /// outputs that collide or resolve outside the tree.
     Build { file: Option<String> },
 
     /// Lint an image asset tree: report problems, with a runnable fix where one exists,
@@ -822,6 +825,39 @@ pub enum CliError {
         /// The later of the two colliding sources.
         second: String,
     },
+
+    /// A build output would replace a file the build itself reads: a source, a
+    /// recipe, a watermark image or font, the manifest or the lockfile. Found at
+    /// planning, before anything is written → exit 2, like a malformed manifest.
+    ///
+    /// `what` is the clause that says which file it is and who reads it. Paths are
+    /// printed with `Display`, never `{:?}`, for the same Windows reason as
+    /// [`CliError::OutputCollision`].
+    #[error("target #{target} would overwrite \"{output}\", {what}")]
+    OutputOverlap {
+        target: usize,
+        output: String,
+        what: String,
+    },
+
+    /// A build output would land under `.crustyimg/`, the build's own cache
+    /// directory. Exit 2, nothing written.
+    #[error(
+        "target #{target} would write \"{output}\" inside .crustyimg/, the build's cache directory"
+    )]
+    OutputInCacheDir { target: usize, output: String },
+
+    /// A target's `out` resolves outside the build tree through a link. Exit 2,
+    /// nothing written.
+    #[error(
+        "target #{target}'s out \"{out}\" resolves outside the build tree through the link \"{link}\"; \
+         build inside the tree and copy the outputs where you need them"
+    )]
+    OutputOutsideTree {
+        target: usize,
+        out: String,
+        link: String,
+    },
 }
 
 impl CliError {
@@ -884,6 +920,11 @@ impl CliError {
             // A non-injective source→output mapping is a manifest *config* error
             // caught before execution → 2, like a malformed manifest (SPEC-065).
             CliError::OutputCollision { .. } => 2,
+            // The other planning-time refusals of a build destination: a manifest
+            // *config* error, found before anything is written → 2.
+            CliError::OutputOverlap { .. }
+            | CliError::OutputInCacheDir { .. }
+            | CliError::OutputOutsideTree { .. } => 2,
             // A watcher setup failure is a generic runtime error → 1.
             CliError::Watch(_) => 1,
             CliError::BuildManifestIo { .. } => 3,
@@ -1645,6 +1686,34 @@ mod tests {
                 output: "dist/logo.{ext}".into(),
                 first: "a/logo.png".into(),
                 second: "b/logo.png".into(),
+            }
+            .code(),
+            2
+        );
+
+        // The planning-time refusals of a build destination are config errors → 2.
+        assert_eq!(
+            CliError::OutputOverlap {
+                target: 0,
+                output: "src/a.png".into(),
+                what: "which target #0 reads as a source".into(),
+            }
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::OutputInCacheDir {
+                target: 0,
+                output: ".crustyimg/x/a.{ext}".into(),
+            }
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::OutputOutsideTree {
+                target: 0,
+                out: "link/x".into(),
+                link: "link".into(),
             }
             .code(),
             2
