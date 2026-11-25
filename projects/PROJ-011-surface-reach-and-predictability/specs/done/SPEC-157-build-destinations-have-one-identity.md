@@ -72,7 +72,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (56 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Was $5.39.
-        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
     - cycle: design
       date: 2026-11-22
       model: claude-opus-5-5
@@ -88,7 +88,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (97 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Most of the wall time was 16 full `cargo test --no-fail-fast` runs for the mutation table (local CPU, not tokens). Was $13.85.
-        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
     - cycle: build
       date: 2026-11-23
       model: claude-sonnet-5-5
@@ -104,7 +104,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (78 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Wall time was mostly 17 full `cargo test --no-fail-fast` mutation runs (local CPU, not tokens). Was $5.84.
-        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
     - cycle: verify
       date: 2026-11-23
       model: claude-opus-5-5
@@ -120,7 +120,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, two sessions (the verify and its continuation), deduped by
         message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Was $12.19.
-        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
     - cycle: punchlist
       date: 2026-11-24
       model: claude-sonnet-5-5
@@ -136,7 +136,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (80 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Wall time was mostly cold builds and a mutation series run twice. Was $4.08.
-        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
     - cycle: reverify
       date: 2026-11-24
       model: claude-opus-5-5
@@ -152,7 +152,7 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (38 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Was $3.43.
-        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output.
+        Rates (Opus: $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read (x0.10), $25 output).
     - cycle: punchlist-2
       date: 2026-11-24
       model: claude-sonnet-5-5
@@ -168,26 +168,26 @@ cost:
         Measured from the session JSONL, found by the prompt's title or file name, one session, deduped by
         message.id (41 messages; max output_tokens per id), 0 subagent transcripts. Re-measured at ship from the whole transcript, so it includes the session's last turns.
         Was $1.30.
-        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
     - cycle: ship
       date: 2026-11-25
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2550998
+      tokens_total: 3872520
       tokens_breakdown:
-        input: 60
-        cache_creation: 127613
-        cache_read: 2405427
-        output: 17898
-      estimated_usd: 1.47
+        input: 82
+        cache_creation: 139957
+        cache_read: 3710007
+        output: 22474
+      estimated_usd: 1.98
       note: >
         Measured from the session JSONL, found by the prompt's title or file name, two sessions (the first attempt stopped at step 0 and was redone in a fresh worktree), deduped by
-        message.id (30 messages; max output_tokens per id), 0 subagent transcripts. Measured after the final push, before this cost commit's own turns.
-        Was none.
-        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+        message.id (41 messages; max output_tokens per id), 0 subagent transcripts. Measured after the final push, before this cost commit's own turns.
+        Newly recorded.
+        Rates (Sonnet: $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output).
   totals:
-    tokens_total: 80199698
-    estimated_usd: 51.29
+    tokens_total: 81521220
+    estimated_usd: 51.80
     session_count: 8
 ---
 
