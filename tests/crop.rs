@@ -140,7 +140,7 @@ fn every_load_refusal_names_its_reason() {
         (
             "R1",
             "x=0.1\ny=0.1\nwidth=0.5\nheight=0.5\nleft=0.1",
-            "unknown key 'left'; expected one of: x, y, width, height, aspect, gravity".into(),
+            "unknown key 'left'; expected one of: x, y, width, height, aspect, gravity, orientation".into(),
         ),
         (
             "R2",

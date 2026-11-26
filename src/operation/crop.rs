@@ -3,7 +3,8 @@
 //! A crop is one of two forms, told apart by which keys the step carries:
 //!
 //! - a **rectangle**: `x`, `y`, `width`, `height`, all four required;
-//! - an **aspect**: `aspect = "W:H"` and an optional `gravity`.
+//! - an **aspect**: `aspect = "W:H"`, an optional `gravity` and an optional
+//!   `orientation`.
 //!
 //! Every length is a fraction from 0 to 1 of the image the step receives, so a
 //! recipe written against a downscaled preview crops the same region of the
@@ -16,8 +17,8 @@ use std::str::FromStr;
 
 use super::registry::{self, written};
 use super::{
-    Gravity, Operation, OperationError, OperationParams, ParamKind, ParamSpec, RegistryError,
-    GRAVITY_NAMES,
+    follow_orientation, Gravity, Operation, OperationError, OperationParams, ParamKind, ParamSpec,
+    RegistryError, GRAVITY_NAMES, ORIENTATION_NAMES,
 };
 use crate::image::Image;
 
@@ -63,6 +64,10 @@ pub const CROP_PARAMS: &[ParamSpec] = &[
         key: "gravity",
         kind: ParamKind::OneOf(GRAVITY_NAMES),
     },
+    ParamSpec {
+        key: "orientation",
+        kind: ParamKind::OneOf(ORIENTATION_NAMES),
+    },
 ];
 
 /// The keys that make up a rectangle crop, in table order.
@@ -84,6 +89,8 @@ enum Form {
         a: u32,
         b: u32,
         gravity: Gravity,
+        /// Turn the aspect to follow the shape of the image the step receives.
+        follow: bool,
     },
 }
 
@@ -126,8 +133,15 @@ impl Crop {
                 Some(name) => Gravity::from_str(name).map_err(invalid)?,
                 None => Gravity::Center,
             };
+            // The table already limited it to "match", so presence is the whole test.
+            let follow = params.contains("orientation");
             return Ok(Crop {
-                form: Form::Aspect { a, b, gravity },
+                form: Form::Aspect {
+                    a,
+                    b,
+                    gravity,
+                    follow,
+                },
                 params: params.clone(),
             });
         }
@@ -135,6 +149,13 @@ impl Crop {
         if params.contains("gravity") {
             return Err(invalid(
                 "'gravity' is only used with 'aspect'; a rectangle crop is placed by x and y"
+                    .to_owned(),
+            ));
+        }
+        if params.contains("orientation") {
+            return Err(invalid(
+                "'orientation' is only used with 'aspect'; a rectangle crop's shape is set by \
+                 its width and height"
                     .to_owned(),
             ));
         }
@@ -341,7 +362,17 @@ impl Operation for Crop {
                     bottom.saturating_sub(top),
                 )
             }
-            Form::Aspect { a, b, gravity } => {
+            Form::Aspect {
+                a,
+                b,
+                gravity,
+                follow,
+            } => {
+                let (a, b) = if follow {
+                    follow_orientation(a, b, iw, ih)
+                } else {
+                    (a, b)
+                };
                 let (cw, ch) = aspect_size(a, b, iw, ih);
                 let (left, top) = gravity.placement(iw, ih, cw, ch, 0);
                 // Placement is non-negative, and at most the image's side.

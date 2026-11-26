@@ -1240,6 +1240,26 @@ const GRAVITY_NAMES: &[&str] = &[
     "southwest",
 ];
 
+/// The values an aspect's `orientation` key accepts.
+const ORIENTATION_NAMES: &[&str] = &["match"];
+
+/// Order an aspect `a:b` along the shape of a `w`×`h` image: the larger side
+/// of the aspect runs along the larger side of the image.
+///
+/// Strictly wider is landscape, strictly taller is portrait, and a square has
+/// no orientation to follow, so it keeps the aspect as written. Integer
+/// comparisons only, with no tolerance: a one-pixel difference decides.
+fn follow_orientation(a: u32, b: u32, w: u32, h: u32) -> (u32, u32) {
+    let (long, short) = (a.max(b), a.min(b));
+    if w > h {
+        (long, short)
+    } else if w < h {
+        (short, long)
+    } else {
+        (a, b)
+    }
+}
+
 impl FromStr for Gravity {
     type Err = String;
 
@@ -2072,6 +2092,29 @@ mod tests {
 
     use super::*;
     use ::image::{DynamicImage, ImageFormat, RgbaImage};
+
+    #[test]
+    fn follow_orientation_orders_the_aspect_by_shape() {
+        // (a, b, w, h) -> the aspect as it will be used.
+        let rows = [
+            (16, 9, 64, 48, (16, 9)),
+            (9, 16, 64, 48, (16, 9)),
+            (16, 9, 48, 64, (9, 16)),
+            (9, 16, 48, 64, (9, 16)),
+            // A square keeps the aspect as written, either order.
+            (16, 9, 48, 48, (16, 9)),
+            (9, 16, 48, 48, (9, 16)),
+            // One pixel decides: no tolerance.
+            (16, 9, 48, 49, (9, 16)),
+            (9, 16, 49, 48, (16, 9)),
+            (1, 1, 64, 48, (1, 1)),
+            (1, 1, 48, 64, (1, 1)),
+            (1, 1, 48, 48, (1, 1)),
+        ];
+        for (a, b, w, h, want) in rows {
+            assert_eq!(follow_orientation(a, b, w, h), want, "{a}:{b} on {w}x{h}");
+        }
+    }
 
     use crate::image::Image;
 
