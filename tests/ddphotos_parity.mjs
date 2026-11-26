@@ -139,8 +139,8 @@ const TABLE = [
   [12, "W", "both", "preview", "jpeg", [1080, 723]],
   [13, "W", "both", "pixel", "webp", [1080, 723]],
   [14, "W", "both", "pixel", "avif", [1080, 723]],
-  // The rotated JPEG's stored size is 1600×1071, which is what `info` reports and so
-  // what the page plans from. The output is rotated, so its sides swap.
+  // The rotated JPEG is stored 1600×1071 and shown 1071×1600. The page plans from the
+  // shown size (`loadPhoto`), so its prediction is the output's sides as they are.
   [15, "R", "resize", "pixel", "png", [803, 1200]],
   [16, "R", "both", "pixel", "png", [723, 1080]],
 ].map(([n, input, edit, recipe, format, size]) => ({
@@ -150,6 +150,9 @@ const TABLE = [
   recipe,
   format,
   size,
+  family: "table",
+  crop: null,
+  form: EDITS[edit],
   id: `${input}/${edit}/${recipe}/${format}`,
 }));
 
@@ -239,7 +242,21 @@ function checkModules(recipes) {
     "cliRecipe",
     "withQuality",
     "PREVIEW_QUALITY",
+    "aspectSize",
+    "followOrientation",
+    "presetCrop",
+    "swapCrop",
+    "cropBox",
+    "cropStep",
+    "shownAspect",
+    "loadPhoto",
+    "ORIENTED_BASE",
   ];
+  // What the model and the loader need from recipe.js, and the one line the worker's
+  // `load` is: the harness runs `loadPhoto` itself, so the worker must run the same one.
+  for (const name of ["aspectSize", "followOrientation", "presetCrop", "swapCrop", "cropBox", "loadPhoto"]) {
+    if (!exported.has(name)) problems.push(`recipe.js lacks ${name}`);
+  }
   for (const file of ["edit.js", "worker.js"]) {
     const text = readFileSync(join(EDIT_DIR, file), "utf8");
     // A .js file may be parsed as CommonJS; the .mjs extension forces a module.
@@ -256,6 +273,9 @@ function checkModules(recipes) {
         if (!exported.has(name)) problems.push(`${file} imports ${name}, which recipe.js lacks`);
       }
     }
+    if (file === "worker.js" && !text.includes("return loadPhoto({ info, transform }, source);")) {
+      problems.push("worker.js's load does not return loadPhoto({ info, transform }, source);");
+    }
     for (const name of owned) {
       if (new RegExp(`(function|const|let)\\s+${name}\\b`).test(text)) {
         problems.push(`${file} defines ${name}, which belongs to recipe.js`);
@@ -270,7 +290,7 @@ function checkModules(recipes) {
   return problems;
 }
 
-/// Load the slim wasm package and return its `transform`.
+/// Load the slim wasm package and return its `transform` and `info`.
 async function loadWasm(pkg) {
   const js = join(pkg, "crustyimg.js");
   const wasm = join(pkg, "crustyimg_bg.wasm");
@@ -280,15 +300,36 @@ async function loadWasm(pkg) {
   try {
     const mod = await import(pathToFileURL(js).href);
     mod.initSync({ module: readFileSync(wasm) });
-    return mod.transform;
+    return { transform: mod.transform, info: mod.info };
   } catch (e) {
     return fatal(`wasm package failed to initialise: ${e.message}`);
   }
 }
 
+/// The page's crop for a row's crop spec: null, a preset (`{ preset: [a, b] }`, with
+/// `swap` for the swapped orientation) or a box (`{ box: [x, y, w, h] }`).
+function cropFor(recipes, spec, photo) {
+  if (!spec) return null;
+  if (spec.box) {
+    const [x, y, w, h] = spec.box;
+    return { box: { x, y, w, h } };
+  }
+  const preset = recipes.presetCrop(...spec.preset, photo);
+  return spec.swap ? recipes.swapCrop(preset, photo) : preset;
+}
+
+/// The photo as the page reads it: `loadPhoto` on the input's bytes, the production
+/// function, so the oriented size comes the way the worker gets it.
+function photoFor(ctx, input) {
+  return ctx.recipes.loadPhoto(ctx, readFileSync(join(FIXTURES, INPUTS[input])));
+}
+
 /// The recipe text for a row, built only from recipe.js.
-function recipeFor(row, recipes) {
-  const edit = recipes.planEdit(STORED_SIZE, { ...FORM, ...EDITS[row.edit] });
+function recipeFor(row, ctx) {
+  const { recipes } = ctx;
+  const photo = photoFor(ctx, row.input);
+  const crop = cropFor(recipes, row.crop, photo);
+  const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, crop);
   const text =
     row.recipe === "pixel"
       ? recipes.pixelRecipe(edit)
@@ -301,19 +342,24 @@ function recipeFor(row, recipes) {
 /// Run every row through wasm and native, decode, compare. `mutateNative` rewrites
 /// the recipe text on the native side only, after it has left recipe.js. Returns the
 /// rows' results; nothing here exits on a failing row.
-function runTable({ recipes, transform, bin, python, mutateNative = (t) => t }) {
+function runTable(ctx, rowList, mutateNative = (t) => t) {
+  const { transform, bin, python } = ctx;
   const dir = mkdtempSync(join(tmpdir(), "ddphotos-parity-"));
   const rows = [];
   const files = [];
-  for (const row of TABLE) {
+  for (const row of rowList) {
     const inputBytes = readFileSync(join(FIXTURES, INPUTS[row.input]));
-    const { edit, text } = recipeFor(row, recipes);
     const base = String(row.n).padStart(2, "0");
     const wasmOut = join(dir, `${base}.wasm.${EXT[row.format]}`);
     const nativeOut = join(dir, `${base}.native.${EXT[row.format]}`);
     const recipeFile = join(dir, `${base}.toml`);
-    const result = { row, edit, text, resamples: resamples(text), error: null };
+    const result = { row, edit: null, text: null, resamples: false, error: null };
     try {
+      // Inside the row's try: a recipe.js that throws on one row fails that row.
+      const { edit, text } = recipeFor(row, ctx);
+      result.edit = edit;
+      result.text = text;
+      result.resamples = resamples(text);
       writeFileSync(wasmOut, transform(inputBytes, text, row.format));
       writeFileSync(recipeFile, mutateNative(text));
       const run = spawnSync(
@@ -356,12 +402,18 @@ function runTable({ recipes, transform, bin, python, mutateNative = (t) => t }) 
     if (native.width !== want[0] || native.height !== want[1]) {
       r.fail.push(`native size ${native.width}x${native.height}, expected ${want[0]}x${want[1]}`);
     }
-    // The page's own arithmetic predicts the size. Rows 15-16 start from the stored
-    // size, so the prediction is the transpose of the (rotated) output.
-    const rotated = r.row.input === "R";
-    const predicted = rotated ? [r.edit.outH, r.edit.outW] : [r.edit.outW, r.edit.outH];
+    // The page's own arithmetic predicts the size, from the photo's shown size.
+    const predicted = [r.edit.outW, r.edit.outH];
     if (predicted[0] !== want[0] || predicted[1] !== want[1]) {
       r.fail.push(`planEdit predicts ${predicted.join("x")}, expected ${want.join("x")}`);
+    }
+    // The watermark the page plans, where the row names it: its size and whether it was
+    // made smaller to fit.
+    if (r.row.mark) {
+      const wm = r.edit.watermark;
+      const got = wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+      const exp = `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`;
+      if (got !== exp) r.fail.push(`planEdit's watermark is ${got}, expected ${exp}`);
     }
   }
   return { dir, rows };
@@ -392,8 +444,9 @@ function image(dims, path) {
 }
 
 /// Checks that are about the table as a whole, not one row. Returns failure messages.
-function tableChecks({ rows }) {
+function tableChecks({ rows: allRows }) {
   const failures = [];
+  const rows = allRows.filter((r) => r.row.family === "table");
   const ran = rows.filter((r) => !r.error).length;
   if (rows.length !== ROW_COUNT) failures.push(`P4: ${rows.length} rows ran, expected ${ROW_COUNT}`);
   if (ran !== rows.length) failures.push(`rows-threw: ${rows.length - ran} rows threw`);
@@ -403,9 +456,9 @@ function tableChecks({ rows }) {
   }
   const byN = (n) => rows.find((r) => r.row.n === n);
   const [r1, r2, r3, r4, r8, r12] = [1, 2, 3, 4, 8, 12].map(byN);
-  if (r4 && r4.text !== GOLDEN_PIXEL_BOTH) failures.push("P5: row 4's recipe text moved");
-  if (r8 && r8.text !== GOLDEN_CLI_BOTH) failures.push("P5: row 8's recipe text moved");
-  if (r12 && r12.text !== GOLDEN_PREVIEW_BOTH) failures.push("P5: row 12's recipe text moved");
+  if (r4 && r4.text !== GOLDEN_PIXEL_BOTH) failures.push("P5-pixel: row 4's recipe text moved");
+  if (r8 && r8.text !== GOLDEN_CLI_BOTH) failures.push("P5-cli: row 8's recipe text moved");
+  if (r12 && r12.text !== GOLDEN_PREVIEW_BOTH) failures.push("P5-preview: row 12's recipe text moved");
   if (r2?.wasm && r2.wasm.width === STORED_SIZE.width && r2.wasm.height === STORED_SIZE.height) {
     failures.push("P2: row 2's resize left the size unchanged");
   }
@@ -536,7 +589,7 @@ function selfTest(ctx) {
     ["N2 native width 1080 -> 1079", (t) => t.replace("width = 1080\n", "width = 1079\n"), N2_EXPECTED_RED],
   ];
   for (const [name, mutateNative, expected] of mutations) {
-    const table = runTable({ ...ctx, mutateNative });
+    const table = runTable(ctx, TABLE, mutateNative);
     const red = table.rows.filter((r) => r.fail.length > 0).map((r) => r.row.n);
     const same = JSON.stringify(red) === JSON.stringify(expected);
     console.log(`${same ? "PASS" : "FAIL"} ${name}: red rows {${red}}, expected {${expected}}`);
@@ -757,16 +810,16 @@ if (problems.length) {
 }
 console.log("PASS modules: edit.js and worker.js parse, and import only what recipe.js exports");
 
-const transform = await loadWasm(resolve(args.pkg));
+const { transform, info } = await loadWasm(resolve(args.pkg));
 const bin = resolve(args.bin);
 if (!existsSync(bin)) fatal(`native binary missing: ${bin}`);
-const ctx = { recipes, transform, bin, python: args.python };
+const ctx = { recipes, transform, info, bin, python: args.python };
 
 if (args.selfTest) {
   process.exit(selfTest(ctx) ? 0 : 1);
 }
 
-const table = runTable(ctx);
+const table = runTable(ctx, TABLE);
 report(table);
 const failures = [...tableChecks(table), ...alphaRows(ctx), ...orientationRows(ctx)];
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
