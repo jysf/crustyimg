@@ -69,6 +69,23 @@ cost:
         before this cost commit's own turns.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: design
+      date: 2026-11-26
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 14353882
+      tokens_breakdown:
+        input: 156
+        cache_creation: 245617
+        cache_read: 13986046
+        output: 122063
+      estimated_usd: 11.58
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-design.md`),
+        deduped by message.id (78 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured after the design push, before this cost commit's own turns.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
