@@ -99,6 +99,45 @@ export function resamples(recipeText) {
   return /^op = "resize"$/m.test(recipeText);
 }
 
+/// The lowest PSNR (dB, RGB) a replay may read, per crop form. Measured on the Pillow-made
+/// original, the lowest row of each form rounded down to 0.5 dB, with no more headroom: an
+/// aspect is centred on each image separately, so its framing differs by up to half a copy
+/// pixel by design, and its rows read lower than a box's.
+export const PSNR_FLOOR = { aspect: 53.5, box: 59 };
+
+/// The verdict on one replay row: the page's output from the copy against the CLI's from the
+/// original. `form` is `aspect` or `box`, `band` is `integer` for a whole-number factor, `2x`
+/// for 2 or more and `under-2x` below. `page` and `cli` are `{ width, height }`. The sides may
+/// differ by 1 px (2 px for a box below 2×); then the PSNR must reach the form's floor, and a
+/// NaN fails. Returns `{ ok, reason }`; `reason` is `replay-dims` or `psnr`.
+export function judgeReplay({ form, band, page, cli, psnr: db }) {
+  const bound = form === "box" && band === "under-2x" ? 2 : 1;
+  const off = Math.max(Math.abs(page.width - cli.width), Math.abs(page.height - cli.height));
+  if (off > bound) return { ok: false, reason: "replay-dims" };
+  if (!(db >= PSNR_FLOOR[form])) return { ok: false, reason: "psnr" };
+  return { ok: true, reason: "" };
+}
+
+/// PSNR in dB over the RGB of the region both images share from the top-left, `Infinity` for
+/// equal pixels. `a` and `b` are `{ width, height, rgba }`.
+export function psnr(a, b) {
+  const w = Math.min(a.width, b.width);
+  const h = Math.min(a.height, b.height);
+  let sum = 0;
+  for (let y = 0; y < h; y++) {
+    let ia = y * a.width * 4;
+    let ib = y * b.width * 4;
+    for (let x = 0; x < w; x++, ia += 4, ib += 4) {
+      for (let c = 0; c < 3; c++) {
+        const d = a.rgba[ia + c] - b.rgba[ib + c];
+        sum += d * d;
+      }
+    }
+  }
+  if (sum === 0) return Infinity;
+  return 10 * Math.log10((255 * 255) / (sum / (w * h * 3)));
+}
+
 // ── the rows ─────────────────────────────────────────────────────────────────
 
 const WATERMARK_TEXT = "© Jane Doe 2026";
@@ -626,6 +665,157 @@ function cropChecks({ rows: allRows }) {
   return failures;
 }
 
+// ── the replay rows ──────────────────────────────────────────────────────────
+//
+// The page's recipe on the published copy (wasm) against the CLI recipe on an original that
+// is `factor` times larger (native), the original made by Pillow (tests/ddphotos_upscale.py).
+// The sizes are literals and equal on both sides in every row; the framing is checked by the
+// PSNR floor of the row's form.
+//   [input, crop, size, watermark on, output size, watermark [size, capped], factor]
+// The form (aspect or box) is read off the crop; the band off the factor.
+const REPLAY_ROWS = [
+  ["W", preset(1, 1), "pub", false, [1071, 1071], null, 4],
+  ["W", preset(4, 5), "pub", false, [1339, 1071], null, 4],
+  ["W", preset(3, 2), "pub", false, [1600, 1067], null, 4],
+  ["W", preset(16, 9), "pub", false, [1600, 900], null, 4],
+  ["P", preset(3, 2), "pub", false, [1067, 1600], null, 4],
+  ["N", preset(3, 2), "pub", false, [715, 1072], null, 4],
+  ["R", preset(3, 2), "pub", false, [1067, 1600], null, 4],
+  ["S", preset(3, 2), "pub", false, [1071, 714], null, 4],
+  ["S", preset(2, 3), "pub", false, [714, 1071], null, 4],
+  ["W", preset(3, 2, true), "pub", false, [714, 1071], null, 4],
+  ["W", BOX_FREE, "600", false, [600, 482], null, 4],
+  ["R", { box: [107, 320, 536, 960] }, "800", false, [447, 800], null, 4],
+  ["W", { box: [0, 0, 1600, 1067] }, "pub", false, [1600, 1067], null, 4],
+  ["W", { box: [600, 0, 400, 1071] }, "pub", true, [400, 1071], [40, true], 4],
+  ["R", { box: [348, 0, 375, 1600] }, "pub", true, [375, 1600], [37, true], 4],
+  // A factor that is not a whole number: a 6000×4016 original.
+  ["W", BOX_FREE, "600", false, [600, 482], null, 3.75],
+  ["W", preset(3, 2), "pub", false, [1600, 1067], null, 3.75],
+].map(([input, crop, size, wm, want, mark, factor], i) => ({
+  n: `R${i + 1}`,
+  input,
+  crop,
+  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm },
+  size: want,
+  mark,
+  factor,
+  kind: crop.box ? "box" : "aspect",
+  band: Number.isInteger(factor) ? "integer" : factor >= 2 ? "2x" : "under-2x",
+  id: `${input}/${cropLabel(crop)}/${size}/${factor}x`,
+}));
+const REPLAY_ROW_COUNT = 17;
+
+/// The replay originals for one run, made once per input and factor in `dir`. `shift` moves
+/// their content left by round(factor) px (the framing-shift control).
+function replayOriginal(ctx, dir, row, shift, made) {
+  const key = `${row.input}@${row.factor}`;
+  if (!made.has(key)) {
+    const dst = join(dir, `original-${row.input}-${row.factor}.${row.input === "R" ? "jpg" : "png"}`);
+    const args = ["-I", join(HERE, "ddphotos_upscale.py"), join(FIXTURES, INPUTS[row.input]), dst, String(row.factor)];
+    if (shift) args.push(String(Math.round(row.factor)));
+    const run = spawnSync(ctx.python, args, { encoding: "utf8" });
+    if (run.error || run.status !== 0) {
+      return fatal(`the replay original could not be made: ${run.error?.message ?? run.stderr.trim()}`);
+    }
+    made.set(key, dst);
+  }
+  return made.get(key);
+}
+
+/// The replay rows. `shift` makes the originals' content move left (the self-test's control).
+/// Returns `{ dir, rows }`; a row's `reasons` list names every limb that failed, in order:
+/// `threw`, `page-size`, `cli-size`, `plan`, `mark`, then `replay-dims` or `psnr`.
+function replayRows(ctx, { shift = false } = {}) {
+  const { recipes, transform, bin, python } = ctx;
+  const dir = mkdtempSync(join(tmpdir(), "ddphotos-replay-"));
+  const made = new Map();
+  const rows = [];
+  const files = [];
+  for (const row of REPLAY_ROWS) {
+    const result = { row, reasons: [], notes: [], error: null };
+    try {
+      // Inside the row's try, so a recipe.js that throws fails this row and not the run.
+      const photo = photoFor(ctx, row.input);
+      const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, cropFor(recipes, row.crop, photo));
+      const original = replayOriginal(ctx, dir, row, shift, made);
+      const pageOut = join(dir, `${row.n}.page.png`);
+      const cliOut = join(dir, `${row.n}.cli.png`);
+      const recipeFile = join(dir, `${row.n}.toml`);
+      writeFileSync(pageOut, transform(readFileSync(join(FIXTURES, INPUTS[row.input])), recipes.pixelRecipe(edit), "png"));
+      writeFileSync(recipeFile, recipes.cliRecipe(edit));
+      const run = spawnSync(bin, ["apply", "--recipe", recipeFile, original, "-o", cliOut, "-y", "-Q"], {
+        encoding: "utf8",
+      });
+      if (run.error) fatal(`native binary could not run: ${run.error.message}`);
+      if (run.status !== 0) throw new Error(`native apply exited ${run.status}: ${run.stderr.trim()}`);
+      files.push(pageOut, cliOut);
+      Object.assign(result, { edit, pageOut, cliOut });
+    } catch (e) {
+      result.error = e.message;
+      result.reasons.push("threw");
+    }
+    rows.push(result);
+  }
+
+  const dims = decode(python, files);
+  for (const r of rows) {
+    if (r.error) continue;
+    const page = image(dims, r.pageOut);
+    const cli = image(dims, r.cliOut);
+    const want = r.row.size;
+    r.page = page;
+    r.cli = cli;
+    r.psnr = psnr(page, cli);
+    if (page.width !== want[0] || page.height !== want[1]) {
+      r.reasons.push("page-size");
+      r.notes.push(`page is ${page.width}x${page.height}, expected ${want.join("x")}`);
+    }
+    if (cli.width !== want[0] || cli.height !== want[1]) {
+      r.reasons.push("cli-size");
+      r.notes.push(`cli is ${cli.width}x${cli.height}, expected ${want.join("x")}`);
+    }
+    if (r.edit.outW !== want[0] || r.edit.outH !== want[1]) {
+      r.reasons.push("plan");
+      r.notes.push(`planEdit predicts ${r.edit.outW}x${r.edit.outH}, expected ${want.join("x")}`);
+    }
+    if (r.row.mark) {
+      const wm = r.edit.watermark;
+      const got = wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+      const exp = `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`;
+      if (got !== exp) {
+        r.reasons.push("mark");
+        r.notes.push(`planEdit's watermark is ${got}, expected ${exp}`);
+      }
+    }
+    const verdict = judgeReplay({ form: r.row.kind, band: r.row.band, page, cli, psnr: r.psnr });
+    if (!verdict.ok) {
+      r.reasons.push(verdict.reason);
+      r.notes.push(`${verdict.reason}: PSNR ${r.psnr.toFixed(2)} dB, floor ${PSNR_FLOOR[r.row.kind]}`);
+    }
+  }
+  return { dir, rows };
+}
+
+/// Checks about the replay rows as a whole. Returns failure messages.
+function replayChecks({ rows }) {
+  const failures = [];
+  if (rows.length !== REPLAY_ROW_COUNT) {
+    failures.push(`replay-count: ${rows.length} rows ran, expected ${REPLAY_ROW_COUNT}`);
+  }
+  return failures;
+}
+
+function reportReplay({ rows }) {
+  for (const r of rows) {
+    const verdict = r.reasons.length === 0 ? "PASS" : "FAIL";
+    const sizes = r.page ? `page ${r.page.width}x${r.page.height} cli ${r.cli.width}x${r.cli.height}` : "did not run";
+    console.log(`${verdict} ${r.row.n} ${r.row.id} ${r.row.kind}/${r.row.band} ${sizes}`);
+    if (r.error) console.log(`     threw: ${r.error}`);
+    for (const note of r.notes) console.log(`     ${note}`);
+  }
+}
+
 // ── the model's own checks ───────────────────────────────────────────────────
 //
 // Pure checks against literals, no binary: a recipe.js mutant moves native and wasm together,
@@ -782,6 +972,25 @@ function flat(w, h, differ = 0, by = 0) {
   ];
 }
 
+/// B11-B19: the replay comparator's limbs, on synthetic input.
+function replayCases() {
+  const size = (width, height) => ({ width, height });
+  const judged = (form, band, page, cli, db) => () => judgeReplay({ form, band, page, cli, psnr: db });
+  const pair = (value) => ({ width: 2, height: 1, rgba: new Uint8Array(8).fill(value) });
+  return [
+    ["B11 box, integer, 1 px", judged("box", "integer", size(600, 482), size(601, 482), 70), true, ""],
+    ["B12 box, integer, 2 px", judged("box", "integer", size(600, 482), size(602, 482), 70), false, "replay-dims"],
+    ["B13 box, under 2x, 2 px", judged("box", "under-2x", size(600, 482), size(600, 484), 70), true, ""],
+    ["B14 aspect, under 2x, 2 px", judged("aspect", "under-2x", size(1600, 1067), size(1600, 1069), 70), false, "replay-dims"],
+    ["B15 aspect, PSNR 53.5", judged("aspect", "integer", size(8, 8), size(8, 8), 53.5), true, ""],
+    ["B16 aspect, PSNR 53.49", judged("aspect", "integer", size(8, 8), size(8, 8), 53.49), false, "psnr"],
+    ["B17 box, PSNR 58.99", judged("box", "integer", size(8, 8), size(8, 8), 58.99), false, "psnr"],
+    ["B18 box, PSNR NaN", judged("box", "integer", size(8, 8), size(8, 8), NaN), false, "psnr"],
+    // 100 against 101 on every channel: MSE 1, so 10 * log10(255^2) = 48.13 dB.
+    ["B19 PSNR of 100 against 101", () => ({ ok: Math.abs(psnr(pair(100), pair(101)) - 48.13) < 0.005, reason: "" }), true, ""],
+  ];
+}
+
 /// B1-B7: the comparator's limbs, driven on synthetic buffers with no binary.
 function comparatorCases() {
   const throwing = (w, h) => ({
@@ -837,6 +1046,7 @@ function comparatorCases() {
       false,
       "bytes",
     ],
+    ...replayCases(),
   ];
   const results = [];
   for (const [name, run, ok, reason] of cases) {
@@ -887,7 +1097,32 @@ function selfTest(ctx) {
     }
   }
   if (!orientationSelfTest(ctx)) good = false;
+  if (!shiftSelfTest(ctx)) good = false;
   return good;
+}
+
+// N5: the originals' content moved left by round(factor) px with the sizes kept, so every size
+// still matches and only the framing is off. Every replay row must go red, and on the PSNR
+// floor alone. Left, not right: an aspect is centred on the copy with its floor and on the
+// original exactly, so the copy's frame always sits half a pixel left of the original's, and a
+// shift to the right would cancel that on some rows.
+const N5_EXPECTED_RED = REPLAY_ROWS.map((r) => r.n);
+
+function shiftSelfTest(ctx) {
+  const replay = replayRows(ctx, { shift: true });
+  const red = replay.rows.filter((r) => r.reasons.length > 0).map((r) => r.row.n);
+  const onPsnr = replay.rows.every((r) => r.reasons.length === 1 && r.reasons[0] === "psnr");
+  const same = JSON.stringify(red) === JSON.stringify(N5_EXPECTED_RED) && onPsnr;
+  console.log(
+    `${same ? "PASS" : "FAIL"} N5 the original's content moved left: red rows {${red}}, expected {${N5_EXPECTED_RED}}` +
+      `${onPsnr ? ", each on psnr" : ", NOT each on psnr"}`,
+  );
+  for (const r of replay.rows) {
+    console.log(`     ${r.row.n} ${r.psnr === undefined ? "-" : r.psnr.toFixed(2)} dB (${r.row.kind} floor ${PSNR_FLOOR[r.row.kind]}) ${r.reasons.join(",") || "green"}`);
+  }
+  if (same) rmSync(replay.dir, { recursive: true, force: true });
+  else console.log(`     kept ${replay.dir}`);
+  return same;
 }
 
 // ── The alpha rule (a pad with a transparent fill) ───────────────────────────
@@ -994,6 +1229,7 @@ const ORIENTATION_ROWS = [
   ["R", false, true, "16:9", [1600, 900], [1904, 1071]],
 ];
 const ORIENTATION_ROW_COUNT = 26;
+const ALPHA_ROW_COUNT = 2;
 
 function orientationText(op, autoOrient, key, aspect) {
   let t = 'version = "2"\n';
@@ -1106,21 +1342,28 @@ if (args.selfTest) {
 
 const table = runTable(ctx, [...TABLE, ...CROP_TABLE]);
 report(table);
+const replay = replayRows(ctx);
+reportReplay(replay);
 const failures = [
   ...tableChecks(table),
   ...cropChecks(table),
   ...modelChecks(recipes),
   ...placementChecks(ctx),
+  ...replayChecks(replay),
   ...alphaRows(ctx),
   ...orientationRows(ctx),
 ];
-const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
+const rowsFailed =
+  table.rows.filter((r) => r.fail.length > 0).length + replay.rows.filter((r) => r.reasons.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
-// Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each
+// Every failure is counted: row lines, then the other checks (P1-P5 and the rest), each
 // named by the label before its first colon.
 const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
+const familyRows = (family) => table.rows.filter((r) => r.row.family === family).length;
 console.log(
-  `${table.rows.length} rows, ${rowsFailed} row failures, ${failures.length} table failure${failures.length === 1 ? "" : "s"}` +
+  `${familyRows("table")} table rows, ${familyRows("crop")} crop rows, ${replay.rows.length} replay rows, ` +
+    `${ORIENTATION_ROW_COUNT} orientation rows, ${ALPHA_ROW_COUNT} alpha rows; ` +
+    `${rowsFailed} row failures, ${failures.length} other failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
 );
 // Informational, not an assertion: raising K up to the cap turns nothing red, so this
@@ -1128,8 +1371,13 @@ console.log(
 const resampled = table.rows.filter((r) => r.cmp && r.resamples && r.cmp.px !== null);
 const largest = Math.max(0, ...resampled.map((r) => r.cmp.px));
 console.log(`largest differing-pixel count on a resampling row: ${largest} (K = ${K})`);
+for (const r of replay.rows) {
+  const db = r.psnr === undefined ? "-" : r.psnr === Infinity ? "inf" : r.psnr.toFixed(2);
+  console.log(`replay ${r.row.n} ${r.row.id}: PSNR ${db} dB, floor ${PSNR_FLOOR[r.row.kind]} (${r.row.kind})`);
+}
 if (rowsFailed > 0 || failures.length > 0) {
-  console.log(`outputs kept in ${table.dir}`);
+  console.log(`outputs kept in ${table.dir} and ${replay.dir}`);
   process.exit(1);
 }
 rmSync(table.dir, { recursive: true, force: true });
+rmSync(replay.dir, { recursive: true, force: true });
