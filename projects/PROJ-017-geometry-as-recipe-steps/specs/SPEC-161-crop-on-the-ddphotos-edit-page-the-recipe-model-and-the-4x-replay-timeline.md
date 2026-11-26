@@ -23,5 +23,10 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
   (17 pass). 13 of 13 ACs; 35 crop, 17 replay rows; lowest PSNR R9 53.95 (aspect), R12 59.46 (box); N1–N5
   red as listed; M1–M11 and trap 14 match. Cells to correct: N4 reads `max` not `dims` on four rows; M4's
   C30/R12/R15 throw. 6 files, 0 B wasm. $6.13.
-- [ ] **verify** — `prompts/SPEC-161-verify.md`
+- [x] **verify** (2026-11-26, Opus) — `prompts/SPEC-161-verify.md`. PUNCH LIST at `f9c81ae`, no claim items, no
+  re-verify. 52 literals and 22,908 model cases match; 1,854,856 readback reproduced. Fix: DEC-118 rules 1 and 4
+  wording, one DEC id in a comment, AC ticks and reflection; asserts for `Math.max(1, …)`, an R row M4 hits by size
+  (maintainer: include), counted summary line (maintainer: include). Ship: M4/N4/M5 cells, AC-12 wording, the N3
+  leftover folder to `aspect-orientation-loose-ends`, rule 5's CLI-panel note to the crop-mode entry. $7.60.
+- [ ] **punch list** — `prompts/SPEC-161-punchlist.md`
 - [ ] **ship**
