@@ -30,4 +30,4 @@ Cycle prompts live in `prompts/SPEC-163-<cycle>.md`.
   written. Five optional cleanups: ship takes 1 (data-model wording) and 5 (tick ACs); 2–4 filed as
   `aspect-orientation-loose-ends` in `guidance/ideas.yaml`. Cost $6.83. Freed ~18 GB.
 - [x] **merge** (2026-11-26, maintainer) — PR #272 as 3de9f64, head 4c8591c (approved head fccb368; the later commits touch only docs, `guidance/ideas.yaml` and this timeline).
-- [x] **ship** (2026-11-26, Sonnet) — `prompts/SPEC-163-ship.md`. Merged 3de9f64, PR #272. DEC-112 rule 8 applied; one `data-model.md` sentence; ACs ticked; M1/M5 parity cells corrected; reflected; archived. Total cost $31.37 across 5 sessions (design, build re-measured; verify measured).
+- [x] **ship** (2026-11-26, Sonnet) — `prompts/SPEC-163-ship.md`. Merged 3de9f64, PR #272. DEC-112 rule 8 applied; one `data-model.md` sentence; ACs ticked; M1/M5 parity cells corrected; reflected; archived. Total cost $32.15 across 5 sessions (design, build re-measured; verify measured).
