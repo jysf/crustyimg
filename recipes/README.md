@@ -92,10 +92,10 @@ Operations available in a recipe:
 | `invert` | none |
 | `identity` | none — a no-op |
 | `watermark` | an `image` or `text` mark and its placement (below) |
-| `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` (below) |
+| `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` + `orientation` (below) |
 | `rotate` | `angle`, a multiple of 90 from -360 to 360, clockwise (below) |
 | `flip` | `axis`, `horizontal` or `vertical` (below) |
-| `pad` | `aspect` + `gravity`, or `border`, and a required `color` (below) |
+| `pad` | `aspect` + `gravity` + `orientation`, or `border`, and a required `color` (below) |
 | `trim` | an optional `color` and `tolerance` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
@@ -230,6 +230,7 @@ gravity = "north"
 | `width`, `height` | rectangle | the size, a number above `0` and at most `1` |
 | `aspect` | aspect | two whole numbers from 1 to 65535 as `"W:H"` |
 | `gravity` | aspect | one of the nine compass names; `center` when left out |
+| `orientation` | aspect | `"match"`: the aspect's long side follows the image's long side; a square image keeps it as written |
 
 - Lengths are **fractions of the image, 0 to 1, not pixels**. `width = 1` is the full width, and
   `width = 800` is refused. The same recipe therefore crops the same region of a 1200 px copy and
@@ -245,6 +246,11 @@ gravity = "north"
   images that did not fail are still written.
 - The fractions are of the image as the step receives it. Put `op = "auto-orient"` first when they
   are meant as the photo is displayed.
+- With `orientation = "match"`, a portrait image (taller than wide) gets the aspect turned, so
+  `"3:2"` cuts a 2:3 region from it; a landscape image gets the larger side as the width; a square
+  image gets the aspect as written. One pixel decides: 1071×1072 is portrait. `"1:1"` is unchanged
+  by the key. The key is refused on a rectangle crop, and a value other than `"match"` is refused
+  when the recipe loads.
 
 ### The rotate and flip steps
 
@@ -301,6 +307,9 @@ color = "#000000"
 - A grey image with a colour fill becomes RGB, a translucent fill adds alpha (grey plus alpha for a
   grey fill), and the bit depth is kept.
 - For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.
+- `orientation = "match"` turns the aspect to follow each image, as for `crop`: a portrait image
+  gets the aspect's larger side as its height, a square image gets the aspect as written. It is
+  refused with `border`, and a value other than `"match"` is refused when the recipe loads.
 - Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
 ### The trim step

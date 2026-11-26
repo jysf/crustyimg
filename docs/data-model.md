@@ -328,9 +328,9 @@ was a required one, and with a message about the missing key.)
 ### `crop` step param keys
 
 A `crop` step is a **rectangle** (`x`, `y`, `width`, `height`, all four) or an
-**aspect** (`aspect`, and optionally `gravity`). The two forms share no key, so
-the keys present choose the form; mixing them is refused at load, and so is
-`gravity` on a rectangle.
+**aspect** (`aspect`, and optionally `gravity` and `orientation`). The two forms
+share no key, so the keys present choose the form; mixing them is refused at
+load, and so is `gravity` on a rectangle, and so is `orientation`.
 
 | Key | Type | Range |
 |---|---|---|
@@ -338,6 +338,7 @@ the keys present choose the form; mixing them is refused at load, and so is
 | `width`, `height` | number (integer or float) | `> 0 and <= 1` |
 | `aspect` | string | two whole numbers 1–65535 as `W:H`, such as `"16:9"` |
 | `gravity` | string | one of the nine compass names; default `center` |
+| `orientation` | string | `"match"` only; absent means the aspect as written |
 
 Every length is a **fraction of the image the step receives**: `x` and `width`
 of its width, `y` and `height` of its height. There are no pixel units in a
@@ -346,6 +347,12 @@ rounded to the nearest pixel on its own (halves up), so every edge sits within
 half a pixel of its exact position at any image size. `x + width` and
 `y + height` may not pass `1`. A crop that rounds to 0 px fails when the step
 runs (it needs the image size); it is never widened to 1 px.
+
+With `orientation = "match"` the aspect's larger side runs along the larger side
+of the image the step receives: strictly wider than tall is landscape, strictly
+taller is portrait, and a square keeps the aspect as written. There is no
+tolerance, so 1071×1072 is portrait. The key reads the buffer the step receives,
+never the EXIF tag, so put `auto-orient` first for camera JPEGs.
 
 ```toml
 version = "2"
@@ -395,10 +402,11 @@ axis = "horizontal"
 |---|---|---|
 | `aspect` | string | `"W:H"`, whole numbers 1 to 65535 |
 | `gravity` | string | one of the nine names, default `center`; aspect form only |
+| `orientation` | string | `"match"` only (absent means the aspect as written); aspect form only, read as for `crop` |
 | `border` | number | `> 0` and `<= 1`, a fraction of the long edge |
 | `color` | string | required: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or `transparent` |
 
-A pad is an aspect (`aspect`, `gravity`) or a border (`border`), never both. The canvas
+A pad is an aspect (`aspect`, `gravity`, `orientation`) or a border (`border`), never both. The canvas
 grows around the image and every input pixel is copied unchanged; the new pixels are
 the fill, alpha included. An image with no alpha gains it for a fill below `ff` (grey plus
 alpha for a grey fill such as `transparent`, RGBA otherwise). A border that rounds to 0 px on

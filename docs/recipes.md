@@ -73,6 +73,18 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   aspect = "16:9"
   gravity = "north"
   ```
+  Add `orientation = "match"` and the aspect follows each photo: one `aspect = "3:2"` recipe gives
+  3:2 on landscape photos and 2:3 on portrait ones. A square photo keeps the aspect as written. The
+  key reads the image as the step receives it, so put `op = "auto-orient"` first for camera JPEGs.
+  ```toml
+  [[step]]
+  op = "auto-orient"
+
+  [[step]]
+  op = "crop"
+  aspect = "3:2"
+  orientation = "match"
+  ```
   The numbers are fractions of the image (0–1), not pixels, so the same recipe crops the same
   region of a 1200 px copy and a 6000 px original. Put `op = "auto-orient"` first when the
   fractions are meant as the photo is displayed. `resize --fill WxH` still covers the common
@@ -126,6 +138,7 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
   `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a
   smaller square. Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
+  `orientation = "match"` turns the aspect to follow each photo, as for `crop`.
 - **Trim a uniform border** **[today]** — a recipe step:
   ```toml
   [[step]]
