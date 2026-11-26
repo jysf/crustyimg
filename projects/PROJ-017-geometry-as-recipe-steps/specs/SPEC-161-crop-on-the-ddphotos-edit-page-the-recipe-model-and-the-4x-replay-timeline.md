@@ -28,5 +28,8 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
   wording, one DEC id in a comment, AC ticks and reflection; asserts for `Math.max(1, …)`, an R row M4 hits by size
   (maintainer: include), counted summary line (maintainer: include). Ship: M4/N4/M5 cells, AC-12 wording, the N3
   leftover folder to `aspect-orientation-loose-ends`, rule 5's CLI-panel note to the crop-mode entry. $7.60.
-- [ ] **punch list** — `prompts/SPEC-161-punchlist.md`
+- [x] **punch list** (2026-11-26, Sonnet) — `prompts/SPEC-161-punchlist.md`. PR #273 at `a0bc1a9`, CI green (17
+  pass). DEC-118 rules 1 and 4 reworded; comment id dropped; `model-min` (red only when the clamps go); C36 (R box,
+  M4 red as 239x400, not a throw; joins N1's list); orientation and alpha counts from rows that ran, `A-count`; ACs
+  ticked, reflection filled. 3 files. $2.40. PR marked ready by the orchestrator.
 - [ ] **ship**
