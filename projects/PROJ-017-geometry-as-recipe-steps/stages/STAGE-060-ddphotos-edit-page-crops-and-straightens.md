@@ -102,9 +102,11 @@ In build order.
   `aspect`, not a box, so a recipe copied from the page reads `aspect = "3:2"` and works on any
   photo. To work on a folder of mixed photos it needs this key, so SPEC-161 emits it and this
   entry builds first. Builds after the STAGE-063 P1 fixes ship.
-- [ ] **SPEC-161** (framed 2026-11-22) — [M] **Crop on the page.** Free-form and aspect-preset crop over
-  the preview, emitting a fractional `crop` step ahead of `resize` in both `pixelRecipe` and
-  `cliRecipe` (`integrations/ddphotos/edit/edit.js`). Parity rows for each preset, plus the
+- [ ] **SPEC-161** (designed 2026-11-26) — [M] **Crop on the page.** Free-form and aspect-preset crop over
+  the preview, emitting a `crop` step ahead of `resize` in both `pixelRecipe` and `cliRecipe`
+  (`integrations/ddphotos/edit/recipe.js`): an untouched preset as an `aspect` (with
+  `orientation = "match"` unless the photo is square or the preset is 1:1), a placed box as four
+  fractions. Parity rows for each preset, plus the
   4× replay. ⚠ The page's existing "Made smaller to fit this photo" watermark logic runs after
   the crop. Check that a crop which shrinks the image re-triggers it.
   ⚠ **The page takes the photo's size from wasm `info()`, which reports the stored size.** For
@@ -116,6 +118,9 @@ In build order.
   photogen publishes WebP copies that are already oriented.
   **Split at frame (2026-11-22):** SPEC-161 is the half Node can test: `recipe.js`'s crop model,
   the oriented-size fix, the parity rows and the 4× replay. The crop mode is the next entry.
+  **Designed 2026-11-26:** 35 crop rows, 17 replay rows within the new DEC-118 (box exact at an
+  integer multiple except at an `f64` tie, aspect within 1 px; PSNR floors 53.5/59 dB that a
+  one-pixel shift falls below), N4 and N5; no Rust change, 0 B of wasm.
   **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
   reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
   orientation-key entry above.

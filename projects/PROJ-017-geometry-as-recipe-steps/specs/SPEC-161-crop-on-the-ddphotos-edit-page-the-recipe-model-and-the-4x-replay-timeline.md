@@ -13,7 +13,10 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
 - [x] **rulings** (2026-11-22, maintainer) — split yes; interaction yes; presets emit `aspect` (reversed: readable and
   reusable), a dragged box emits a box; the orientation key stays in STAGE-060 ahead of this spec (SPEC-163, shipped
   2026-11-26); the replay DEC yes, number allocated at design.
-- [ ] **design** — `prompts/SPEC-161-design.md` (Opus)
-- [ ] **build**
+- [x] **design** (2026-11-26, Opus) — `prompts/SPEC-161-design.md`. [M] kept: 35 crop rows, 17 replay rows,
+  model/placement/golden checks, N4 (one pixel of crop), N5 (replay framing shift); DEC-118 allocated. A
+  preset emits `aspect` (+ key unless square or 1:1), a box emits fractions; `loadPhoto` in recipe.js gives
+  the oriented size; no Rust, 0 B wasm. Corrections: box not exact at a resize tie; aspect worst 1 px (exhaustive).
+- [ ] **build** — `prompts/SPEC-161-build.md`
 - [ ] **verify**
 - [ ] **ship**
