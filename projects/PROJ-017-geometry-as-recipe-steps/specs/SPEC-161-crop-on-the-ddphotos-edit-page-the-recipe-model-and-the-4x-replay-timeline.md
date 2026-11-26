@@ -19,6 +19,17 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
   the oriented size; no Rust, 0 B wasm. Corrections: box not exact at a resize tie; aspect worst 1 px (exhaustive).
 - [x] **design rulings** (2026-11-26, maintainer) — both design calls accepted: no `orientation` key on a square
   photo or `1:1`; a swapped preset writes the aspect as shown with no key.
-- [ ] **build** — `prompts/SPEC-161-build.md`
-- [ ] **verify**
+- [x] **build** (2026-11-26, Sonnet) — `prompts/SPEC-161-build.md`. Draft PR #273 at `f9c81ae`, CI green
+  (17 pass). 13 of 13 ACs; 35 crop, 17 replay rows; lowest PSNR R9 53.95 (aspect), R12 59.46 (box); N1–N5
+  red as listed; M1–M11 and trap 14 match. Cells to correct: N4 reads `max` not `dims` on four rows; M4's
+  C30/R12/R15 throw. 6 files, 0 B wasm. $6.13.
+- [x] **verify** (2026-11-26, Opus) — `prompts/SPEC-161-verify.md`. PUNCH LIST at `f9c81ae`, no claim items, no
+  re-verify. 52 literals and 22,908 model cases match; 1,854,856 readback reproduced. Fix: DEC-118 rules 1 and 4
+  wording, one DEC id in a comment, AC ticks and reflection; asserts for `Math.max(1, …)`, an R row M4 hits by size
+  (maintainer: include), counted summary line (maintainer: include). Ship: M4/N4/M5 cells, AC-12 wording, the N3
+  leftover folder to `aspect-orientation-loose-ends`, rule 5's CLI-panel note to the crop-mode entry. $7.60.
+- [x] **punch list** (2026-11-26, Sonnet) — `prompts/SPEC-161-punchlist.md`. PR #273 at `a0bc1a9`, CI green (17
+  pass). DEC-118 rules 1 and 4 reworded; comment id dropped; `model-min` (red only when the clamps go); C36 (R box,
+  M4 red as 239x400, not a throw; joins N1's list); orientation and alpha counts from rows that ran, `A-count`; ACs
+  ticked, reflection filled. 3 files. $2.40. PR marked ready by the orchestrator.
 - [ ] **ship**
