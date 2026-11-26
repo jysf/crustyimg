@@ -307,7 +307,7 @@ and a closing `watermark skipped on K of N images`, at exit `0`.
 
 ## Recipes & batch
 
-### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [--save-recipe FILE]`
+### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G] [--crop-orientation match]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G] [--pad-orientation match]] [--trim [--trim-color C] [--trim-tolerance N]] [--save-recipe FILE]`
 Chain an ordered op list on one image or a batch (`--out-dir`), each in one decode → ops → encode pass. Every
 `edit` invocation **bakes EXIF orientation first** — `edit --invert` and
 `edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
@@ -324,13 +324,17 @@ still satisfies this).
   the command (after an earlier `--resize-max` or `--rotate`). A rectangle past the edge of that
   image exits 1, naming the flag and the image's size. `--crop W:H` crops to the largest `W:H`
   aspect that fits, placed by `--crop-gravity` (one of the nine names; default `center`;
-  aspect form only).
+  aspect form only). `--crop-orientation match` turns the aspect to follow each image (its long
+  side along the image's long side; a square keeps it as written); aspect form only, exit 2 with
+  a pixel `--crop`.
 - `--rotate DEGREES` turns clockwise by a multiple of 90 from -360 to 360 (negative turns
   counter-clockwise). `--flip horizontal|vertical` mirrors.
 - `--pad N` adds N pixels on every side, in pixels of the image at that point in the command; N
   may be at most that image's long edge, and a wider N or a canvas past 50000 px a side (or
   134217728 px in all) exits 1, naming the flag and the image's size. `--pad W:H` grows the
-  canvas to that aspect, placed by `--pad-gravity` (aspect form only). `--pad-color` is required:
+  canvas to that aspect, placed by `--pad-gravity` (aspect form only). `--pad-orientation match`
+  turns the aspect to follow each image, as for `--crop-orientation` (aspect form only, exit 2
+  with a border `--pad N`). `--pad-color` is required:
   `transparent` or hex with any alpha. A fill alpha the output format can't store (any below `ff`
   into JPEG; `01`-`fe` into GIF) is refused before anything is written: exit 4 for one input or
   for a batch whose format `--format` or the name template fixes; in a batch that keeps each

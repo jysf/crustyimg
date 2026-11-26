@@ -477,6 +477,11 @@ pub enum Commands {
         /// west, northeast, northwest, southeast, southwest.
         #[arg(long, value_name = "GRAVITY", requires = "crop")]
         crop_gravity: Option<String>,
+        /// Turn an aspect --crop W:H to follow each image: "match" puts the
+        /// aspect's long side along the image's long side (a square image keeps
+        /// it as written).
+        #[arg(long, value_name = "MATCH", requires = "crop")]
+        crop_orientation: Option<String>,
         /// Rotate clockwise by DEGREES: 90, 180 or 270 (negative turns
         /// counter-clockwise).
         #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
@@ -496,6 +501,11 @@ pub enum Commands {
         /// south, east, west, northeast, northwest, southeast, southwest.
         #[arg(long, value_name = "GRAVITY", requires = "pad")]
         pad_gravity: Option<String>,
+        /// Turn an aspect --pad W:H to follow each image: "match" puts the
+        /// aspect's long side along the image's long side (a square image keeps
+        /// it as written).
+        #[arg(long, value_name = "MATCH", requires = "pad")]
+        pad_orientation: Option<String>,
         /// Remove the outer rows and columns that match the top-left pixel (or
         /// --trim-color).
         #[arg(long)]
@@ -1238,11 +1248,13 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             resize_max,
             crop,
             crop_gravity,
+            crop_orientation,
             rotate,
             flip,
             pad,
             pad_color,
             pad_gravity,
+            pad_orientation,
             trim_color,
             trim_tolerance,
             save_recipe,
@@ -1255,11 +1267,13 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
                 resize_max: *resize_max,
                 crop: crop.clone(),
                 crop_gravity: crop_gravity.clone(),
+                crop_orientation: crop_orientation.clone(),
                 rotate: *rotate,
                 flip: flip.clone(),
                 pad: pad.clone(),
                 pad_color: pad_color.clone(),
                 pad_gravity: pad_gravity.clone(),
+                pad_orientation: pad_orientation.clone(),
                 trim_color: trim_color.clone(),
                 trim_tolerance: *trim_tolerance,
                 order: order.clone(),

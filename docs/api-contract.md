@@ -459,7 +459,9 @@ What happens next depends on the run:
 
 **Crop in a recipe.** `op = "crop"` is a registered operation taking a rectangle
 (`x`, `y`, `width`, `height`) or an aspect (`aspect`, `gravity`), in fractions of the
-image rather than pixels, so one recipe crops the same region at any image size. A bad
+image rather than pixels, so one recipe crops the same region at any image size. An
+optional `orientation = "match"` turns the aspect to follow each image (a bad value, or the
+key on a rectangle, is refused when the recipe loads, exit **1**). A bad
 key, a value out of range, a rectangle that runs past the image's edge and a malformed
 aspect are refused when the recipe loads (exit **1**, nothing read or written). A crop
 that rounds to 0 px on the image it meets fails at apply (`operation 'crop' failed: …`,
@@ -475,7 +477,9 @@ either, so a recipe meant as the photo is displayed starts with `auto-orient`.
 
 **Pad in a recipe.** `op = "pad"` grows the canvas to an aspect (`aspect`, `gravity`) or by
 a border (`border`, a fraction of the long edge), filled with a required `color`: hex with
-any alpha (`#RRGGBBAA`) or `transparent`. A bad key or value is refused when the recipe
+any alpha (`#RRGGBBAA`) or `transparent`. An optional `orientation = "match"` turns the
+aspect to follow each image (a bad value, or the key with a border, is refused when the recipe
+loads, exit **1**). A bad key or value is refused when the recipe
 loads (exit **1**, nothing read or written). A fill alpha the output format can't store (any
 alpha below `ff` into JPEG, any alpha but `00` and `ff` into GIF) is refused once the
 format is known and before the pipeline runs: exit **4** for one input or for a batch with
@@ -540,7 +544,7 @@ fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
-#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G]] [--trim [--trim-color C] [--trim-tolerance N]] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
+#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G] [--crop-orientation match]] [--rotate DEG] [--flip AXIS] [--pad N|W:H --pad-color C [--pad-gravity G] [--pad-orientation match]] [--trim [--trim-color C] [--trim-tolerance N]] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
 One-shot multi-op on one image or a batch (`--out-dir`) — the "experiment like an editor" mode.
 Every invocation **bakes EXIF orientation first** (SPEC-110), before any of the
 flag-driven ops run — so `edit --invert` and `edit --resize-max N` are never
@@ -554,9 +558,9 @@ ordered operation list (`--resize-max N`, `--invert`, `--crop`, `--rotate`,
 The op flags run **in the order they are typed**, and a saved recipe lists them
 in that order; orientation is always baked first, wherever `--auto-orient` is
 typed, and each op flag may be given once. A bad flag value, a repeated flag,
-`--crop-gravity` without `--crop` (or with a pixel crop), and zero op flags exit
-2 before any file is read. `--pad-color`/`--pad-gravity` without `--pad`,
-`--pad-gravity` with a border `--pad N`, and `--trim-color`/`--trim-tolerance`
+`--crop-gravity` or `--crop-orientation` without `--crop` (or with a pixel crop), and zero op
+flags exit 2 before any file is read. `--pad-color`/`--pad-gravity`/`--pad-orientation`
+without `--pad`, `--pad-gravity` or `--pad-orientation` with a border `--pad N`, and `--trim-color`/`--trim-tolerance`
 without `--trim` exit 2 before any file is read. A pixel `--crop WxH+X+Y` is in pixels of the image
 the step receives; one that runs past its edge exits 1, naming the flag and
 that image's size. A border `--pad N` is in pixels of the image the step

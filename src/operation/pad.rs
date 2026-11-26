@@ -2,9 +2,10 @@
 //!
 //! A pad is one of two forms, told apart by which keys the step carries:
 //!
-//! - an **aspect**: `aspect = "W:H"` and an optional `gravity`. The canvas is
-//!   the smallest `W:H` rectangle that holds the image, and `gravity` says
-//!   where the image sits in it;
+//! - an **aspect**: `aspect = "W:H"`, an optional `gravity` and an optional
+//!   `orientation`. The canvas is the smallest `W:H` rectangle that holds the
+//!   image, `gravity` says where the image sits in it, and
+//!   `orientation = "match"` turns the aspect to follow the image's shape;
 //! - a **border**: `border = f`, a fraction of the image's long edge, added on
 //!   every side so the border is the same width all round.
 //!
@@ -50,8 +51,8 @@ use ::image::{DynamicImage, ImageBuffer, Luma, LumaA, Pixel, Rgb, Rgba};
 use super::crop::parse_aspect;
 use super::registry::{self, written};
 use super::{
-    Gravity, IntroducedAlpha, Operation, OperationError, OperationParams, ParamKind, ParamSpec,
-    RegistryError, GRAVITY_NAMES, MAX_AREA, MAX_EDGE,
+    follow_orientation, Gravity, IntroducedAlpha, Operation, OperationError, OperationParams,
+    ParamKind, ParamSpec, RegistryError, GRAVITY_NAMES, MAX_AREA, MAX_EDGE, ORIENTATION_NAMES,
 };
 use crate::image::Image;
 
@@ -64,6 +65,10 @@ pub const PAD_PARAMS: &[ParamSpec] = &[
     ParamSpec {
         key: "gravity",
         kind: ParamKind::OneOf(GRAVITY_NAMES),
+    },
+    ParamSpec {
+        key: "orientation",
+        kind: ParamKind::OneOf(ORIENTATION_NAMES),
     },
     ParamSpec {
         key: "border",
@@ -85,6 +90,8 @@ enum Form {
         a: u32,
         b: u32,
         gravity: Gravity,
+        /// Turn the aspect to follow the shape of the image the step receives.
+        follow: bool,
     },
     /// A fraction of the long edge, read as an `f64`.
     Border(f64),
@@ -135,6 +142,13 @@ impl Pad {
                     .to_owned(),
             ));
         }
+        if has_border && params.contains("orientation") {
+            return Err(invalid(
+                "'orientation' is only used with 'aspect'; a border pad adds the same width on \
+                 every side"
+                    .to_owned(),
+            ));
+        }
 
         let form = if has_aspect {
             let aspect = params
@@ -146,7 +160,14 @@ impl Pad {
                 Some(name) => Gravity::from_str(name).map_err(invalid)?,
                 None => Gravity::Center,
             };
-            Form::Aspect { a, b, gravity }
+            // The table already limited it to "match", so presence is the whole test.
+            let follow = params.contains("orientation");
+            Form::Aspect {
+                a,
+                b,
+                gravity,
+                follow,
+            }
         } else {
             // `f64`, never `f32`: a fraction keeps its full width so that a
             // length near a half pixel rounds the same way on every target.
@@ -185,7 +206,12 @@ impl Pad {
         let (w, h) = (u64::from(iw), u64::from(ih));
 
         let (cw, ch, what) = match self.form {
-            Form::Aspect { a, b, .. } => {
+            Form::Aspect { a, b, follow, .. } => {
+                let (a, b) = if follow {
+                    follow_orientation(a, b, iw, ih)
+                } else {
+                    (a, b)
+                };
                 let (cw, ch) = aspect_canvas(a, b, w, h);
                 let aspect = self.params.get_str("aspect").unwrap_or_default();
                 (cw, ch, format!("'aspect' = {aspect:?}"))

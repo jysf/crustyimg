@@ -542,13 +542,17 @@ mod tests {
         assert!(reg.contains("pad"), "expected 'pad' to be registered");
         let specs = reg.param_specs("pad").expect("pad schema");
         let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
-        assert_eq!(keys, ["aspect", "gravity", "border", "color"]);
+        assert_eq!(
+            keys,
+            ["aspect", "gravity", "orientation", "border", "color"]
+        );
         let kinds: Vec<ParamKind> = specs.iter().map(|s| s.kind).collect();
         assert_eq!(
             kinds,
             [
                 ParamKind::Text,
                 ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::OneOf(crate::operation::ORIENTATION_NAMES),
                 ParamKind::Number {
                     min: 0.0,
                     min_inclusive: false,
@@ -780,7 +784,15 @@ mod tests {
         );
         assert_eq!(
             keys("crop"),
-            ["x", "y", "width", "height", "aspect", "gravity"]
+            [
+                "x",
+                "y",
+                "width",
+                "height",
+                "aspect",
+                "gravity",
+                "orientation"
+            ]
         );
         let crop_kinds: Vec<ParamKind> = reg
             .param_specs("crop")
@@ -802,11 +814,15 @@ mod tests {
                 fraction(false),
                 ParamKind::Text,
                 ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::OneOf(crate::operation::ORIENTATION_NAMES),
             ]
         );
         assert_eq!(keys("rotate"), ["angle"]);
         assert_eq!(keys("flip"), ["axis"]);
-        assert_eq!(keys("pad"), ["aspect", "gravity", "border", "color"]);
+        assert_eq!(
+            keys("pad"),
+            ["aspect", "gravity", "orientation", "border", "color"]
+        );
         assert_eq!(keys("trim"), ["color", "tolerance"]);
         let kinds = |name: &str| -> Vec<ParamKind> {
             reg.param_specs(name)
@@ -832,6 +848,7 @@ mod tests {
             [
                 ParamKind::Text,
                 ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::OneOf(crate::operation::ORIENTATION_NAMES),
                 ParamKind::Number {
                     min: 0.0,
                     min_inclusive: false,
@@ -940,8 +957,9 @@ mod tests {
         }
         assert_eq!(
             checked,
-            6 + 9 + 9 + 2 + 9,
-            "6 resize modes + 9 watermark gravities + 9 crop gravities + 2 flip axes + 9 pad gravities"
+            6 + 9 + 9 + 1 + 2 + 9 + 1,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities + 1 crop orientation + 2 flip \
+             axes + 9 pad gravities + 1 pad orientation"
         );
     }
 

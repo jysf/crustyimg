@@ -233,8 +233,8 @@ op = "optimize"    # optional; must be the last step
 
 Ops: `auto-orient`, `resize` (`mode` = `max` + `width`; `fit`/`fill`/`cover`/`exact` +
 `width` + `height`; `percent` + `percent`), `crop` (`x`/`y`/`width`/`height` as fractions 0–1 of the
-image, or `aspect = "W:H"` + `gravity`), `rotate` (`angle`, a multiple of 90, clockwise),
-`flip` (`axis = "horizontal" | "vertical"`), `pad` (`aspect = "W:H"` + `gravity`, or `border` as a
+image, or `aspect = "W:H"` + `gravity` + an optional `orientation = "match"`), `rotate` (`angle`, a multiple of 90, clockwise),
+`flip` (`axis = "horizontal" | "vertical"`), `pad` (`aspect = "W:H"` + `gravity` + an optional `orientation = "match"`, or `border` as a
 fraction of the long edge, with a required `color`: hex with any alpha, or `transparent`), `trim` (an optional `color`, default the
 top-left pixel, and `tolerance` 0–255 in 8-bit steps), `watermark`, `invert`, `identity`, `optimize`.
 

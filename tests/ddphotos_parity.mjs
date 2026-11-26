@@ -156,7 +156,13 @@ const TABLE = [
 const ROW_COUNT = 16;
 const NO_RESAMPLE_ROWS = [1, 3, 9, 11];
 
-const INPUTS = { W: "photo.webp", R: "photo_rot.jpg" };
+const INPUTS = {
+  W: "photo.webp",
+  R: "photo_rot.jpg",
+  P: "photo_portrait.webp",
+  S: "photo_square.webp",
+  N: "photo_near_square.webp",
+};
 const STORED_SIZE = { width: 1600, height: 1071 };
 const EXT = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif" };
 
@@ -542,6 +548,7 @@ function selfTest(ctx) {
       rmSync(table.dir, { recursive: true, force: true });
     }
   }
+  if (!orientationSelfTest(ctx)) good = false;
   return good;
 }
 
@@ -616,6 +623,129 @@ function alphaRows({ transform, bin, python }) {
   return failures;
 }
 
+// ── An aspect that follows each image's orientation ─────────────────────────
+//
+// Not rows of TABLE (recipe.js has no crop), so the recipe text is written here and
+// ROW_COUNT and the self-test's expected-red lists for TABLE do not move. Each row runs one
+// crop or pad step through `transform` and native `apply`, both to PNG, and passes only if both
+// sizes equal the row's literal and the decoded RGBA bytes are equal. Nothing resamples, so the
+// match is exact.
+//
+// Inputs: W 1600x1071, P 1071x1600, S 1071x1071, N 1071x1072 (portrait by one pixel), and R, the
+// 1600x1071 JPEG tagged Orientation 6. Neither side bakes the tag, so R is landscape unless an
+// `auto-orient` step comes first. Every written aspect is 16:9 or 9:16, so no input is already
+// at it and every row cuts or grows.
+//
+// Sizes are `[width, height]` from an independent fraction model (largest fit, the short side
+// rounded half up), not read from the engine.
+//   [label parts: input, key, written aspect] -> crop size, pad size
+const ORIENTATION_ROWS = [
+  // input, auto-orient, key, aspect, crop, pad
+  ["W", false, true, "16:9", [1600, 900], [1904, 1071]],
+  ["W", false, false, "16:9", [1600, 900], [1904, 1071]],
+  ["W", false, true, "9:16", [1600, 900], [1904, 1071]],
+  ["P", false, true, "16:9", [900, 1600], [1071, 1904]],
+  ["P", false, false, "16:9", [1071, 602], [2844, 1600]],
+  ["S", false, true, "16:9", [1071, 602], [1904, 1071]],
+  ["S", false, true, "9:16", [602, 1071], [1071, 1904]],
+  ["S", false, false, "16:9", [1071, 602], [1904, 1071]],
+  ["N", false, true, "16:9", [603, 1072], [1071, 1904]],
+  ["N", false, false, "16:9", [1071, 602], [1906, 1072]],
+  ["R", true, true, "16:9", [900, 1600], [1071, 1904]],
+  ["R", true, false, "16:9", [1071, 602], [2844, 1600]],
+  ["R", false, true, "16:9", [1600, 900], [1904, 1071]],
+];
+const ORIENTATION_ROW_COUNT = 26;
+
+function orientationText(op, autoOrient, key, aspect) {
+  let t = 'version = "2"\n';
+  if (autoOrient) t += '[[step]]\nop = "auto-orient"\n';
+  t += `[[step]]\nop = "${op}"\n`;
+  if (op === "pad") t += 'color = "#ffffff"\n';
+  t += `aspect = "${aspect}"\n`;
+  if (key) t += 'orientation = "match"\n';
+  return t;
+}
+
+/// The 26 rows. `mutate` rewrites the NATIVE side's recipe text only (the self-test's negative
+/// control), so a harness that stopped checking the key would go red. Returns failure strings,
+/// each `<label> -- <what>` with the label `O-<op>-<input>-<on|off>-<aspect>`.
+function orientationRows({ transform, bin, python }, mutate = (t) => t) {
+  const failures = [];
+  const dir = mkdtempSync(join(tmpdir(), "ddphotos-orientation-"));
+  let ran = 0;
+  for (const op of ["crop", "pad"]) {
+    for (const [input, autoOrient, key, aspect, cropSize, padSize] of ORIENTATION_ROWS) {
+      ran += 1;
+      const want = op === "crop" ? cropSize : padSize;
+      const tag = input === "R" && autoOrient ? "R+ao" : input;
+      const label = `O-${op}-${tag}-${key ? "on" : "off"}-${aspect}`;
+      const fail = (what) => failures.push(`${label} -- ${what}`);
+      const inputPath = join(FIXTURES, INPUTS[input]);
+      const text = orientationText(op, autoOrient, key, aspect);
+      const id = `${op}-${tag}-${key ? "on" : "off"}-${aspect.replace(":", "x")}`;
+      const wasmOut = join(dir, `${id}.wasm.png`);
+      const nativeOut = join(dir, `${id}.native.png`);
+      const recipeFile = join(dir, `${id}.toml`);
+      writeFileSync(recipeFile, mutate(text));
+      try {
+        writeFileSync(wasmOut, transform(readFileSync(inputPath), text, "png"));
+      } catch (e) {
+        fail(`transform threw: ${e.message}`);
+        continue;
+      }
+      const apply = spawnSync(bin, ["apply", "--recipe", recipeFile, inputPath, "-o", nativeOut, "-y"], {
+        encoding: "utf8",
+      });
+      if (apply.error) fatal(`native binary could not run: ${apply.error.message}`);
+      if (apply.status !== 0) {
+        fail(`native apply exited ${apply.status}: ${apply.stderr.trim()}`);
+        continue;
+      }
+      const dims = decode(python, [wasmOut, nativeOut]);
+      const [w, n] = [image(dims, wasmOut), image(dims, nativeOut)];
+      if (w.width !== want[0] || w.height !== want[1]) {
+        fail(`wasm is ${w.width}x${w.height}, expected ${want[0]}x${want[1]}`);
+      }
+      if (n.width !== want[0] || n.height !== want[1]) {
+        fail(`native is ${n.width}x${n.height}, expected ${want[0]}x${want[1]}`);
+      }
+      if (w.width === n.width && w.height === n.height && Buffer.compare(w.rgba, n.rgba) !== 0) {
+        fail("wasm and native RGBA bytes differ");
+      }
+    }
+  }
+  if (ran !== ORIENTATION_ROW_COUNT) failures.push(`O-count -- ${ran} rows ran, expected ${ORIENTATION_ROW_COUNT}`);
+  if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  return failures;
+}
+
+// N3: strip the key from the native text. The rows where the key changes the size must go red
+// and no others: a square, a landscape already in order, and the stored-landscape R without
+// `auto-orient` are the same size either way.
+const N3_EXPECTED_RED = [
+  "O-crop-W-on-9:16",
+  "O-crop-P-on-16:9",
+  "O-crop-N-on-16:9",
+  "O-crop-R+ao-on-16:9",
+  "O-pad-W-on-9:16",
+  "O-pad-P-on-16:9",
+  "O-pad-N-on-16:9",
+  "O-pad-R+ao-on-16:9",
+];
+
+function orientationSelfTest(ctx) {
+  const failures = orientationRows(ctx, (t) => t.replace('orientation = "match"\n', ""));
+  const red = [...new Set(failures.map((f) => f.split(" -- ")[0]))].sort();
+  const expected = [...N3_EXPECTED_RED].sort();
+  const same = JSON.stringify(red) === JSON.stringify(expected);
+  console.log(
+    `${same ? "PASS" : "FAIL"} N3 the orientation key stripped: red rows {${red}}, expected {${expected}}`,
+  );
+  if (!same) for (const f of failures) console.log(`     ${f}`);
+  return same;
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv.slice(2));
@@ -638,12 +768,12 @@ if (args.selfTest) {
 
 const table = runTable(ctx);
 report(table);
-const failures = [...tableChecks(table), ...alphaRows(ctx)];
+const failures = [...tableChecks(table), ...alphaRows(ctx), ...orientationRows(ctx)];
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
 // Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each
 // named by the label before its first colon.
-const tableNames = failures.map((f) => f.split(":")[0]).join(", ");
+const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
 console.log(
   `${table.rows.length} rows, ${rowsFailed} row failures, ${failures.length} table failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,

@@ -38,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   past the size caps, exits 1. A fill alpha JPEG or GIF can't store is refused: exit 4, nothing
   written, for one input or a batch whose format `--format` or the name template fixes; when each
   input keeps its own format, that input fails and the batch exits 6.
+- **An aspect can follow each image's orientation.** `orientation = "match"` on an aspect `crop`
+  or `pad` puts the aspect's long side along the image's long side, so one `aspect = "3:2"` recipe
+  gives 3:2 on landscape photos and 2:3 on portrait ones; a square image keeps the aspect as
+  written. It reads the image as the step receives it, so put `auto-orient` first for camera
+  JPEGs. Any other value, and the key on a rectangle crop or a border pad, is refused when the
+  recipe loads (exit 1).
+- **`edit --crop-orientation match` and `--pad-orientation match`** do the same for an aspect
+  `--crop W:H` or `--pad W:H`, and `--save-recipe` saves `orientation = "match"` only when the
+  flag was typed. With a pixel `--crop` or a border `--pad N` they exit 2.
 - **`edit --trim`.** `--trim` removes the border that matches the top-left pixel, or `--trim-color`,
   within `--trim-tolerance` (8-bit steps); `--save-recipe` saves a `trim` step with only the keys
   you gave. An image that matches all over exits 1; in a batch that input fails and the run exits 6.

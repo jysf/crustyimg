@@ -7,7 +7,7 @@
 task:
   id: SPEC-163
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -93,6 +93,22 @@ cost:
         push and this commit's own turns are not counted. Includes 17 driven mutants on a prototype.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-26
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 12994222
+      tokens_breakdown:
+        input: 164
+        cache_creation: 204820
+        cache_read: 12728689
+        output: 60549
+      estimated_usd: 5.50
+      note: >
+        Measured from the session JSONL (found by the prompt text `SPEC-163 — BUILD prompt`), deduped by
+        message.id (78 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
+        last code push and before this completion commit's own turns and the CI watch.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1253,39 +1269,73 @@ red sets are **reasoned** from the native sizes, which were driven (26/26 agains
 
 ## Build Completion
 
-*Filled in at the end of the **build** cycle, before advancing to verify.*
-
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-163-aspect-follows-orientation`
+- **PR (if applicable):** #272 (draft)
+- **All acceptance criteria met?** yes (AC-1 to AC-18; the CI legs of AC-18 are reported in the build report)
+- **New decisions emitted:** none (DEC-112's rule 8 follows at ship)
+- **Files this diff touches** (21 from `git diff --name-only origin/main...HEAD`, plus this spec file = 22):
+  - `src/operation/mod.rs` — private `ORIENTATION_NAMES` and `follow_orientation`; FT-1
+  - `src/operation/crop.rs` — `orientation` table row (last), `follow` on the aspect form, rectangle refusal after gravity's, helper call before `aspect_size`
+  - `src/operation/pad.rs` — `orientation` row after `gravity`, `follow`, border refusal after gravity's, helper call before `aspect_canvas`
+  - `src/operation/registry.rs` — tests only: the three table tests list the new row (FT-18)
+  - `src/cli/mod.rs` — `--crop-orientation` / `--pad-orientation` (`requires`), passed through `dispatch`
+  - `src/cli/ops.rs` — `EditFlags` fields, `with_text`, `PAD_FLAGS` entry, key swap for crop, the two exit-2 refusals after the gravity ones
+  - `tests/aspect_orientation.rs` — new suite, FT-2 to FT-15 (14 tests)
+  - `tests/crop.rs`, `tests/pad.rs` — one expected unknown-key list each (FT-16, FT-17)
+  - `tests/ddphotos_parity.mjs` — `INPUTS` gains P, S, N; `orientationRows` (26 rows); self-test N3
+  - `tests/fixtures/ddphotos/photo_portrait.webp`, `photo_square.webp`, `photo_near_square.webp` — new, made with ImageMagick
+  - `tests/fixtures/ddphotos/README.md` — three table rows and the commands
+  - `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `docs/api-contract.md`, `docs/cli-reference.md`, `skills/crustyimg/SKILL.md` — the key and the flags
+  - `CHANGELOG.md` — the two Added entries, verbatim
+  - this spec file
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - FT-1 has one extra row, `(1,1,48,48)`. FT-13 and others match the spec's literals. No other deviation; `src/wasm.rs`, `scripts/wasm-ci-check.sh`, `tests/wasm_roundtrip.rs`, `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION` untouched.
+  - The prompt's path `projects/.../SPEC-163-build.md` "on main" is not on `main`; it is on this branch (commit eaf76c3).
+- **Follow-up work identified:** none.
+
+**RED baseline (stage 1, `main`'s code):** the new suite 1 passed (FT-4, the table's own check) and 9 failed (FT-2/3, 5 to 11), every recipe row refused with `unknown key 'orientation'; expected one of: …` (exit 1); `tests/crop.rs` 1 red and `tests/pad.rs` 2 red (the moved lists); FT-1 and the registry tests did not compile (no helper, no `ORIENTATION_NAMES`). No row disagreed.
+
+**Behaviour sentences, driven with the release binary (exit codes quoted):**
+1. portrait turned: P `16:9` crop 900×1600 exit 0; `apply` folder L/P/S/N 1600×900, 900×1600, 1071×602, 603×1072 exit 0; `edit` folder 1600×1067, 1067×1600, 1071×714, 715×1072 exit 0.
+2. landscape `9:16` → 1600×900 exit 0; folder exit 0 (L 1600×900, P 900×1600, S 602×1071, N 603×1072).
+3. square: `16:9` → 1071×602, `9:16` → 602×1071, exit 0; folder exit 0.
+4. N `16:9` → 603×1072 exit 0.
+5. `1:1` on/off, L/P/S all 1071×1071, exit 0.
+6. R without `auto-orient` 1600×900; with 900×1600; `edit` 900×1600; all exit 0.
+7. rectangle crop and border pad with the key: exit 1 with messages 1 and 5, one input and folder; no output directory.
+8. `orientation = "landscape"`: exit 1, message 2, one input and folder, no output directory.
+9. pixel `--crop` / border `--pad N` with the flag: exit 2, messages 9 and 10, one input and folder, no output directory.
+10. `--crop-orientation` without `--crop`: exit 2 (clap), one input and folder.
+11. `--save-recipe`: key present when typed, absent when not (both texts quoted by FT-13); folder `edit` saves one recipe with the key, exit 0.
+
+**Parity (`just ddphotos-parity`, both modes):** `16 rows, 0 row failures, 0 table failures, K=1 (cap 78)` (the 26 orientation rows add no failure; exit 0). Self-test: `PASS N1`, `PASS N2` and
+`PASS N3 the orientation key stripped: red rows {O-crop-N-on-16:9,O-crop-P-on-16:9,O-crop-R+ao-on-16:9,O-crop-W-on-9:16,O-pad-N-on-16:9,O-pad-P-on-16:9,O-pad-R+ao-on-16:9,O-pad-W-on-9:16}, expected` the same eight. All 26 reasoned literals were right; no row disagreed.
+
+**Mutations (scratch worktree, own target dir, clean rebuild each, full suite `--no-fail-fast`, red set read off the run):** M0 green. Every red set equals the spec's table, with no extra red test and no mismatched cell:
+- M1: FT-1, FT-2, FT-3. M2: FT-1, 2, 3, 6, 11, 13, 14. M3: FT-2, 6, 11, 13, 14. M4: FT-3, 6, 11, 13.
+- M5 (negative control): FT-2, 3, 6, 11, 13, 14; FT-4, 5, 7 to 10, 12, 15 green. M6: FT-7. M7: FT-8.
+- M8: FT-7, 8, 10, 12 and all three registry tests. M9: FT-12, 13. M10: FT-13, 14. M11, M12: FT-12.
+- M13, M14: FT-1, 2, 3. M15: FT-1, 2, 3, 11, 13.
+- M16 (trap 14): lib unit tests compile and pass; the new suite is 1 passed (FT-4 only) and 13 red; `tests/crop.rs` 1 and `tests/pad.rs` 2 red.
+- M17: crop 1, pad 2, registry 3.
+- Parity: M5 applied to the native binary only (release build, unmutated wasm package): exactly N3's eight rows red. Other mutants' parity cells were not driven (each needs a release rebuild); their rows stay reasoned.
+
+**Matrix:** default, `--no-default-features`, `--features webp-lossy`, each in a fresh `CARGO_TARGET_DIR`: test, `clippy -D warnings`, `fmt --check` all exit 0. `just wasm-check` exit 0; `just wasm-test` exit 0 (56 passed). Fixtures: `git diff --name-status origin/main -- tests/fixtures/` shows three `A` and `M tests/fixtures/ddphotos/README.md`; no bless run.
+
+**Overlap after the last rebase:** open PRs are #237 (parked; overlaps `CHANGELOG.md` only) and this one. Nothing new.
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The prompt cites its own path "on main", but the file is only on the branch.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — clippy's `type_complexity` on the test row tables; avoided by letting the compiler infer the array types.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the mutation script against a pre-warmed target dir; its first build cost most of the wall time.
+
+No design call turned out wrong.
 
 ---
 

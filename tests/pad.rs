@@ -281,7 +281,7 @@ const NOT_HEX: &str = "'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA"
 const ASPECT: &str =
     "'aspect' must be two whole numbers from 1 to 65535 written W:H, such as \"16:9\"";
 const GRAVITY_ONE_OF: &str = "'gravity' must be one of: center, north, south, east, west, northeast, northwest, southeast, southwest";
-const KEYS: &str = "expected one of: aspect, gravity, border, color";
+const KEYS: &str = "expected one of: aspect, gravity, orientation, border, color";
 const NO_FORM: &str = "pad needs an aspect (aspect, and optionally gravity) or a border";
 const NO_COLOR: &str =
     "missing required key 'color'; a pad needs a fill colour such as \"#ffffff\"";
