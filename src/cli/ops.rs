@@ -1105,11 +1105,13 @@ pub(crate) struct EditFlags {
     pub(crate) resize_max: Option<u32>,
     pub(crate) crop: Option<String>,
     pub(crate) crop_gravity: Option<String>,
+    pub(crate) crop_orientation: Option<String>,
     pub(crate) rotate: Option<i64>,
     pub(crate) flip: Option<String>,
     pub(crate) pad: Option<String>,
     pub(crate) pad_color: Option<String>,
     pub(crate) pad_gravity: Option<String>,
+    pub(crate) pad_orientation: Option<String>,
     pub(crate) trim_color: Option<String>,
     pub(crate) trim_tolerance: Option<u8>,
     pub(crate) order: Vec<EditOp>,
@@ -1415,9 +1417,10 @@ impl Operation for FlagWorded {
 }
 
 /// `pad`'s keys and the flags that set them.
-const PAD_FLAGS: [(&str, &str); 3] = [
+const PAD_FLAGS: [(&str, &str); 4] = [
     ("aspect", "--pad"),
     ("gravity", "--pad-gravity"),
+    ("orientation", "--pad-orientation"),
     ("color", "--pad-color"),
 ];
 
@@ -1459,6 +1462,18 @@ fn one_param(key: &str, value: toml::Value) -> OperationParams {
     let mut map = std::collections::BTreeMap::new();
     map.insert(key.to_owned(), value);
     OperationParams::from_map(map)
+}
+
+/// `params` plus one text key, keeping the keys in `OperationParams`' sorted
+/// order so a saved recipe lists them alphabetically.
+fn with_text(params: OperationParams, key: &str, value: &str) -> OperationParams {
+    OperationParams::from_map(
+        params
+            .iter()
+            .map(|(k, v)| (k.to_owned(), v.clone()))
+            .chain([(key.to_owned(), toml::Value::String(value.to_owned()))])
+            .collect(),
+    )
 }
 
 /// The error for an op that `order` lists but whose value is missing: a bug,
@@ -1541,10 +1556,17 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
                                     .collect(),
                             );
                         }
+                        if let Some(o) = &flags.crop_orientation {
+                            params = with_text(params, "orientation", o);
+                        }
                         steps.push(built(build_flag_op(
                             "crop",
                             &params,
-                            &[("aspect", "--crop"), ("gravity", "--crop-gravity")],
+                            &[
+                                ("aspect", "--crop"),
+                                ("gravity", "--crop-gravity"),
+                                ("orientation", "--crop-orientation"),
+                            ],
                         )?));
                     }
                     CropFlag::Pixels { w, h, x, y } => {
@@ -1552,6 +1574,13 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
                             return Err(CliError::Usage(
                                 "--crop-gravity only places an aspect --crop W:H; a pixel --crop \
                                  WxH+X+Y is placed by its +X+Y"
+                                    .into(),
+                            ));
+                        }
+                        if flags.crop_orientation.is_some() {
+                            return Err(CliError::Usage(
+                                "--crop-orientation only turns an aspect --crop W:H; a pixel \
+                                 --crop WxH+X+Y keeps the size it gives"
                                     .into(),
                             ));
                         }
@@ -1594,6 +1623,9 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
                                     .collect(),
                             );
                         }
+                        if let Some(o) = &flags.pad_orientation {
+                            params = with_text(params, "orientation", o);
+                        }
                         let inner = build_flag_op("pad", &params, &PAD_FLAGS)?;
                         steps.push(built(Box::new(FlagWorded {
                             inner,
@@ -1605,6 +1637,13 @@ fn build_edit_ops(flags: &EditFlags) -> Result<Vec<EditStep>, CliError> {
                             return Err(CliError::Usage(
                                 "--pad-gravity only places an aspect --pad W:H; a border --pad N \
                                  adds the same width on every side"
+                                    .into(),
+                            ));
+                        }
+                        if flags.pad_orientation.is_some() {
+                            return Err(CliError::Usage(
+                                "--pad-orientation only turns an aspect --pad W:H; a border \
+                                 --pad N adds the same width on every side"
                                     .into(),
                             ));
                         }

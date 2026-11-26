@@ -520,3 +520,296 @@ fn batch_follows_each_image() {
     want(crop_with("16:9", true), [(64, 36), (36, 64), (48, 27)]);
     want(pad_with("16:9", true), [(85, 48), (48, 85), (85, 48)]);
 }
+
+// ── `edit`'s flags ────────────────────────────────────────────────────────────
+
+/// `edit IN <args…> -o e.png -y --save-recipe r.toml`, all in `dir`.
+fn edit(dir: &Path, input: &Path, args: &[&str]) -> Ran {
+    let mut a = vec!["edit", input.to_str().unwrap()];
+    a.extend_from_slice(args);
+    let out = dir.join("e.png");
+    let rec = dir.join("r.toml");
+    a.extend(["-o", out.to_str().unwrap(), "-y"]);
+    a.extend(["--save-recipe", rec.to_str().unwrap()]);
+    run(&a)
+}
+
+#[test]
+fn orientation_flag_refusals() {
+    const CLAP: &str = "error: the following required arguments were not provided:";
+    let wrong =
+        |flag: &str, got: &str| format!("error: {flag} must be one of: match; got \"{got}\"\n");
+    // (args, the stderr: whole when `exact`, else its first lines).
+    let rows: Vec<(Vec<&str>, String, bool)> = vec![
+        // 13: without --crop (clap).
+        (
+            vec!["--crop-orientation", "match"],
+            format!("{CLAP}\n  --crop <WxH+X+Y|W:H>\n"),
+            false,
+        ),
+        // 9: a pixel crop.
+        (
+            vec!["--crop", "20x20+0+0", "--crop-orientation", "match"],
+            "error: --crop-orientation only turns an aspect --crop W:H; a pixel --crop WxH+X+Y \
+             keeps the size it gives\n"
+                .to_owned(),
+            true,
+        ),
+        // 15: gravity's refusal comes first.
+        (
+            vec![
+                "--crop",
+                "20x20+0+0",
+                "--crop-gravity",
+                "north",
+                "--crop-orientation",
+                "match",
+            ],
+            "error: --crop-gravity only places an aspect --crop W:H; a pixel --crop WxH+X+Y is \
+             placed by its +X+Y\n"
+                .to_owned(),
+            true,
+        ),
+        // 11: a bad value, named by the flag.
+        (
+            vec!["--crop", "3:2", "--crop-orientation", "landscape"],
+            wrong("--crop-orientation", "landscape"),
+            true,
+        ),
+        (
+            vec!["--crop", "3:2", "--crop-orientation", "Match"],
+            wrong("--crop-orientation", "Match"),
+            true,
+        ),
+        // 14: without --pad (clap); --pad itself needs --pad-color.
+        (
+            vec!["--pad-orientation", "match"],
+            format!("{CLAP}\n  --pad-color <COLOR>\n  --pad <N|W:H>\n"),
+            false,
+        ),
+        // 10: a border pad.
+        (
+            vec![
+                "--pad",
+                "4",
+                "--pad-color",
+                "#ffffff",
+                "--pad-orientation",
+                "match",
+            ],
+            "error: --pad-orientation only turns an aspect --pad W:H; a border --pad N adds the \
+             same width on every side\n"
+                .to_owned(),
+            true,
+        ),
+        // 12: a bad value, named by the flag.
+        (
+            vec![
+                "--pad",
+                "3:2",
+                "--pad-color",
+                "#ffffff",
+                "--pad-orientation",
+                "landscape",
+            ],
+            wrong("--pad-orientation", "landscape"),
+            true,
+        ),
+        (
+            vec![
+                "--pad",
+                "3:2",
+                "--pad-color",
+                "#ffffff",
+                "--pad-orientation",
+                "Match",
+            ],
+            wrong("--pad-orientation", "Match"),
+            true,
+        ),
+    ];
+    let mut bad = Vec::new();
+    for (args, want, exact) in &rows {
+        let dir = TempDir::new().unwrap();
+        let input = write_png(dir.path(), "in.png", 48, 64);
+        let r = edit(dir.path(), &input, args);
+        let ok = if *exact {
+            r.stderr == *want
+        } else {
+            r.stderr.starts_with(want.as_str())
+        };
+        if r.code != Some(2) || !ok {
+            bad.push(format!(
+                "{args:?}\n  want exit 2, {want:?}\n  got  exit {:?}, {:?}",
+                r.code, r.stderr
+            ));
+        }
+        for name in ["e.png", "r.toml"] {
+            if dir.path().join(name).exists() {
+                bad.push(format!("{args:?} wrote {name}"));
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} rows disagree:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert_eq!(rows.len(), 9);
+}
+
+/// The recipe `edit --save-recipe` writes for one aspect step after
+/// `auto-orient`; `lines` are the step's keys, in saved (sorted) order.
+fn saved(op: &str, lines: &[&str]) -> String {
+    let mut out =
+        format!("version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n\n[[step]]\nop = \"{op}\"\n");
+    for l in lines {
+        out.push_str(l);
+        out.push('\n');
+    }
+    out
+}
+
+#[test]
+fn save_recipe_writes_the_key_only_when_typed_and_replays() {
+    let crop_on = saved("crop", &["aspect = \"3:2\"", "orientation = \"match\""]);
+    let crop_off = saved("crop", &["aspect = \"3:2\""]);
+    let pad_on = saved(
+        "pad",
+        &[
+            "aspect = \"3:2\"",
+            "color = \"#ffffff\"",
+            "orientation = \"match\"",
+        ],
+    );
+    let pad_off = saved("pad", &["aspect = \"3:2\"", "color = \"#ffffff\""]);
+    // (label, flags, the saved text, the sizes on landscape 64x48, portrait
+    // 48x64 and square 48x48). Hand-derived, halves up.
+    let rows = vec![
+        (
+            "crop on",
+            vec!["--crop", "3:2", "--crop-orientation", "match"],
+            &crop_on,
+            [(64, 43), (43, 64), (48, 32)],
+        ),
+        (
+            "crop off",
+            vec!["--crop", "3:2"],
+            &crop_off,
+            [(64, 43), (48, 32), (48, 32)],
+        ),
+        (
+            "pad on",
+            vec![
+                "--pad",
+                "3:2",
+                "--pad-color",
+                "#ffffff",
+                "--pad-orientation",
+                "match",
+            ],
+            &pad_on,
+            [(72, 48), (48, 72), (72, 48)],
+        ),
+        (
+            "pad off",
+            vec!["--pad", "3:2", "--pad-color", "#ffffff"],
+            &pad_off,
+            [(72, 48), (96, 64), (72, 48)],
+        ),
+    ];
+    let shapes = [(64, 48), (48, 64), (48, 48)];
+    let mut bad = Vec::new();
+    for (label, flags, text, sizes) in &rows {
+        for ((w, h), want) in shapes.iter().zip(sizes) {
+            let dir = TempDir::new().unwrap();
+            let input = write_png(dir.path(), "in.png", *w, *h);
+            let e = edit(dir.path(), &input, flags);
+            let b = run(&[
+                "apply",
+                "--recipe",
+                dir.path().join("r.toml").to_str().unwrap(),
+                input.to_str().unwrap(),
+                "-o",
+                dir.path().join("b.png").to_str().unwrap(),
+                "-y",
+            ]);
+            if e.code != Some(0) || b.code != Some(0) {
+                bad.push(format!(
+                    "{label} {w}x{h}: edit {:?} {}, apply {:?} {}",
+                    e.code, e.stderr, b.code, b.stderr
+                ));
+                continue;
+            }
+            let ei = image::open(dir.path().join("e.png")).unwrap();
+            let bi = image::open(dir.path().join("b.png")).unwrap();
+            if (ei.width(), ei.height()) != *want {
+                bad.push(format!(
+                    "{label} {w}x{h}: want {want:?}, got {}x{}",
+                    ei.width(),
+                    ei.height()
+                ));
+            }
+            if ei.color() != bi.color() || ei.as_bytes() != bi.as_bytes() {
+                bad.push(format!(
+                    "{label} {w}x{h}: apply of the saved recipe differs from edit"
+                ));
+            }
+            let got = std::fs::read_to_string(dir.path().join("r.toml")).unwrap();
+            if got != **text {
+                bad.push(format!("{label} {w}x{h}: saved {got:?}, want {text:?}"));
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} rows disagree:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+#[test]
+fn batch_edit_with_the_key_saves_one_recipe() {
+    let dir = TempDir::new().unwrap();
+    let folder = dir.path().join("in");
+    std::fs::create_dir(&folder).unwrap();
+    write_png(&folder, "a.png", 64, 48);
+    write_png(&folder, "b.png", 48, 64);
+    let out = dir.path().join("out");
+    let rec = dir.path().join("r.toml");
+    let r = run(&[
+        "edit",
+        folder.to_str().unwrap(),
+        "--crop",
+        "3:2",
+        "--crop-orientation",
+        "match",
+        "--out-dir",
+        out.to_str().unwrap(),
+        "--save-recipe",
+        rec.to_str().unwrap(),
+    ]);
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    assert_eq!(dims(&out.join("a.png")), (64, 43));
+    assert_eq!(dims(&out.join("b.png")), (43, 64));
+    assert_eq!(
+        std::fs::read_to_string(&rec).unwrap(),
+        saved("crop", &["aspect = \"3:2\"", "orientation = \"match\""])
+    );
+}
+
+#[test]
+fn edit_help_lists_the_orientation_flags() {
+    let o = Command::new(BIN).args(["edit", "--help"]).output().unwrap();
+    let help = String::from_utf8_lossy(&o.stdout);
+    for want in [
+        "--crop-orientation <MATCH>",
+        "--pad-orientation <MATCH>",
+        "Turn an aspect --crop W:H to follow each image",
+        "Turn an aspect --pad W:H to follow each image",
+    ] {
+        assert!(help.contains(want), "edit --help lacks {want:?}:\n{help}");
+    }
+}
