@@ -18,6 +18,10 @@ Cycle prompts live in `prompts/SPEC-163-<cycle>.md`.
   like the gravity flags; 18 ACs, 20 FTs (14 in new `tests/aspect_orientation.rs`), 26 parity rows + self-test N3, 3
   fixtures. 17 mutants driven on a prototype, all red as predicted. Frame corrections: 6 existing key-list tests move;
   `tests/orientation.rs` exists; `docs/cli-reference.md` added.
-- [ ] **build** — `prompts/SPEC-163-build.md`
-- [ ] **verify**
+- [x] **build** (2026-11-26, Sonnet) — `prompts/SPEC-163-build.md`. Draft PR #272 at `fccb368`, 5 signed commits,
+  22 files (exactly `## Outputs`); CI green on every leg incl. lean, Windows, wasm and ddphotos parity. 18/18 ACs; RED
+  baseline matched; M0–M17 driven, every red set as tabled; parity local 16 TABLE rows + 26 orientation rows green, N3
+  exactly the eight. Parity cells for mutants other than M5 still reasoned (no wasm-side mutant run). Cost $5.50,
+  measured before its last commit; ship re-measures. Space freed not recorded.
+- [ ] **verify** — `prompts/SPEC-163-verify.md` (Opus)
 - [ ] **ship**
