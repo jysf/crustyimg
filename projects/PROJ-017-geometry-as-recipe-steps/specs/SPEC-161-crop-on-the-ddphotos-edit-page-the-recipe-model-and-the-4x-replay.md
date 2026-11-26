@@ -575,6 +575,15 @@ otherwise. The replay DEC is **DEC-118** (`/bin/ls decisions` ends at DEC-117; `
 9. **Replay rows: 17, not ~22.** One per form × orientation × kind, not one per crop row (the
    derivation is under "Sizing").
 
+### Maintainer rulings on the design (2026-11-26)
+
+Both calls design put to the maintainer were accepted as designed:
+1. **A preset on a square photo, and `1:1` on any photo, writes no `orientation` key** (correction 2).
+   Accepted cost: a recipe made from a preset on a square photo does not follow orientation when
+   reused on a folder.
+2. **A swapped preset writes the aspect as shown, with no key**, so a reused recipe keeps the chosen
+   orientation.
+
 ### What was driven
 
 **The `aspect` and box replay bound (DEC-118 rule 1).** An independent model, written line for line

@@ -17,6 +17,8 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
   model/placement/golden checks, N4 (one pixel of crop), N5 (replay framing shift); DEC-118 allocated. A
   preset emits `aspect` (+ key unless square or 1:1), a box emits fractions; `loadPhoto` in recipe.js gives
   the oriented size; no Rust, 0 B wasm. Corrections: box not exact at a resize tie; aspect worst 1 px (exhaustive).
+- [x] **design rulings** (2026-11-26, maintainer) — both design calls accepted: no `orientation` key on a square
+  photo or `1:1`; a swapped preset writes the aspect as shown with no key.
 - [ ] **build** — `prompts/SPEC-161-build.md`
 - [ ] **verify**
 - [ ] **ship**
