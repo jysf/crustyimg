@@ -330,7 +330,7 @@ was a required one, and with a message about the missing key.)
 A `crop` step is a **rectangle** (`x`, `y`, `width`, `height`, all four) or an
 **aspect** (`aspect`, and optionally `gravity` and `orientation`). The two forms
 share no key, so the keys present choose the form; mixing them is refused at
-load, and so is `gravity` on a rectangle, and so is `orientation`.
+load, and so is `gravity` or `orientation` on a rectangle.
 
 | Key | Type | Range |
 |---|---|---|

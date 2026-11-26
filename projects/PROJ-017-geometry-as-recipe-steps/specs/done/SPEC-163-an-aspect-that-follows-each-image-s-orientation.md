@@ -7,7 +7,7 @@
 task:
   id: SPEC-163
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -79,40 +79,64 @@ cost:
       date: 2026-11-25
       model: claude-opus-5-5
       interface: claude-code
-      tokens_total: 17032751
+      tokens_total: 17880650
       tokens_breakdown:
-        input: 180
-        cache_creation: 251705
-        cache_read: 16682782
-        output: 98084
-      estimated_usd: 12.37
+        input: 186
+        cache_creation: 253682
+        cache_read: 17523055
+        output: 103727
+      estimated_usd: 12.94
       note: >
-        Measured from the session JSONL (found by the prompt path `SPEC-163-design.md`), deduped by
-        message.id (89 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        local design commit and before the push, which the session's permission mode blocked; the
-        push and this commit's own turns are not counted. Includes 17 driven mutants on a prototype.
+        Re-measured at ship (was 17,032,751 tokens, $12.37, taken before the blocked push). Measured from the session JSONL (found by its first user message naming `SPEC-163-design.md`), deduped by message.id (92 messages; max output_tokens per id), 0 subagent transcripts. Includes 17 driven mutants on a prototype.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
     - cycle: build
       date: 2026-11-26
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 12994222
+      tokens_total: 14654504
       tokens_breakdown:
-        input: 164
-        cache_creation: 204820
-        cache_read: 12728689
-        output: 60549
-      estimated_usd: 5.50
+        input: 180
+        cache_creation: 214897
+        cache_read: 14370569
+        output: 68858
+      estimated_usd: 6.15
       note: >
-        Measured from the session JSONL (found by the prompt text `SPEC-163 — BUILD prompt`), deduped by
-        message.id (78 messages; max output_tokens per id), 0 subagent transcripts. Measured after the
-        last code push and before this completion commit's own turns and the CI watch.
+        Re-measured at ship (was 12,994,222 tokens, $5.50, taken before the last commit and the CI watch). Measured from the session JSONL (found by its first user message naming `SPEC-163-build.md`), deduped by message.id (85 messages; max output_tokens per id), 0 subagent transcripts.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
+    - cycle: verify
+      date: 2026-11-26
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 9693572
+      tokens_breakdown:
+        input: 126
+        cache_creation: 183771
+        cache_read: 9457002
+        output: 52673
+      estimated_usd: 7.19
+      note: >
+        Measured at ship from the session JSONL (found by its first user message naming `SPEC-163-verify.md`), deduped by message.id (61 messages; max output_tokens per id), 0 subagent transcripts. The verify report said 9,269,764 tokens, $6.83, taken before its last turns.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
+    - cycle: ship
+      date: 2026-11-26
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2072610
+      tokens_breakdown:
+        input: 48
+        cache_creation: 78576
+        cache_read: 1984751
+        output: 9235
+      estimated_usd: 1.03
+      note: >
+        Measured after the ship push from the session JSONL (found by its first user message naming `SPEC-163-ship.md`), deduped by message.id (24 messages; max output_tokens per id), 0 subagent transcripts. Excludes the follow-up cost commit's own turns.
         Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read (x0.10), $15 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 49318499
+    estimated_usd: 31.37
+    session_count: 5
 ---
 
 # SPEC-163: An aspect that follows each image's orientation
@@ -987,56 +1011,57 @@ re-checks the map after each rebase, recording any file the map missed.
 
 ## Acceptance Criteria
 
+All 18 ticked at ship (corrected at ship): verify confirmed each, and Build Completion carries the evidence.
 Each names its tests; "driven" means a mutant in the table below turns the named test red.
 
-- [ ] **AC-1** `crop` with `orientation = "match"`: a landscape image gets the aspect's larger
+- [x] **AC-1** `crop` with `orientation = "match"`: a landscape image gets the aspect's larger
   side as its width, a portrait image as its height, a square image the aspect as written, and
   48×49 / 1071×1072 count as portrait (49×48 as landscape), for both written orders. Sizes are
   literals. — FT-1, FT-2, FT-4
-- [ ] **AC-2** The same rule on `pad`. — FT-1, FT-3, FT-4
-- [ ] **AC-3** Without the key, `crop` and `pad` give exactly today's sizes (each FT-2/FT-3 row's
+- [x] **AC-2** The same rule on `pad`. — FT-1, FT-3, FT-4
+- [x] **AC-3** Without the key, `crop` and `pad` give exactly today's sizes (each FT-2/FT-3 row's
   "off" twin), and every existing crop, pad and `edit` test passes unchanged except the two
   unknown-key lists. — FT-2, FT-3, the existing suites
-- [ ] **AC-4** `aspect = "1:1"` gives the same size with and without the key, on landscape,
+- [x] **AC-4** `aspect = "1:1"` gives the same size with and without the key, on landscape,
   portrait, square and near-square images, for both ops. — FT-5
-- [ ] **AC-5** The key reads the buffer the step receives: on a stored-landscape image tagged
+- [x] **AC-5** The key reads the buffer the step receives: on a stored-landscape image tagged
   Orientation 6, without `auto-orient` the result is landscape, after `auto-orient` portrait. —
   FT-6, FT-19 (R rows)
-- [ ] **AC-6** `crop` refuses at load (exit 1, nothing written), with messages 1–4 verbatim: the
+- [x] **AC-6** `crop` refuses at load (exit 1, nothing written), with messages 1–4 verbatim: the
   key on a rectangle (and alone), an unknown value, the wrong case, the wrong type (`true`, `1`).
   A rectangle with `gravity` and `orientation` gets the gravity message; a rectangle with
   `orientation = true` gets the type message. — FT-7
-- [ ] **AC-7** `pad` refuses at load with messages 5–8 verbatim: the key with `border`, an unknown
+- [x] **AC-7** `pad` refuses at load with messages 5–8 verbatim: the key with `border`, an unknown
   value, the wrong case, the wrong type. A border with `gravity` and `orientation` gets the gravity
   message. — FT-8
-- [ ] **AC-8** The unknown-key message lists `orientation` (crop last; pad after `gravity`), and
+- [x] **AC-8** The unknown-key message lists `orientation` (crop last; pad after `gravity`), and
   the registry's published tables carry the row as `OneOf(["match"])`. — FT-16, FT-17, FT-18
-- [ ] **AC-9** Must not refuse: the key with an aspect loads and runs (exit 0) on both ops, alone,
+- [x] **AC-9** Must not refuse: the key with an aspect loads and runs (exit 0) on both ops, alone,
   with `gravity`, and with `"1:1"`, on a landscape, a square and a near-square image; and from
   `edit` on a square image. — FT-9, FT-13
-- [ ] **AC-10** A batch: a recipe with a bad value exits 1 with message 2 and writes no output
+- [x] **AC-10** A batch: a recipe with a bad value exits 1 with message 2 and writes no output
   directory; a good recipe over a folder of landscape, portrait and square images turns each one
   by its own shape (exit 0). — FT-10, FT-11
-- [ ] **AC-11** `edit --crop W:H --crop-orientation match` and `--pad W:H --pad-color C
+- [x] **AC-11** `edit --crop W:H --crop-orientation match` and `--pad W:H --pad-color C
   --pad-orientation match` run the rule; the refusals 9–15 exit 2 verbatim and write neither the
   image nor the recipe. — FT-12, FT-13
-- [ ] **AC-12** `--save-recipe` writes `orientation = "match"` exactly when the flag was typed
+- [x] **AC-12** `--save-recipe` writes `orientation = "match"` exactly when the flag was typed
   (both literal texts), and `apply` of the saved recipe reproduces the `edit` output byte for byte
   on landscape, portrait and square inputs, for both ops. A batch `edit` with an aspect crop and
   the key saves one recipe (exit 0) and turns each image. — FT-13, FT-14
-- [ ] **AC-13** `edit --help` shows both flags with their one-line descriptions. — FT-15
-- [ ] **AC-14** Native `apply` and wasm `transform` agree exactly (size and RGBA bytes) on the 26
+- [x] **AC-13** `edit --help` shows both flags with their one-line descriptions. — FT-15
+- [x] **AC-14** Native `apply` and wasm `transform` agree exactly (size and RGBA bytes) on the 26
   parity rows, each at its literal size; stripping the key from the text turns exactly the eight
   listed rows red. — FT-19, FT-20
-- [ ] **AC-15** Nothing else moves: the 22 recipe-corpus goldens, `recipe_round_trip`, the parity
+- [x] **AC-15** Nothing else moves: the 22 recipe-corpus goldens, `recipe_round_trip`, the parity
   harness's `GOLDEN_*`, TABLE, `ROW_COUNT`, `N1/N2` lists and alpha rows; `git diff --name-status
   origin/main -- tests/fixtures/` shows only `A` lines plus `M tests/fixtures/ddphotos/README.md`;
   no `CRUSTYIMG_BLESS` run. — the existing suites, the diff
-- [ ] **AC-16** The docs surfaces listed in Design say what Design writes, and each of the eleven
+- [x] **AC-16** The docs surfaces listed in Design say what Design writes, and each of the eleven
   behaviour sentences is driven on one input and a batch with its exit code quoted in Build
   Completion. — checklist, verify re-drives
-- [ ] **AC-17** CHANGELOG has the two "Added" entries verbatim. — checklist
-- [ ] **AC-18** `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
+- [x] **AC-17** CHANGELOG has the two "Added" entries verbatim. — checklist
+- [x] **AC-18** `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
   the lean `--no-default-features` build and tests, `just wasm-check` and `just wasm-test` pass. —
   CI legs
 
@@ -1188,8 +1213,10 @@ red sets are **reasoned** from the native sizes, which were driven (26/26 agains
 - **M1 square taken as landscape** — `src/operation/mod.rs`, `follow_orientation`: `if w > h {` →
   `if w >= h {`. Red: FT-1, FT-2, FT-3 (the 48×48 `9:16` row). Green: all else, including FT-13
   (its square row writes `3:2`, already in landscape order: a row whose aspect is in the mutant's
-  order cannot fail). Driven. Parity (reasoned): `O-crop-S-on-9:16`, `O-pad-S-on-9:16` red;
-  `S-on-16:9` cannot catch it.
+  order cannot fail). Driven. Parity (driven by verify, corrected at ship): `O-crop-S-on-9:16`, `O-pad-S-on-9:16` red;
+  `S-on-16:9` cannot catch it. Native and wasm both mutated, and wasm only, each give exactly those two rows.
+  In both-sided mode only the literal sizes catch it. FT-13 note (driven by verify, corrected at ship): on a
+  48×48 input `--crop 3:2` gives 48×32 both mutated and clean, and a square row written `2:3` would catch it.
 - **M2 swap inverted** — same fn: the `w > h` arm returns `(short, long)` and the `w < h` arm
   `(long, short)`. Red: FT-1, FT-2, FT-3, FT-6, FT-11, FT-13, FT-14. Driven.
 - **M3 crop skips the helper** — `src/operation/crop.rs`, `apply`: `let (a, b) = if follow {` →
@@ -1199,7 +1226,7 @@ red sets are **reasoned** from the native sizes, which were driven (26/26 agains
   FT-11, FT-13. Green: FT-2, FT-14 (crop only). Driven.
 - **M5 the key loads but is never read (negative control)** — both ops: `let follow =
   params.contains("orientation");` → `… && false;`. Red: FT-2, FT-3, FT-6, FT-11, FT-13, FT-14.
-  Green: FT-4, FT-5, FT-7 to FT-10, FT-12, FT-15. Driven. Parity (reasoned): exactly N3's eight.
+  Green: FT-4, FT-5, FT-7 to FT-10, FT-12, FT-15. Driven. Parity (driven by build, native only, corrected at ship): exactly N3's eight.
 - **M6 box-form refusal removed** — `crop.rs`: `if params.contains("orientation") {` (the
   rectangle refusal) → `if params.contains("orientation") && false {`. Red: FT-7. Driven. (With it
   gone a rectangle crop silently ignores the key; the key alone falls to "crop needs a rectangle".)
@@ -1235,6 +1262,8 @@ red sets are **reasoned** from the native sizes, which were driven (26/26 agains
   `registry.rs` from `main`, code kept). Red: FT-16, FT-17 (`every_pad_refusal_names_its_reason`
   and `apply_refuses_a_pixel_width_key_and_writes_nothing`, both read `const KEYS`), FT-18 (all
   three). Driven. This is correction 1's evidence.
+
+Parity cells of M13, M14 and M15 stay reasoned: no session drove them (corrected at ship).
 
 ## Notes for the Implementer
 
@@ -1291,6 +1320,7 @@ red sets are **reasoned** from the native sizes, which were driven (26/26 agains
 - **Deviations from spec:**
   - FT-1 has one extra row, `(1,1,48,48)`. FT-13 and others match the spec's literals. No other deviation; `src/wasm.rs`, `scripts/wasm-ci-check.sh`, `tests/wasm_roundtrip.rs`, `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION` untouched.
   - The prompt's path `projects/.../SPEC-163-build.md` "on main" is not on `main`; it is on this branch (commit eaf76c3).
+    - (corrected at ship) The build prompt was on `main` from `eaf76c3`; the line above is kept as history.
 - **Follow-up work identified:** none.
 
 **RED baseline (stage 1, `main`'s code):** the new suite 1 passed (FT-4, the table's own check) and 9 failed (FT-2/3, 5 to 11), every recipe row refused with `unknown key 'orientation'; expected one of: …` (exit 1); `tests/crop.rs` 1 red and `tests/pad.rs` 2 red (the moved lists); FT-1 and the registry tests did not compile (no helper, no `ORIENTATION_NAMES`). No row disagreed.
@@ -1345,10 +1375,42 @@ No design call turned out wrong.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things, none a behaviour defect; verify approved with no punch items. (a) The design's parity
+   cells were reasoned, build drove only M5 (native only), and verify drove the one wasm-side mutant: M1
+   in both sides passes the native-against-wasm comparison, and only the literal sizes catch it
+   (`O-crop-S-on-9:16`, `O-pad-S-on-9:16`). A spec that adds parity rows should drive one mutant into
+   both sides and one into wasm only, at design or build. M13, M14 and M15's parity cells were never
+   driven and stay reasoned. (b) The two pushes went wrong in different ways: design's stopped at a
+   permission check and the maintainer pushed by hand, and build's Build Completion says the build
+   prompt "is not on `main`" when it was there from `eaf76c3`. A prompt should say what to do when a
+   push is refused (commit, stop, name the commits and the command) and should say "check
+   `git ls-tree origin/main` before reporting a file missing". (c) Build measured its cost before its
+   last commit, so ship re-measured it ($5.50 to $6.15); design's was taken before its blocked push
+   ($12.37 to $12.94). Build also didn't record the space it freed. What I think made this the first
+   PROJ-017 spec with no punch list since SPEC-152, from the evidence only: design drove 17 mutants on
+   a prototype before build, and build's RED baseline and M0 to M17 red sets all matched the table
+   with no extra red (SPEC-160's four missed reds were absent); the mutation table named the exact
+   edit per row; the parity rows were written as literal sizes, so the comparison could not agree with
+   itself; and verify's independent model over 9324 rows found 0 mismatches. I cannot separate these
+   from the spec being small and having no wasm change.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) "A parity row's literal size is the check that catches a mutant both
+   sides share; a spec that adds parity rows drives one mutant into both sides." Not covered: AGENTS
+   §15 (about line 685) covers undriven bounds and all-green rows, and SPEC-159's and SPEC-160's
+   reflections speak of the wasm leg, none of the shared-mutant case. Verify's M1 run is its first
+   evidence. (ii) "A test row whose aspect is already in the order a mutant produces cannot catch it;
+   write each square row in both orders." Not covered; the first sighting was design's M1 note on
+   FT-13, now also in `aspect-orientation-loose-ends`. (iii) SPEC-160's proposals (comments swept with
+   DECs, red set read off every target, separator normalisation): this spec's evidence is for the
+   second, which held (M0 to M17 read off the full suite, no extra red). The first and third were not
+   exercised. SPEC-152's and SPEC-153's "driven, not reasoned" point is borne out again: the one cell
+   build left reasoned for wasm was the one verify drove. (iv) What a prompt should say when a push is
+   refused: AGENTS and `guidance/` are silent; the ship prompt carries it ad hoc ("stop and report,
+   don't claim the push happened"). I couldn't check HANDOFF (the repo tracks none). No DEC changes
+   beyond DEC-112's rule 8, applied as written.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. `aspect-orientation-loose-ends` in `guidance/ideas.yaml` already carries verify's cleanups
+   2 to 4 (including the square-row note); nothing in the evidence names another gap. The page port is
+   SPEC-161's, already in STAGE-060.

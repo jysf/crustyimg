@@ -32,6 +32,11 @@ affected_scope:
   - docs/recipes.md
   - skills/crustyimg/SKILL.md
   - integrations/ddphotos/edit/**
+  - src/operation/pad.rs
+  - src/cli/mod.rs
+  - src/cli/ops.rs
+  - docs/api-contract.md
+  - docs/cli-reference.md
 
 tags:
   - recipe
@@ -107,6 +112,17 @@ rule.
 (STAGE-058's `edit`-flags spec), which knows the image and converts to fractions. That round trip is
 exact (below), so `--save-recipe` replays to identical pixels.
 
+**8. Aspects can follow the image.** An aspect `crop` or `pad` takes an optional `orientation =
+"match"`. With it, the aspect's larger side runs along the larger side of the buffer the step
+receives (DEC-113: after any earlier `auto-orient`, never the EXIF tag): a buffer with
+`width > height` is landscape and takes the aspect as `max:min`, one with `width < height` is
+portrait and takes `min:max`, and a square buffer takes the aspect as written. There is no
+tolerance: 1071×1072 is portrait. `"1:1"` is unchanged by the key. The key only orders the two
+sides; the fit and its rounding are rule 5's. `"match"` is the only value, and leaving the key
+out is the only way to say "off", which is rule 5's meaning. The key with a rectangle crop or a
+border pad, or any other value, is refused at load. `edit --crop-orientation match` and
+`--pad-orientation match` write it, and `--save-recipe` saves it only when typed.
+
 ## Context
 
 PROJ-017's first-named risk: the ddphotos edit page edits ddphotos' published copy (1600 px long
@@ -135,6 +151,9 @@ every `i/n + (n−i)/n` with n ≤ 3000, the f64 sum is never above 1.0. At desi
 pair of 2-, 3- and 4-decimal fractions that add up to exactly 1 in decimal also sums to at most 1.0
 in `f64` (0 of 99, 999 and 9,999 pairs exceed it), so a hand-written `x = 0.25, width = 0.75` is
 never refused by float error.
+
+Rule 8 was added 2026-11-25 (SPEC-163, the maintainer's ruling on its frame): one recipe from the
+ddphotos page's aspect presets must crop a folder of mixed landscape and portrait photos.
 
 **Why `f64` and not the `f32` other ops read:** an `f32` read moves `x = 0.0009375` on a 1600 px
 image from 1.5 px (rounds to 2) to 1.49999997 px (rounds to 1). The key table still checks the
@@ -173,7 +192,8 @@ image from 1.5 px (rounds to 2) to 1.49999997 px (rounds to 1). The key table st
   `unknown operation 'crop'`, so no old cache entry can hold one.
 - **Orientation is not decided here.** The fractions are of the buffer the step receives; that is
   the stored orientation unless an earlier `auto-orient` step baked it. STAGE-058's rotate/flip spec
-  owns what an orientation tag means after geometry.
+  owns what an orientation tag means after geometry. Rule 8's `orientation` key is about the shape
+  of the buffer, not the tag: it reads the buffer the step receives, like the fractions.
 
 ## Validation
 

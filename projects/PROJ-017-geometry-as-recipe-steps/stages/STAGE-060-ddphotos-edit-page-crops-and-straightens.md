@@ -85,7 +85,7 @@ In build order.
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
   differ by one pixel of crop and require red.
-- [ ] **SPEC-163** (designed 2026-11-25) — [M] **`crop`'s aspect can follow each image's orientation.** Filed by the
+- [x] **SPEC-163** (merged 2026-11-26, PR #272) — [M] **`crop`'s aspect can follow each image's orientation.** Filed by the
   orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
   tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
   photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
@@ -147,7 +147,7 @@ In build order.
   no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
   Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
 
-**Count:** 2 resolved (1 shipped spec, 1 folded) / 2 active / 4 pending — re-derived 2026-11-25 at SPEC-163's frame, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (1), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (2) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
+**Count:** 3 resolved (2 shipped specs, 1 folded) / 1 active / 4 pending — re-derived 2026-11-26 at SPEC-163's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (2), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
 
 ## Design Notes
 
