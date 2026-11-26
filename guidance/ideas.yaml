@@ -257,6 +257,15 @@ ideas:
     gate: null
     notes: "The `avif` job SPEC-162 removed ran `--features avif`, which only adds to the defaults, so it never tested avif alone. Only the wasm32 build does that (`--no-default-features --features avif`). DEC-081 repeats the misreading. Worth a native `--no-default-features --features avif` check leg only if a cfg combination is found that breaks natively but not on wasm32."
 
+  - id: aspect-orientation-loose-ends
+    title: "Three small loose ends from the orientation key: one message, one test row, one log line"
+    status: proposed
+    source: "2026-11-26 SPEC-163 verify (PR #272)"
+    home: null
+    likely_home: "PROJ-017 STAGE-060"
+    gate: null
+    notes: "Verify's optional cleanups 2-4, none a defect. (1) claim: a pad with only `orientation` gets `pad needs an aspect (aspect, and optionally gravity) or a border`, which does not mention the key; changing it changes a message and its test. (2) assert: FT-13's square row is written 3:2, already in landscape order, so edit's replay rows cannot catch M1 (square taken as landscape); a square row written 2:3 would (driven: 48x32 mutated vs 32x48 clean). FT-1-3 and the parity rows already catch M1. (3) assert: `just ddphotos-parity`'s summary line counts only the 16 TABLE rows; the 26 orientation rows' O-count check prints only on failure, so a passing log does not show they ran."
+
   - id: rust-cache-on-feature-legs
     title: "The webp-lossy and heic CI legs don't use the build cache"
     status: proposed
