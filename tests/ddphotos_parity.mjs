@@ -159,6 +159,88 @@ const TABLE = [
 const ROW_COUNT = 16;
 const NO_RESAMPLE_ROWS = [1, 3, 9, 11];
 
+// ── the crop rows ────────────────────────────────────────────────────────────
+//
+// Native against wasm on the same input, as TABLE's rows, with a crop. "pub" is as
+// published: the size is the crop's own long edge, so there is no `resize` step and the
+// match is exact. Every size is a literal from an independent model of the engine's crop
+// (`rect_edges`, `aspect_size` and `resize` mode "max"), never read from recipe.js or
+// crustyimg. A row that resizes is within DEC-110.
+//   [id, input, crop, size, watermark on, recipe, format, output size, watermark [size, capped]]
+// crop: `{ preset: [a, b] }`, with `swap` for the other orientation, or `{ box: [x, y, w, h] }`
+// in pixels of the upright photo.
+const preset = (a, b, swap = false) => ({ preset: [a, b], swap });
+const BOX_FREE = { box: [160, 214, 800, 643] };
+const CROP_ROWS = [
+  // W presets, as published.
+  ["W", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["W", preset(4, 5), "pub", false, "pixel", "png", [1339, 1071]],
+  ["W", preset(3, 2), "pub", false, "pixel", "png", [1600, 1067]],
+  ["W", preset(16, 9), "pub", false, "pixel", "png", [1600, 900]],
+  // P presets.
+  ["P", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["P", preset(4, 5), "pub", false, "pixel", "png", [1071, 1339]],
+  ["P", preset(3, 2), "pub", false, "pixel", "png", [1067, 1600]],
+  ["P", preset(16, 9), "pub", false, "pixel", "png", [900, 1600]],
+  // N presets.
+  ["N", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["N", preset(4, 5), "pub", false, "pixel", "png", [858, 1072]],
+  ["N", preset(3, 2), "pub", false, "pixel", "png", [715, 1072]],
+  ["N", preset(16, 9), "pub", false, "pixel", "png", [603, 1072]],
+  // R presets (upright 1071×1600).
+  ["R", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["R", preset(4, 5), "pub", false, "pixel", "png", [1071, 1339]],
+  ["R", preset(3, 2), "pub", false, "pixel", "png", [1067, 1600]],
+  ["R", preset(16, 9), "pub", false, "pixel", "png", [900, 1600]],
+  // S presets, both written orders (a square follows nothing).
+  ["S", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["S", preset(4, 5), "pub", false, "pixel", "png", [857, 1071]],
+  ["S", preset(5, 4), "pub", false, "pixel", "png", [1071, 857]],
+  ["S", preset(3, 2), "pub", false, "pixel", "png", [1071, 714]],
+  ["S", preset(2, 3), "pub", false, "pixel", "png", [714, 1071]],
+  ["S", preset(16, 9), "pub", false, "pixel", "png", [1071, 602]],
+  ["S", preset(9, 16), "pub", false, "pixel", "png", [602, 1071]],
+  // Swapped presets.
+  ["W", preset(3, 2, true), "pub", false, "pixel", "png", [714, 1071]],
+  ["P", preset(3, 2, true), "pub", false, "pixel", "png", [1071, 714]],
+  // Boxes.
+  ["W", BOX_FREE, "600", false, "pixel", "png", [600, 482]],
+  ["R", { box: [107, 320, 536, 960] }, "800", false, "pixel", "png", [447, 800]],
+  ["W", { box: [0, 0, 1600, 1067] }, "pub", false, "pixel", "png", [1600, 1067]],
+  ["W", { box: [600, 0, 400, 1071] }, "pub", true, "pixel", "png", [400, 1071], [40, true]],
+  ["R", { box: [348, 0, 375, 1600] }, "pub", true, "pixel", "png", [375, 1600], [37, true]],
+  // The free box through the other recipes and formats.
+  ["W", BOX_FREE, "600", false, "cli", "png", [600, 482]],
+  ["W", BOX_FREE, "pub", false, "preview", "jpeg", [800, 643]],
+  ["W", BOX_FREE, "600", false, "pixel", "webp", [600, 482]],
+  ["W", BOX_FREE, "600", false, "pixel", "avif", [600, 482]],
+  // A following preset through the CLI recipe, with the watermark.
+  ["P", preset(3, 2), "1080", true, "cli", "png", [720, 1080], [43, false]],
+];
+const CROP_TABLE = CROP_ROWS.map(([input, crop, size, wm, recipe, format, want, mark], i) => ({
+  n: `C${i + 1}`,
+  input,
+  crop,
+  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm },
+  recipe,
+  format,
+  size: want,
+  mark: mark ?? null,
+  family: "crop",
+  id: `${input}/${cropLabel(crop)}/${size}/${recipe}/${format}`,
+}));
+
+function cropLabel(crop) {
+  if (crop.box) return `box(${crop.box})`;
+  return `${crop.preset.join(":")}${crop.swap ? "-swapped" : ""}`;
+}
+
+const CROP_ROW_COUNT = 35;
+// Every crop row but these has no resize step: C26, C27, C31, C33, C34 and C35.
+const CROP_NO_RESAMPLE_ROWS = CROP_TABLE.map((r) => r.n).filter(
+  (n) => !["C26", "C27", "C31", "C33", "C34", "C35"].includes(n),
+);
+
 const INPUTS = {
   W: "photo.webp",
   R: "photo_rot.jpg",
@@ -194,6 +276,61 @@ const GOLDEN_CLI_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = 
 // Row 12: the preview path, `previewRecipe(pixelRecipe(both))`. Without it a
 // previewRecipe that dropped its quality would stay green, native and wasm moving together.
 const GOLDEN_PREVIEW_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = "2"\nquality = 88\n');
+
+// The crop rows' golden texts. A box is four fractions of the photo, each the exact pixel
+// edge; a preset is its aspect alone on a square photo, and with the key on a photo that
+// has an orientation to follow. Neither writes a gravity.
+const GOLDEN_CROP_BOX = `version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+x = 0.1
+y = 0.19981325863678806
+width = 0.5
+height = 0.6003734827264239
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 600
+`;
+const GOLDEN_CROP_SQUARE = `version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+aspect = "3:2"
+`;
+const GOLDEN_CROP_CLI = `version = "2"
+format = "png"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+aspect = "3:2"
+orientation = "match"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1080
+
+[[step]]
+op = "watermark"
+text = "© Jane Doe 2026"
+gravity = "southeast"
+size = 43
+margin = 22
+color = "#ffffff"
+opacity = 0.6
+`;
 
 // ── the run ──────────────────────────────────────────────────────────────────
 
@@ -472,6 +609,145 @@ function tableChecks({ rows: allRows }) {
   return failures;
 }
 
+/// Checks about the crop rows as a whole. Returns failure messages.
+function cropChecks({ rows: allRows }) {
+  const failures = [];
+  const rows = allRows.filter((r) => r.row.family === "crop");
+  if (rows.length !== CROP_ROW_COUNT) failures.push(`crop-count: ${rows.length} rows ran, expected ${CROP_ROW_COUNT}`);
+  const exact = rows.filter((r) => !r.resamples).map((r) => r.row.n);
+  if (JSON.stringify(exact) !== JSON.stringify(CROP_NO_RESAMPLE_ROWS)) {
+    failures.push(`crop-resize-set: the rows without a resize step are {${exact}}, expected {${CROP_NO_RESAMPLE_ROWS}}`);
+  }
+  const byN = (n) => rows.find((r) => r.row.n === n);
+  const [c20, c26, c35] = ["C20", "C26", "C35"].map(byN);
+  if (c26 && c26.text !== GOLDEN_CROP_BOX) failures.push("golden-crop-box: C26's recipe text moved");
+  if (c20 && c20.text !== GOLDEN_CROP_SQUARE) failures.push("golden-crop-square: C20's recipe text moved");
+  if (c35 && c35.text !== GOLDEN_CROP_CLI) failures.push("golden-crop-cli: C35's recipe text moved");
+  return failures;
+}
+
+// ── the model's own checks ───────────────────────────────────────────────────
+//
+// Pure checks against literals, no binary: a recipe.js mutant moves native and wasm together,
+// so only a number written here can see it.
+
+// [a, b, width, height, expected width, expected height]: the largest a:b box, the short side
+// rounded half up (856.8 is 857, and floors to 856).
+const ASPECT_SIZES = [
+  [3, 2, 1600, 1071, 1600, 1067],
+  [2, 3, 1071, 1600, 1067, 1600],
+  [3, 2, 1071, 1071, 1071, 714],
+  [2, 3, 1071, 1072, 715, 1072],
+  [4, 5, 1071, 1071, 857, 1071],
+  [4, 5, 1071, 1072, 858, 1072],
+  [9, 16, 1600, 1071, 602, 1071],
+  [16, 9, 3, 1, 2, 1],
+];
+
+// [a, b, width, height, expected a, expected b]: the engine's own table of how an aspect is
+// ordered by the image's shape (src/operation/mod.rs, follow_orientation's test).
+const FOLLOW_ROWS = [
+  [16, 9, 64, 48, 16, 9],
+  [9, 16, 64, 48, 16, 9],
+  [16, 9, 48, 64, 9, 16],
+  [9, 16, 48, 64, 9, 16],
+  // A square keeps the aspect as written, either order.
+  [16, 9, 48, 48, 16, 9],
+  [9, 16, 48, 48, 9, 16],
+  // One pixel decides: no tolerance.
+  [16, 9, 48, 49, 9, 16],
+  [9, 16, 49, 48, 16, 9],
+  [1, 1, 64, 48, 1, 1],
+  [1, 1, 48, 64, 1, 1],
+  [1, 1, 48, 48, 1, 1],
+];
+
+const FRACTION_SIDES = [1071, 1600];
+// Every (x, width) on both sides: side · (side + 1) / 2 boxes each.
+const FRACTION_BOX_COUNT = (1071 * 1072) / 2 + (1600 * 1601) / 2;
+
+function modelChecks(recipes) {
+  const failures = [];
+  for (const [a, b, w, h, ew, eh] of ASPECT_SIZES) {
+    const got = recipes.aspectSize(a, b, w, h);
+    if (got[0] !== ew || got[1] !== eh) {
+      failures.push(`model-aspect: ${a}:${b} on ${w}x${h} is ${got.join("x")}, expected ${ew}x${eh}`);
+    }
+  }
+  for (const [a, b, w, h, ea, eb] of FOLLOW_ROWS) {
+    const got = recipes.followOrientation(a, b, w, h);
+    if (got[0] !== ea || got[1] !== eb) {
+      failures.push(`model-follow: ${a}:${b} on ${w}x${h} is ${got.join(":")}, expected ${ea}:${eb}`);
+    }
+  }
+  failures.push(...fractionChecks(recipes));
+  return failures;
+}
+
+/// `planEdit`'s crop text for every box on the sides, read back the way the engine reads it
+/// (each edge rounded on its own, in f64): the same four edges, and the box inside the photo.
+function fractionChecks(recipes) {
+  const failures = [];
+  const form = { ...FORM, size: String(Infinity), wmOn: false };
+  let count = 0;
+  let wrongEdges = 0;
+  let outside = 0;
+  let example = "";
+  for (const side of FRACTION_SIDES) {
+    const photo = { width: side, height: side };
+    for (let x = 0; x < side; x++) {
+      for (let w = 1; x + w <= side; w++) {
+        const text = recipes.planEdit(photo, form, { box: { x, y: 0, w, h: side } }).crop;
+        const [fx, , fw] = text.split("\n").map((line) => Number(line.split(" = ")[1]));
+        count += 1;
+        if (Math.round(fx * side) !== x || Math.round((fx + fw) * side) !== x + w) {
+          wrongEdges += 1;
+          example ||= `${side}: x ${x} w ${w}`;
+        }
+        if (fx + fw > 1) {
+          outside += 1;
+          example ||= `${side}: x ${x} w ${w}`;
+        }
+      }
+    }
+  }
+  if (count !== FRACTION_BOX_COUNT) {
+    failures.push(`model-fractions: ${count} boxes checked, expected ${FRACTION_BOX_COUNT}`);
+  }
+  if (wrongEdges || outside) {
+    failures.push(
+      `model-fractions: ${wrongEdges} boxes read back to other edges and ${outside} run past the photo (first: ${example})`,
+    );
+  }
+  return failures;
+}
+
+/// A preset's box is where the engine puts the aspect: the preset's recipe and a box at
+/// `cropBox`'s numbers give the same pixels. The margins are odd, so a centre rounded the
+/// wrong way moves the frame by a pixel.
+function placementChecks(ctx) {
+  const failures = [];
+  const { recipes, transform } = ctx;
+  const form = { ...FORM, size: String(Infinity), wmOn: false };
+  for (const [input, a, b] of [["W", 1, 1], ["W", 4, 5], ["S", 2, 3]]) {
+    const label = `placement: ${input} ${a}:${b}`;
+    try {
+      const photo = photoFor(ctx, input);
+      const crop = recipes.presetCrop(a, b, photo);
+      const bytes = readFileSync(join(FIXTURES, INPUTS[input]));
+      const asPreset = transform(bytes, recipes.pixelRecipe(recipes.planEdit(photo, form, crop)), "png");
+      const box = { box: recipes.cropBox(crop, photo) };
+      const asBox = transform(bytes, recipes.pixelRecipe(recipes.planEdit(photo, form, box)), "png");
+      if (Buffer.compare(Buffer.from(asPreset), Buffer.from(asBox)) !== 0) {
+        failures.push(`${label} -- the box at cropBox is not where the aspect is placed`);
+      }
+    } catch (e) {
+      failures.push(`${label} -- threw: ${e.message}`);
+    }
+  }
+  return failures;
+}
+
 function report(table) {
   for (const r of table.rows) {
     if (r.error || !r.native) {
@@ -579,17 +855,26 @@ function comparatorCases() {
   return results.every((r) => r.good);
 }
 
-const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16];
-const N2_EXPECTED_RED = [4, 8, 12, 13, 14, 16];
+// The table's rows, then the crop rows that carry a watermark or a resize to 1080.
+const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16, "C29", "C30", "C35"];
+const N2_EXPECTED_RED = [4, 8, 12, 13, 14, 16, "C35"];
+// One copy pixel of crop width on the free box (C26 and the rows that reuse it): the native
+// output is 601 px wide where the page's is 600, so the sizes differ.
+const N4_EXPECTED_RED = ["C26", "C31", "C32", "C33", "C34"];
 
 function selfTest(ctx) {
   let good = comparatorCases();
   const mutations = [
     ["N1 native opacity 0.6 -> 0.61", (t) => t.replace("opacity = 0.6\n", "opacity = 0.61\n"), N1_EXPECTED_RED],
     ["N2 native width 1080 -> 1079", (t) => t.replace("width = 1080\n", "width = 1079\n"), N2_EXPECTED_RED],
+    [
+      "N4 native crop width 0.5 -> 0.500625",
+      (t) => t.replace("width = 0.5\n", "width = 0.500625\n"),
+      N4_EXPECTED_RED,
+    ],
   ];
   for (const [name, mutateNative, expected] of mutations) {
-    const table = runTable(ctx, TABLE, mutateNative);
+    const table = runTable(ctx, [...TABLE, ...CROP_TABLE], mutateNative);
     const red = table.rows.filter((r) => r.fail.length > 0).map((r) => r.row.n);
     const same = JSON.stringify(red) === JSON.stringify(expected);
     console.log(`${same ? "PASS" : "FAIL"} ${name}: red rows {${red}}, expected {${expected}}`);
@@ -819,9 +1104,16 @@ if (args.selfTest) {
   process.exit(selfTest(ctx) ? 0 : 1);
 }
 
-const table = runTable(ctx, TABLE);
+const table = runTable(ctx, [...TABLE, ...CROP_TABLE]);
 report(table);
-const failures = [...tableChecks(table), ...alphaRows(ctx), ...orientationRows(ctx)];
+const failures = [
+  ...tableChecks(table),
+  ...cropChecks(table),
+  ...modelChecks(recipes),
+  ...placementChecks(ctx),
+  ...alphaRows(ctx),
+  ...orientationRows(ctx),
+];
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
 // Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each
