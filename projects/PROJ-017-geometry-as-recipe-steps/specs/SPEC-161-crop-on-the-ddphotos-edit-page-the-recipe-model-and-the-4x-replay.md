@@ -7,7 +7,7 @@
 task:
   id: SPEC-161
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -86,6 +86,23 @@ cost:
         Measured after the design push, before this cost commit's own turns.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-26
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 15096078
+      tokens_breakdown:
+        input: 196
+        cache_creation: 202269
+        cache_read: 14832239
+        output: 61374
+      estimated_usd: 6.13
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-build.md`),
+        deduped by message.id (81 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured after the last code push, before the final cost commit's own turns.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1281,24 +1298,46 @@ re-run the map after each rebase.**
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-161-page-crop-model`
+- **PR (if applicable):** #273 (draft)
+- **All acceptance criteria met?** yes (13 of 13; see below)
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-118` — A crop recipe from the edit page replays on the original within a stated bound
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 6 files: 4 code/test, DEC-118, and this spec):
+  - `integrations/ddphotos/edit/recipe.js` — the crop model (`aspectSize`, `followOrientation`, `presetCrop`, `swapCrop`, `cropBox`), `planEdit` with a crop and `Math.max(1, …)`, the crop step in `pixelRecipe`, `loadPhoto`
+  - `integrations/ddphotos/edit/worker.js` — `load` is `return loadPhoto({ info, transform }, source);`
+  - `tests/ddphotos_parity.mjs` — module check, `loadWasm` returns `{ transform, info }`, rows planned from `loadPhoto` (transpose deleted), CROP_TABLE C1–C35, REPLAY_TABLE R1–R17, model/placement/golden checks, `judgeReplay`, `psnr`, B11–B19, N4, N5, the five-family summary line, the P5 relabels
+  - `tests/ddphotos_upscale.py` — new: the Pillow upscale (and N5's left shift)
+  - `decisions/DEC-118-a-crop-recipe-from-the-edit-page-replays-on-the-original-within-a-stated-bound.md` — new
+  - `projects/PROJ-017-…/specs/SPEC-161-….md` — this section, the build cost entry, `cycle: verify`
+- **RED baseline on `main`** (new harness against `main`'s page files): exit 1 at the module check, red on `recipe.js lacks aspectSize`, `… followOrientation`, `… presetCrop`, `… swapCrop`, `… cropBox`, `… loadPhoto`, and `worker.js's load does not return loadPhoto({ info, transform }, source);`. Nothing else was red.
+- **Acceptance criteria:** AC-1 to AC-13 met. AC-1: R is 1071×1600 via `loadPhoto`, TABLE 15–16 pass at 803×1200 and 723×1080 with the transpose deleted. AC-10: N1, N2, N4, N5 red on exactly their lists (N4's reasons: see deviations); N3 untouched and green.
+- **Harness, main mode:** `16 table rows, 35 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows; 0 row failures, 0 other failures, K=1 (cap 78)`; largest differing-pixel count on a resampling row 1. Self-test: B1–B19, N1, N2, N4, N3, N5 all PASS, exit 0.
+- **Replay PSNR against floor** (aspect 53.5, box 59): R1 54.55, R2 58.07, R3 66.35, R4 55.10, R5 63.88, R6 63.22, R7 59.04, R8 55.17, **R9 53.95 (aspect low)**, R10 73.41, R17 68.10; R11 66.54, **R12 59.46 (box low)**, R13 74.11, R14 72.73, R15 59.90, R16 62.92. These equal the design's numbers to 2 decimals. N5 (shifted): 46.92, 48.16, 50.21, 49.90, 51.71, 51.30, 48.84, 49.51, 45.96, 48.53, 52.77, 50.72, 50.18, 48.12, 49.69, 52.00, 50.01, all red on `psnr`.
+- **Mutations** (the spec's quoted edit each time, in a scratch worktree of the pushed head; JS-only, so the binary and wasm built once were reused; each restored and re-run green; the red set read off that run):
+  - M1 `model-follow` only. Matches. Still invisible on page paths.
+  - M2 C2, C3, C4, C6, C7, C8, C10, C11, C12, C14, C15, C16, C24, C25, C35; R2, R3, R4, R5, R6, R7, R10, R17; `golden-crop-cli`, `model-follow`, `placement`. Matches.
+  - M3 C2, C3, C6, C7, C10, C11, C14, C15, C18, C19; R2, R3, R5, R6, R7, R17; `model-aspect`, `placement`. Matches.
+  - M4 15, 16, C14, C15, C16, C27, C30; R7, R12, R15. Matches the set. **Cell correction:** C30, R12 and R15 go red as "threw", because the engine refuses the stored-size fractions (`'height' must be a number > 0 and <= 1, got 1.4939…`), not as 560×1071 with mark 43. That reading holds only for the frame's fractions 0.325/0.35 at full height. C14–C16, C27, 15, 16 and R7 fail on `planEdit predicts …`.
+  - M5 C31; R1, R2, R10, R11, R12, R14, R16; `golden-crop-cli`. Matches. C35 and R3–R9, R13, R15, R17 stay green (commute); the CLI golden catches it.
+  - M6 `golden-crop-box`, `model-fractions`. Matches.
+  - M7 C24, C25, R10 (all "threw: undefined is not iterable"); `golden-crop-square`, `golden-crop-cli`. Matches.
+  - M8 C2, C7, C8, C11, C12, C15, C16, C35; R2, R5, R6, R7; `golden-crop-cli`, `placement`. Matches.
+  - M9 `golden-crop-square` only. Matches.
+  - M10 `placement` only (3 messages). Matches.
+  - M11 every C row except C17, and R1–R17. Matches.
+  - Trap 14: all three `main` page files restored: red on the six `lacks` lines and the worker line, exit 1. `worker.js` alone: the worker line only. `recipe.js` alone: the six `lacks` lines and `worker.js imports loadPhoto, which recipe.js lacks`. Matches.
+  - N4 (driven with a debug print in the scratch worktree): red set matches, but **the reasons differ from the design's "on `dims`"**: C26, C31, C33 and C34 read `comparator: max` (sizes equal, pixels differ), and only C32 reads `dims` (801×643 against 800×643).
+- **fmt / clippy / wasm-check:** `cargo fmt --check` 0; `cargo clippy --all-targets -- -D warnings` 0; `just wasm-check` 0. Slim wasm: raw 4,148,451 B, gzip 1,195,748 B, brotli **833,619 B**: 0 B of growth. `just decisions-audit`: `0 structural errors, 2257 scope warning(s) across 114 decision(s)` (overlaps among existing decisions).
+- **Do-not-change paths:** `git diff --stat origin/main...HEAD -- src tests/fixtures integrations/ddphotos/edit/edit.js justfile CHANGELOG.md recipes` is empty.
+- **Overlap after the last rebase:** only #237 (16 files, none in common; no rebase conflict).
+- **Temp folders:** the system temp folder's `ddphotos-*` count was 5 (1,683 MiB) before and 5 after; every harness run used `TMPDIR` in the scratchpad. Freed at the end: `target/` 2,143 MiB (of which `target/ddphotos-parity` 860 MiB), the mutation worktree 22 MiB, the harness folder 0 MiB (emptied after each red run). The first `just ddphotos-parity` run (baseline) was racing my edits and failed, leaving three folders in the scratchpad's harness folder, which I removed.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - N1, N2 and N4 were written with the crop rows in stage 2, not stage 4.
+  - The stage-3 and stage-4 work is one commit.
+  - The M4 and N4 cells above.
+  - A `--self-test` run leaves an `ddphotos-orientation-*` folder by design (N3 is red by design and the harness keeps red runs); I did not change that.
+- **Follow-up work identified:** none new.
 
 ### Build-phase reflection (3 questions, short answers)
 
