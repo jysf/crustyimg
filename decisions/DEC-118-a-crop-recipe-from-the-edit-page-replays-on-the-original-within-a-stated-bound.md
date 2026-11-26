@@ -45,12 +45,13 @@ tags:
    - **box:** 0 px when the original is a whole multiple of the copy, except where `resize`'s
      `side · (n / long)` falls on an exact half in one image and not the other in `f64`, then 1 px
      (4 of 1,521,000 cases); 1 px for an original at least 2× the copy; 2 px below 2×.
-   - **aspect:** 1 px at any ratio, because the short side is rounded on each image separately.
+   - **aspect:** 1 px at the ratios driven, because the short side is rounded on each image separately.
      Exhaustive over 273,365,360 cases (long sides 1601–4800 and 6400, every short side from a third of
      the long side up).
 
-   These are driven maxima, with the original made from the copy by `resize` mode `max` to 1600 px and
-   ratios 1:1, 4:5, 3:2 and 16:9 in both orders. The box bound below 2× is measured over a 3.1M-case
+   These are driven maxima, with the copy made from the original by `resize` mode `max` to 1600 px, at
+   the ratios driven (1:1, 4:5, 3:2 and 16:9, in both orders). Portrait originals are assumed to mirror
+   landscape; no one drove them. The box bound below 2× is measured over a 3.1M-case
    sweep, not proven.
 2. **Orientation.** A preset that follows the photo writes `orientation = "match"`. A preset on a
    square copy, and 1:1 on any copy, write the aspect as shown, with no key: an original that is square
@@ -60,8 +61,10 @@ tags:
    An aspect is centred on each image separately, so its framing may differ by up to half a copy pixel.
 4. **Pixels.** On the harness's Pillow-made original, the replay's PSNR (RGB, shared region) is at least
    **53.5 dB for an aspect** and **59 dB for a box**: the lowest measured on each form's rows (53.95 and
-   59.46), rounded down to 0.5 dB, with no further headroom. A one-copy-pixel framing shift reads at most
-   51.71 dB on an aspect row and 52.77 dB on a box row, below both floors. The floors hold for Pillow
+   59.46), rounded down to 0.5 dB, with no further headroom. A one-copy-pixel framing shift to the left
+   reads at most 51.71 dB on an aspect row and 52.77 dB on a box row, below both floors. A shift to the
+   right does not: it cancels an aspect's half-pixel centring offset, so driven right, R1 reads 54.66 dB
+   and R9 54.05 dB, both above the 53.5 floor. The `placement` check pins aspect placement instead. The floors hold for Pillow
    12.3.0's `LANCZOS` upscale; a real photo's original has detail the copy lacks and reads lower, so
    they are not a promise about real originals.
 5. **A smaller file.** `resize` mode `max` never upscales, so on a file smaller than the copy the CLI's

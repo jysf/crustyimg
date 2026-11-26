@@ -204,7 +204,7 @@ const NO_RESAMPLE_ROWS = [1, 3, 9, 11];
 // published: the size is the crop's own long edge, so there is no `resize` step and the
 // match is exact. Every size is a literal from an independent model of the engine's crop
 // (`rect_edges`, `aspect_size` and `resize` mode "max"), never read from recipe.js or
-// crustyimg. A row that resizes is within DEC-110.
+// crustyimg. A row that resizes is within the resize tolerance.
 //   [id, input, crop, size, watermark on, recipe, format, output size, watermark [size, capped]]
 // crop: `{ preset: [a, b] }`, with `swap` for the other orientation, or `{ box: [x, y, w, h] }`
 // in pixels of the upright photo.
@@ -255,6 +255,9 @@ const CROP_ROWS = [
   ["W", BOX_FREE, "600", false, "pixel", "avif", [600, 482]],
   // A following preset through the CLI recipe, with the watermark.
   ["P", preset(3, 2), "1080", true, "cli", "png", [720, 1080], [43, false]],
+  // A placed box inside the upright photo's top-left 1071x1071, resized and marked. Read against
+  // the stored 1600x1071 it would be a different crop, with a different size and mark.
+  ["R", { box: [100, 50, 800, 600] }, "400", true, "pixel", "png", [400, 300], [16, false]],
 ];
 const CROP_TABLE = CROP_ROWS.map(([input, crop, size, wm, recipe, format, want, mark], i) => ({
   n: `C${i + 1}`,
@@ -274,10 +277,10 @@ function cropLabel(crop) {
   return `${crop.preset.join(":")}${crop.swap ? "-swapped" : ""}`;
 }
 
-const CROP_ROW_COUNT = 35;
-// Every crop row but these has no resize step: C26, C27, C31, C33, C34 and C35.
+const CROP_ROW_COUNT = 36;
+// Every crop row but these has no resize step: C26, C27, C31, C33, C34, C35 and C36.
 const CROP_NO_RESAMPLE_ROWS = CROP_TABLE.map((r) => r.n).filter(
-  (n) => !["C26", "C27", "C31", "C33", "C34", "C35"].includes(n),
+  (n) => !["C26", "C27", "C31", "C33", "C34", "C35", "C36"].includes(n),
 );
 
 const INPUTS = {
@@ -871,6 +874,30 @@ function modelChecks(recipes) {
     }
   }
   failures.push(...fractionChecks(recipes));
+  failures.push(...minimumSideChecks(recipes));
+  return failures;
+}
+
+// `resize` mode "max" keeps each side at least 1 px, so a box thinner than the scale predicts
+// a 1 px side, not 0. Pure literals, worked out by hand from the engine's rule (each side is
+// its length times min(size / long side, 1), rounded half up, at least 1):
+//   1460 x 1 at 400:  scale 0.27397, so 400 x 0.27 -> 400 x 1
+//   2 x 1500 at 300:  scale 0.2,     so 0.4 x 300  -> 1 x 300
+const MINIMUM_SIDE_ROWS = [
+  [{ width: 1600, height: 1071 }, { x: 93, y: 131, w: 1460, h: 1 }, 400, [400, 1]],
+  [{ width: 1071, height: 1600 }, { x: 5, y: 100, w: 2, h: 1500 }, 300, [1, 300]],
+];
+
+function minimumSideChecks(recipes) {
+  const failures = [];
+  for (const [photo, box, size, [ew, eh]] of MINIMUM_SIDE_ROWS) {
+    const edit = recipes.planEdit(photo, { ...FORM, size: String(size), wmOn: false }, { box });
+    if (edit.outW !== ew || edit.outH !== eh) {
+      failures.push(
+        `model-min: box ${box.w}x${box.h} at ${size} is ${edit.outW}x${edit.outH}, expected ${ew}x${eh}`,
+      );
+    }
+  }
   return failures;
 }
 
@@ -1066,7 +1093,7 @@ function comparatorCases() {
 }
 
 // The table's rows, then the crop rows that carry a watermark or a resize to 1080.
-const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16, "C29", "C30", "C35"];
+const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16, "C29", "C30", "C35", "C36"];
 const N2_EXPECTED_RED = [4, 8, 12, 13, 14, 16, "C35"];
 // One copy pixel of crop width on the free box (C26 and the rows that reuse it): the native
 // output is 601 px wide where the page's is 600, so the sizes differ.
@@ -1139,6 +1166,7 @@ const ALPHA_JPEG_LINE =
 
 function alphaRows({ transform, bin, python }) {
   const failures = [];
+  let ran = 0;
   const dir = mkdtempSync(join(tmpdir(), "ddphotos-alpha-"));
   const inputPath = join(FIXTURES, INPUTS.W);
   const inputBytes = readFileSync(inputPath);
@@ -1146,6 +1174,7 @@ function alphaRows({ transform, bin, python }) {
   writeFileSync(recipeFile, ALPHA_RECIPE);
 
   // Row A.
+  ran += 1;
   const wasmOut = join(dir, "A.wasm.png");
   const nativeOut = join(dir, "A.native.png");
   try {
@@ -1173,6 +1202,7 @@ function alphaRows({ transform, bin, python }) {
   }
 
   // Row B.
+  ran += 1;
   let thrown = null;
   try {
     transform(inputBytes, ALPHA_RECIPE, "jpeg");
@@ -1192,7 +1222,10 @@ function alphaRows({ transform, bin, python }) {
   }
   if (existsSync(jpegOut)) failures.push("alpha-B: native wrote a JPEG");
 
+  if (ran !== ALPHA_ROW_COUNT) failures.push(`A-count: ${ran} rows ran, expected ${ALPHA_ROW_COUNT}`);
   if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  // The summary line prints what ran, not the constant.
+  failures.ran = ran;
   return failures;
 }
 
@@ -1291,6 +1324,8 @@ function orientationRows({ transform, bin, python }, mutate = (t) => t) {
   }
   if (ran !== ORIENTATION_ROW_COUNT) failures.push(`O-count -- ${ran} rows ran, expected ${ORIENTATION_ROW_COUNT}`);
   if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  // The summary line prints what ran, not the constant.
+  failures.ran = ran;
   return failures;
 }
 
@@ -1344,14 +1379,16 @@ const table = runTable(ctx, [...TABLE, ...CROP_TABLE]);
 report(table);
 const replay = replayRows(ctx);
 reportReplay(replay);
+const alpha = alphaRows(ctx);
+const orientation = orientationRows(ctx);
 const failures = [
   ...tableChecks(table),
   ...cropChecks(table),
   ...modelChecks(recipes),
   ...placementChecks(ctx),
   ...replayChecks(replay),
-  ...alphaRows(ctx),
-  ...orientationRows(ctx),
+  ...alpha,
+  ...orientation,
 ];
 const rowsFailed =
   table.rows.filter((r) => r.fail.length > 0).length + replay.rows.filter((r) => r.reasons.length > 0).length;
@@ -1362,7 +1399,7 @@ const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
 const familyRows = (family) => table.rows.filter((r) => r.row.family === family).length;
 console.log(
   `${familyRows("table")} table rows, ${familyRows("crop")} crop rows, ${replay.rows.length} replay rows, ` +
-    `${ORIENTATION_ROW_COUNT} orientation rows, ${ALPHA_ROW_COUNT} alpha rows; ` +
+    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows; ` +
     `${rowsFailed} row failures, ${failures.length} other failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
 );
