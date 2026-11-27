@@ -25,5 +25,9 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
 - [x] **build** (2026-11-27, Sonnet, `prompts/SPEC-164-build.md`): draft PR #274 at `b7fee27`, CI green;
   17/17 ACs; parity 153 crop-mode rows, page check 8 rows 0 failed; every mutant matched except M4
   (also red on X21); $7.50 measured before the last commits.
-- [ ] **verify** — `prompts/SPEC-164-verify.md`
+- [x] **verify** (2026-11-27, Opus, `prompts/SPEC-164-verify.md`): PUNCH LIST at `b7fee27`, wording only,
+  no re-verify. Own model agreed with 153/153 literals and 187,096 fuzzed steps; every mutant and failure
+  exit as described; M4 also red on X21 (shared `toBox`). $9.18.
+- [ ] **punch list** — `prompts/SPEC-164-punchlist.md`: two `chrome.mjs` comments, one history note,
+  and X31 (the active preset pressed again) on four shapes, 153 → 157 rows (maintainer: include both cleanups).
 - [ ] **ship**
