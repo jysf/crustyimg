@@ -146,7 +146,7 @@ In build order.
   thin resized strips refuse a watermark (69 of 1,260 runs); put to the maintainer, ruling kept.
   **Ruled on the design (2026-11-27):** keep `MIN_CROP = 64`; the watermark-fit entry takes the
   width-plus-margin case and lands before the DOM entry.
-- [ ] (not yet written) — [S] **The watermark's fit on a small or thin crop.** `watermarkSize`
+- [ ] **SPEC-165** (framed 2026-11-27) — [M] **The watermark's fit on a small or thin crop.** `watermarkSize`
   (`integrations/ddphotos/edit/recipe.js`) caps the mark to 90 % of the width and a tenth of the short
   side, but not to the engine's 5 % coverage limit, and the margin (`round(outLong × 0.02)`) is never
   checked against the short side. Without a crop the outputs are at least 400 px and neither was
@@ -165,6 +165,10 @@ In build order.
   **Ruled 2026-11-27:** `MIN_CROP` stays 64 (a usability floor, not a watermark guard), and this
   entry lands **before** the crop mode's DOM entry, the first change that lets a user draw such a box.
   **Reserved: SPEC-165** (2026-11-27, frame prompt `specs/prompts/SPEC-165-frame.md`).
+  **Framed 2026-11-27: GO at [M].** Over 37.7M planned runs, 465,951 refused (0 without a crop), and
+  97.6 % have no size that fits. The page asks the engine (a wasm export, +697 B brotli) with 2 px of
+  headroom, because the CLI recipe on a 3.75× original refused a mark the copy accepted (driven 30/30),
+  and it leaves the mark off with a note when nothing fits. See SPEC-165's `## Frame`.
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with
@@ -197,7 +201,7 @@ In build order.
   no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
   Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
 
-**Count:** 5 resolved (4 shipped specs, 1 folded) / 0 active / 5 pending — re-derived 2026-11-27 at SPEC-164's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (4), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
+**Count:** 5 resolved (4 shipped specs, 1 folded) / 1 active / 4 pending — re-derived 2026-11-27 at SPEC-165's frame, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (4), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
 
 ## Design Notes
 

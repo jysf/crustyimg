@@ -668,3 +668,12 @@ ideas:
     likely_home: null
     gate: null
     notes: "No pure-Rust animated WebP encoder exists; animated AVIF is 6.3x smaller anyway."
+
+  - id: watermark-readable-floor
+    title: "The edit page leaves off a watermark too small to read"
+    status: idea
+    source: "SPEC-165 frame (2026-11-27)"
+    home: null
+    likely_home: STAGE-060
+    gate: null
+    notes: "Today a long text at 400 px gets a 4-6 px mark with no crop (P at 400, 120 characters: size 4). Every size SPEC-165 rescues is 4-7 px. A floor of 8 px would change uncropped outputs, so it is its own ruling."
