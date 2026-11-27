@@ -1395,7 +1395,7 @@ from the process-focused build reflection above.*
    from the spec being small and having no wasm change.
 
 2. **Does any template, constraint, or decision need updating?**
-   — Proposed, not applied. (i) "A parity row's literal size is the check that catches a mutant both
+   — Proposed, not applied. *(Applied 2026-11-27 by the maintainer's approval: the parity-mutant, both-orders and refused-push rules are PROJ-011 HANDOFF traps 19–21, and trap 13 now covers a design's mutation table.)* (i) "A parity row's literal size is the check that catches a mutant both
    sides share; a spec that adds parity rows drives one mutant into both sides." Not covered: AGENTS
    §15 (about line 685) covers undriven bounds and all-green rows, and SPEC-159's and SPEC-160's
    reflections speak of the wasm leg, none of the shared-mutant case. Verify's M1 run is its first

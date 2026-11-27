@@ -133,6 +133,7 @@ In build order.
   file at least as large as the copy (a smaller one gives a smaller output, or a refused watermark).
   Calls SPEC-161's `recipe.js` functions and adds no recipe logic. Its browser check is the
   "Test-bed round and README" entry. After SPEC-161. See SPEC-161's `## Frame` for the interaction.
+  **Reserved: SPEC-164** (2026-11-27); frame prompt `specs/prompts/SPEC-164-frame.md`.
 - [ ] (not yet written) — [S] **Straighten on the page.** An angle control emitting a
   `rotate` step in `crop-to-fit` mode, ordered before `crop` so a straighten-then-crop is the
   natural flow. Parity rows within STAGE-059's stated bound. Waits for STAGE-059.

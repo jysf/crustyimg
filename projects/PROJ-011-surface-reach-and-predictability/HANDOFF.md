@@ -220,7 +220,11 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     `opacity × 0.999` on the 16-bit composite line stayed green. **The baseline quotes each RED row's
     failure message, and the prompt names the likely wrong-reason message** (here, the coverage
     cap). **A golden needs at least one mutation that goes red on a hash mismatch**, not on a
-    refusal or an exit code.
+    refusal or an exit code. **The same holds for a design's mutation table** (SPEC-161): its
+    design tabled N4 as red "on `dims`" and M4's C30 as "560×1071 with mark 43", reasons it hadn't
+    read off a run. Build and verify found four of N4's five rows fail on the comparator's `max`,
+    and M4's rows throw on an engine refusal. **A design that tables a mutation quotes each red
+    row's failure message from a run, or marks the reason "not driven".**
 14. **⚡ A TEST FOR A FIXED PATH CALLS THE PRODUCTION FUNCTION, AND THE OLD CODE PUT BACK VERBATIM
     TURNS IT RED.** SPEC-141's first punch list fixed a missing-golden panic in `golden_path_for`,
     and its new test (FT-9) drove the report builder through a closure that never called it. The
@@ -260,6 +264,25 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     test, plus the copy's own entries, and asserts the original's verdict equals the copy's for
     each.** The prompt names one mutant that removes an entry and one that adds one, and both must
     turn it red.
+19. **⚡ WHEN BOTH SIDES OF A PARITY CHECK READ THE SAME CODE, ONLY A LITERAL CATCHES A MUTANT IN
+    IT.** SPEC-163's verify built M1 into both the native binary and the wasm package: native
+    against wasm stayed equal, and only the rows' literal sizes went red. In SPEC-161 every mutant
+    was in `recipe.js`, which both sides of the page harness read, so every guard was a literal.
+    **A spec that adds parity rows drives at least one mutant into both sides at design, and says
+    which literal catches it.** A row whose expected value is "whatever the other side made" guards
+    nothing against shared code.
+20. **⚡ A ROW ALREADY IN THE ORDER A MUTANT PRODUCES CANNOT CATCH THAT MUTANT; WRITE SQUARE AND
+    ORIENTATION ROWS IN BOTH ORDERS.** SPEC-163's FT-13 wrote its square row as `3:2`, already in
+    landscape order, so "a square counts as landscape" left it green (driven: a `2:3` row goes
+    48×32 mutated against 32×48 clean). SPEC-161 wrote its square rows as both 4:5 and 5:4 (C18,
+    C19), and they caught the floor-rounding mutant M3. **For any rule that swaps or orders two
+    sides, the table has a row in each order.**
+21. **⚡ A CYCLE THAT CAN'T PUSH STOPS AND SAYS SO; IT NEVER CLAIMS WHERE ITS WORK IS.** SPEC-163's
+    design push was refused by a permission check, and the maintainer pushed it by hand on the
+    second try. Its build then wrote that the build prompt wasn't on `main`, which was false.
+    **Every prompt that pushes says: if a push is refused, stop, name the commits and the command
+    for the maintainer, and check `git ls-remote` before saying anything landed.** A "Changes must
+    be made through a pull request" notice can still mean the push landed.
 
 ## What is working, and worth keeping
 

@@ -1482,7 +1482,7 @@ from the process-focused build reflection above.*
    "no run while editing".
 
 2. **Does any template, constraint, or decision need updating?**
-   — Proposed, not applied. (i) "A spec that adds parity rows drives one mutant into both sides"
+   — Proposed, not applied. *(Applied 2026-11-27 by the maintainer's approval: the parity-mutant, both-orders and refused-push rules are PROJ-011 HANDOFF traps 19–21, and trap 13 now covers a design's mutation table.)* (i) "A spec that adds parity rows drives one mutant into both sides"
    (SPEC-163's proposal): this spec is the second evidence. Every mutant M1 to M11 sat in `recipe.js`,
    which both sides read, so only literals caught any of them (M1, M9 and M10 only a pure check). Not
    covered: AGENTS §15 and `guidance/` don't say it, and HANDOFF trap 13 and 14 speak of reasons and
