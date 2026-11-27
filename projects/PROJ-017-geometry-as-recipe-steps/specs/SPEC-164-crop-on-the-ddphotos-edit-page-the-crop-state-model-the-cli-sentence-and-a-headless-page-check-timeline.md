@@ -22,6 +22,8 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
   (smallest clean 122 over the sweep); ruling kept, question put to the maintainer.
 - [x] **design rulings** (2026-11-27, maintainer): keep `MIN_CROP = 64`; the watermark-fit entry takes
   the width-plus-margin case and lands before the crop mode's DOM entry.
-- [ ] **build** — `prompts/SPEC-164-build.md`
-- [ ] **verify**
+- [x] **build** (2026-11-27, Sonnet, `prompts/SPEC-164-build.md`): draft PR #274 at `b7fee27`, CI green;
+  17/17 ACs; parity 153 crop-mode rows, page check 8 rows 0 failed; every mutant matched except M4
+  (also red on X21); $7.50 measured before the last commits.
+- [ ] **verify** — `prompts/SPEC-164-verify.md`
 - [ ] **ship**
