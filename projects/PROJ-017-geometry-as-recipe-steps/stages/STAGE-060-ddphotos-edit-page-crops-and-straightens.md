@@ -164,6 +164,7 @@ In build order.
   text, because the output is resized after the crop, so this entry must predict it.
   **Ruled 2026-11-27:** `MIN_CROP` stays 64 (a usability floor, not a watermark guard), and this
   entry lands **before** the crop mode's DOM entry, the first change that lets a user draw such a box.
+  **Reserved: SPEC-165** (2026-11-27, frame prompt `specs/prompts/SPEC-165-frame.md`).
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with
