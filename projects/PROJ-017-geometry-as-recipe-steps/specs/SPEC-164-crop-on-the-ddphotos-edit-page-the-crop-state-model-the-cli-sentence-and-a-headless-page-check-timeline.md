@@ -28,6 +28,9 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
 - [x] **verify** (2026-11-27, Opus, `prompts/SPEC-164-verify.md`): PUNCH LIST at `b7fee27`, wording only,
   no re-verify. Own model agreed with 153/153 literals and 187,096 fuzzed steps; every mutant and failure
   exit as described; M4 also red on X21 (shared `toBox`). $9.18.
-- [ ] **punch list** — `prompts/SPEC-164-punchlist.md`: two `chrome.mjs` comments, one history note,
-  and X31 (the active preset pressed again) on four shapes, 153 → 157 rows (maintainer: include both cleanups).
+- [x] **punch list** (2026-11-27, Sonnet, `prompts/SPEC-164-punchlist.md`): `3852b45` + `10ae6e5`; three
+  comments, X31 on four shapes, 157 crop-mode rows; negative control red on X31 (and X7) ×4. CI red at
+  `10ae6e5` on the page check: `open()` returns before the new document exists. $1.17.
+- [ ] **punch list 2** — `prompts/SPEC-164-punchlist-2.md`: `open()` waits for the new document; prove the
+  race (W `reading 'src'`, R read on the stale W page) red then green with a delayed server.
 - [ ] **ship**
