@@ -1230,6 +1230,15 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
    raise the minimum, 122 is the measured value, and rows G20, G21, G24, G25, G30, X23, X25 and X27
    change with it.
 
+### Maintainer rulings on the design (2026-11-27)
+
+1. **`MIN_CROP` stays 64** (question 1, as recommended). It is the box's usability floor, not a
+   watermark guard. G20, G21, G24, G25, G30, X23, X25 and X27 keep their 64 literals.
+2. **The watermark-fit entry lands before the crop mode's DOM entry.** It takes the case this
+   design found (the mark's width plus one margin against a resized strip's width) along with the
+   frame's two. STAGE-060 now orders it ahead of the DOM entry. Until it lands, no page control
+   can draw a thin box, so this spec ships no user-visible refusal.
+
 ## Inputs
 
 - **Files to read:** `integrations/ddphotos/edit/recipe.js` (the crop model: `presetCrop`,

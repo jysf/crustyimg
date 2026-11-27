@@ -20,6 +20,8 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
   reducer, 31 geometry, 8 size-line) and 18 Node mutants plus 5 headless controls, all driven red;
   a headless check H1–H8 driven green in a prototype. `MIN_CROP = 64` refused on thin resized strips
   (smallest clean 122 over the sweep); ruling kept, question put to the maintainer.
+- [x] **design rulings** (2026-11-27, maintainer): keep `MIN_CROP = 64`; the watermark-fit entry takes
+  the width-plus-margin case and lands before the crop mode's DOM entry.
 - [ ] **build** — `prompts/SPEC-164-build.md`
 - [ ] **verify**
 - [ ] **ship**
