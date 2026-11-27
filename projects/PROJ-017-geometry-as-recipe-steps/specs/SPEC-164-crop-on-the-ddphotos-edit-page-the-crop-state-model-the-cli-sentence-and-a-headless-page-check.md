@@ -63,6 +63,19 @@ cost:
       estimated_usd: 6.28
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "Measured after the frame push, from the session transcript (found by content), deduped by message.id (max output_tokens); 50 messages, all claude-opus-5-5, no subagents. Excludes this cost commit's own turn."
+    - cycle: design
+      date: 2026-11-27
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 14386045
+      tokens_breakdown:
+        input: 146
+        cache_creation: 256751
+        cache_read: 14016181
+        output: 112967
+      estimated_usd: 11.44
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured after the design push, from the session transcript (found by content), deduped by message.id (max output_tokens); 73 messages, all claude-opus-5-5, no subagents. Excludes this cost commit's own turn."
   totals:
     tokens_total: 0
     estimated_usd: 0
