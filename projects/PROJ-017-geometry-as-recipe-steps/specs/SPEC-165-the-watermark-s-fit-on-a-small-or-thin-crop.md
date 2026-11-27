@@ -42,7 +42,20 @@ value_link: "STAGE-060's crop: a box the user draws never meets an engine refusa
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-27
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8719751
+      tokens_breakdown:
+        input: 124
+        cache_creation: 179096
+        cache_read: 8468574
+        output: 71957
+      estimated_usd: 7.15
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured after the frame push, from the session transcript (found by content), deduped by message.id (max output_tokens); 62 messages, all claude-opus-5-5, no subagents. Excludes this cost commit's own turn."
   totals:
     tokens_total: 0
     estimated_usd: 0
