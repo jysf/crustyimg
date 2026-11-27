@@ -7,7 +7,7 @@
 task:
   id: SPEC-164
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -76,6 +76,19 @@ cost:
       estimated_usd: 11.44
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "Measured after the design push, from the session transcript (found by content), deduped by message.id (max output_tokens); 73 messages, all claude-opus-5-5, no subagents. Excludes this cost commit's own turn."
+    - cycle: build
+      date: 2026-11-27
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 17895068
+      tokens_breakdown:
+        input: 174
+        cache_creation: 252184
+        cache_read: 17556625
+        output: 86085
+      estimated_usd: 7.5
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured before the final cost commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 86 messages, all claude-sonnet-5-5, no subagents. Excludes the turns after this measurement (the cost commit, the cycle advance and the report)."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1279,47 +1292,47 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
 
 ## Acceptance Criteria
 
-- [ ] **AC-1** `recipe.js` exports `MIN_CROP = 64` and `toCopyDelta`, which rounds half away from
+- [x] **AC-1** `recipe.js` exports `MIN_CROP = 64` and `toCopyDelta`, which rounds half away from
   zero on both signs, never returns `-0`, and returns 0 for a ratio that isn't a positive finite
   number (G1–G8, G28).
-- [ ] **AC-2** `moveBox` keeps the box inside the photo with its size unchanged (G9–G11).
-- [ ] **AC-3** `resizeBox` moves exactly the named edges for each of the 8 handles. It clamps
+- [x] **AC-2** `moveBox` keeps the box inside the photo with its size unchanged (G9–G11).
+- [x] **AC-3** `resizeBox` moves exactly the named edges for each of the 8 handles. It clamps
   each edge at the photo and at `min(MIN_CROP, side)` from the opposite edge, never flips, lets a
   box under 64 px grow but not shrink, and throws on an unknown handle (G12–G27, G30).
-- [ ] **AC-4** `cropReducer` implements the nine actions and the `{ crop, preset, drag }` state as
+- [x] **AC-4** `cropReducer` implements the nine actions and the `{ crop, preset, drag }` state as
   designed. It starts from `cropReducer(null, { type: "reset" })`, returns the same object when
   nothing changes, never mutates its input, and throws on an unknown action (X1–X30, G29, G31).
-- [ ] **AC-5** Every reducer row's crop step text, through `planEdit`, equals its literal. Swap is
+- [x] **AC-5** Every reducer row's crop step text, through `planEdit`, equals its literal. Swap is
   disabled in S0, on a box and on 1:1, live on a square, and twice stays explicit (X4–X9, X17,
   X28S, X29S). `cropStep`, `presetCrop`, `swapCrop` and `cropBox` are unchanged, so no recipe rule
   is added.
-- [ ] **AC-6** `sizeLine` gives the designed text for no crop, a preset (with the shown aspect)
+- [x] **AC-6** `sizeLine` gives the designed text for no crop, a preset (with the shown aspect)
   and a box, with the output size from `planEdit` (L1–L8).
-- [ ] **AC-7** `checkModules` requires the six names from `recipe.js` and lists them, and every
+- [x] **AC-7** `checkModules` requires the six names from `recipe.js` and lists them, and every
   private helper the build adds, in `owned`. `main`'s `recipe.js` restored gives the six
   `recipe.js lacks …` lines, and an `edit.js` that defines one of them is refused.
-- [ ] **AC-8** The parity summary line keeps its five counts and adds `153 crop-mode rows`. Every
+- [x] **AC-8** The parity summary line keeps its five counts and adds `153 crop-mode rows`. Every
   crop-mode failure is counted under "other failures" with its `mode-reducer`, `mode-geometry`,
   `mode-size-line` or `mode-count` label. `--self-test` is unchanged.
-- [ ] **AC-9** The CLI panel shows the designed sentence. `edit.js` fills its size from `photo` at
+- [x] **AC-9** The CLI panel shows the designed sentence. `edit.js` fills its size from `photo` at
   load: `1600 × 1071` on W and `1071 × 1600` on R (H4, H7).
-- [ ] **AC-10** The README's CLI row ends with the designed clause, and nothing else in the README
+- [x] **AC-10** The README's CLI row ends with the designed clause, and nothing else in the README
   changes.
-- [ ] **AC-11** `tests/ddphotos_page.mjs` builds the fake site, serves it, drives headless Chrome
+- [x] **AC-11** `tests/ddphotos_page.mjs` builds the fake site, serves it, drives headless Chrome
   through `scripts/lib/chrome.mjs`, and runs H1–H8 green. It exits 1 on any failed row, on a
   failed wait, with no Chrome, with a `CHROME` that doesn't exist and with a missing `--pkg`; it
   never skips.
-- [ ] **AC-12** The negative controls are red with the designed messages: M11 on H3, M12 on H7, the
+- [x] **AC-12** The negative controls are red with the designed messages: M11 on H3, M12 on H7, the
   wording change on H4 and H7, and `main`'s page restored on H4 and H7 with `<no #cli-note>`.
-- [ ] **AC-13** The check leaves no temp folder behind on a pass or a fail without `--keep`, and
+- [x] **AC-13** The check leaves no temp folder behind on a pass or a fail without `--keep`, and
   awaits Chrome's exit before deleting its profile.
-- [ ] **AC-14** `just demo-smoke` passes locally with the shared lib, and `pages`'
+- [x] **AC-14** `just demo-smoke` passes locally with the shared lib, and `pages`'
   "build + browser smoke" is green on the PR.
-- [ ] **AC-15** CI's `ddphotos-parity` job runs "Edit page in headless Chrome" after the parity
+- [x] **AC-15** CI's `ddphotos-parity` job runs "Edit page in headless Chrome" after the parity
   step, with no `if:`, and is green on the PR. Its log shows H1–H8 PASS and the step's time.
-- [ ] **AC-16** Nothing else changes: no file under `src/`, `tests/fixtures/` or `recipes/`; the
+- [x] **AC-16** Nothing else changes: no file under `src/`, `tests/fixtures/` or `recipes/`; the
   parity counts and `--self-test` as above; the slim wasm at brotli 833,619 B on the Mac.
-- [ ] **AC-17** Each of the four behaviour sentences is driven and quoted in Build Completion
+- [x] **AC-17** Each of the four behaviour sentences is driven and quoted in Build Completion
   (see Notes).
 
 ## Failing Tests
@@ -1490,37 +1503,105 @@ create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-164-crop-state-model`
+- **PR (if applicable):** #274 (draft)
+- **All acceptance criteria met?** yes (17 of 17; each is ticked above)
+- **New decisions emitted:** none
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`: 10 files, plus this spec = 11):
+  - `.github/workflows/ci.yml`: the "Edit page in headless Chrome" step in `ddphotos-parity`, after "Parity harness", no `if:`.
+  - `integrations/ddphotos/README.md`: the CLI row's closing clause.
+  - `integrations/ddphotos/edit/edit.js`: one line (plus a two-line comment) filling `#cli-size` from `photo`.
+  - `integrations/ddphotos/edit/index.html`: the `#cli-note` paragraph after "This page edits the web copy …".
+  - `integrations/ddphotos/edit/recipe.js`: `MIN_CROP`, `toCopyDelta`, `moveBox`, `resizeBox`, `cropReducer`, `sizeLine` and four private helpers (`clamp`, `sameBox`, `toBox`, `HANDLE_EDGES`).
+  - `justfile`: the `ddphotos-page` recipe.
+  - `scripts/lib/chrome.mjs` (new): `findChrome`, `CDP`, `launchChrome`.
+  - `tests/ddphotos_page.mjs` (new): the headless page check, H1–H8.
+  - `tests/ddphotos_parity.mjs`: `modeChecks` with 153 literal rows, the six names in `checkModules` (required and `owned`), the four helpers in `owned`, and the summary count.
+  - `tests/demo_smoke.mjs`: imports the shared lib; its start-up code moved out; checks and output unchanged.
+  - This spec (timeline, ACs, cost, Build Completion).
+- **Unchanged, as required:** `git diff --stat origin/main...HEAD -- src tests/fixtures recipes integrations/ddphotos/edit/worker.js CHANGELOG.md` prints nothing.
+
+**RED baseline** (checkpoint 1, `main`'s page, quoted):
+- Parity, exit 1, six lines and nothing else:
+  - `FAIL modules: recipe.js lacks toCopyDelta`, then `moveBox`, `resizeBox`, `MIN_CROP`, `cropReducer`, `sizeLine`.
+- Page check, exit 1, `ddphotos-page: 8 rows, 2 failed`:
+  - `FAIL H4 the CLI sentence on W: "<no #cli-note>", expected "Run it on the original, … (1600 × 1071). …"`
+  - `FAIL H7 the CLI sentence on R: "<no #cli-note>", expected "… (1071 × 1600). …"`
+  - H1, H2, H3, H5, H6 and H8 PASS. Nothing else was red.
+
+**Results, green:**
+- `just ddphotos-parity`, normal mode: `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 153 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`.
+- `--self-test`: B1–B19 and N1–N5 PASS, unchanged.
+- `just ddphotos-page`: `ddphotos-page: 8 rows, 0 failed`.
+- `just demo-smoke`: 78 ✓, 0 ✗, exit 0, through the shared lib.
+
+**The four behaviour sentences** (release binary built on this branch, recipes from the branch's `cliRecipe`, originals made from `photo.webp` with Pillow):
+1. "On a smaller file the CLI makes a smaller image than this page did": an 800 × 536 original, W at 1080, JPEG, no watermark. Plain resize: CLI 800 × 536 (the page made 1080 × 723). With 3:2: CLI 800 × 533 (the page made 1080 × 720).
+2. "… and may refuse the watermark": the same recipe with "© 2026 Jane Doe", Medium, 3:2, on a 100 × 67 file: exit 2, `error: watermark refused: the 334×39 px mark plus its 22 px margin does not fit inside the 100×67 px image`. On the 800 × 536 file it was not refused: exit 0, 800 × 533.
+3. "without warning": both runs of path 1 exit 0 with 0 bytes on stderr.
+4. "at least as large as the web copy this page edits (W × H)": H4 reads `(1600 × 1071)` on W and H7 reads `(1071 × 1600)` on R, both PASS locally and in CI.
+
+**The mutation table, re-driven** (a scratch `git worktree` of the pushed head, never the build worktree; the slim wasm and binary built once and reused; each edit confirmed live with a non-empty `git diff`; the full harness run with output redirected; restored and shown green after every row; scratch `TMPDIR` emptied between rows). Every red set was read off its own run:
+- M1 `toCopyDelta` returns `dCss`: red G1–G8. First: `FAIL mode-geometry: G1: 3, expected 7`. Matches.
+- M3 swap keeps the key: red X4, X5, X6 on all four shapes, X28S, X29S, L8 (29 mode lines), plus the existing swapped rows C24, C25 and R10, as the spec says. First mode line is on X4. Matches.
+- M4 a zero move turns S1 into S3: red X10 on all four shapes. First: `FAIL mode-reducer: X10W "p4:5 ds:move dm:0,0": crop box 130,0,1339,1071, expected aspect 4:5 follow`. **Mismatch: X21 on all four shapes is also red** (28 lines in all). The spec's quoted guard is a ternary that does not exist in this code; the closest edit removes the `if (!s.crop?.box && sameBox(box, from)) return s;` line, and `toBox` is shared by the drag and key paths, so the S0 key-move that cannot move (X21) now makes a box. The design's prototype guarded only the drag path. Both rows guard real behaviour.
+- M5 Done keeps the drag: red X15 on all four shapes. First: `… crop box 230,0,1339,1071, expected box 180,0,1339,1071`. Matches.
+- M6 key step as screen pixels: red X20 on all four. First: `crop box 135,0,1339,1071, expected box 131,0,1339,1071`. Matches.
+- M9 `moveBox` not clamped: red G10, G11 and X11, X12, X14, X15, X17, X20, X21 on all four (62 lines). First: `X11W … crop box 180,50,1339,1071, expected box 180,0,1339,1071`. Matches.
+- M10 `MIN_CROP` ignored: red G20, G21, G24, G25, G30 and X23, X25, X27 on all four. First: `X23W … crop box 130,0,1,1, expected box 130,0,64,64`. Matches.
+- E1 red G3, G5, G6, G7; first `G3: -2, expected -3`. Matches.
+- E2 red G11 and 18 X rows (X11P/R, X12 ×4, X14P/R, X15P/R, X17P/R, X20P/R, X21 ×4). First `X11P … crop box 50,180,1071,1339, expected box 0,180,1071,1339`. Matches.
+- E3 red G30, X25 ×4; first `X25W … crop box 1469,0,131,1071, expected box 1405,0,64,1071`. Matches.
+- E4 red G17, G22, X24 ×4; first `X24W … crop box 0,100,1600,971, expected box 100,100,1500,971`. Matches.
+- E5 red X17 ×4; message `X17W "p4:5 ds:move dm:50,50 sw" threw: undefined is not iterable (cannot read property Symbol(Symbol.iterator))`, as the spec quotes. Red, not an equivalent mutant.
+- E6 red X16 ×4; first `drag move@130,0,1339,1071, expected null`. Matches.
+- E7 red X14 ×4; first `threw: Cannot assign to read only property 'drag' of object '#<Object>'`. Matches (see Deviations: `drag-end` and `done` are separate cases so this row stays X14 only).
+- E8 red L2, L5, L6; E9 red L3; both with the spec's messages. Match.
+- E10 red X30 ×4; first `X30W "p3:2 rs": preset 3:2, expected null`. Red on my rows.
+- E11 red X15 ×4; first `crop box 261,0,1339,1071, expected box 180,0,1339,1071`. Matches.
+- M11 debounce removed: red H3 only; `renders {"load":1,"preview":4,"make":0}, expected {"load":1,"preview":2,"make":0}`. Matches.
+- M12 stored size in `worker.js`: red H7 only, reading `(1600 × 1071)`. Matches.
+- Wording change (clause dropped): red H4 and H7. Matches.
+- Paragraph removed from `index.html` only: the wait fails at once on `#error`, not on a timeout: `FAIL the page failed waiting for the first preview on W; the page's error box: Cannot set properties of null (setting 'textContent'); page exceptions: none`; `ddphotos-page: 0 rows, 1 failed`. Matches the spec's text.
+- Trap 14: `main`'s `recipe.js`, `index.html` and `edit.js` restored: parity prints exactly the six `recipe.js lacks …` lines (exit 1); the page check has H4 and H7 red with `<no #cli-note>` and H1–H3, H5, H6, H8 green. `main`'s `recipe.js` only: the same six lines. `function sizeLine() { return ""; }` added to `edit.js`: `FAIL modules: edit.js defines sizeLine, which belongs to recipe.js`.
+- No Chrome: `CHROME=/nonexistent/chrome` gives `FAIL no Chrome or Chromium found at CHROME=/nonexistent/chrome; install one or set CHROME=/path/to/chrome`, exit 1. A missing `--pkg` and a `--pkg` with no package also exit 1 with their own `FAIL` lines. `demo_smoke.mjs` with the same bad `CHROME` exits 1 with its own message.
+
+**Slim wasm:** unchanged. On the Mac: raw 4,148,451 B, gzip 1,195,748 B, brotli 833,619 B. In CI (`ubuntu-26.04`): raw 4,174,347 B, gzip 1,196,820 B, brotli 836,219 B, the number the design recorded from earlier CI logs.
+
+**CI at head `416a240`, every leg green** (read from the PR, not polled):
+- `ddphotos page parity (native vs wasm)`, 5 m 42 s. "Parity harness" took 4 m 23 s (14:14:49 to 14:19:12). The new step "Edit page in headless Chrome" took 32 s (14:19:12 to 14:19:44), against the design's 25–45 s estimate. Its log has the summary line `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 153 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)` and `PASS H1 page loads`, `PASS H2 renders at load`, `PASS H3 three quick size changes add one preview`, `PASS H4 the CLI sentence on W`, `PASS H5 the panel's recipe on W`, `PASS H6 renders at load on R`, `PASS H7 the CLI sentence on R`, `PASS H8 no page errors`, then `ddphotos-page: 8 rows, 0 failed`.
+- `pages` "build + browser smoke", 3 m 31 s: success, `attached to headless Chrome (google-chrome)` and the demo-smoke ✓ line, on the shared lib.
+- The other legs (build/test/clippy/fmt on three OSes, msrv, lean, heic ×2, webp-lossy, wasm round-trip, cargo-deny, DCO, front-matter, cost audit) pass; the release and Pages legs skip.
+
+**Overlap, after the last rebase** (`gh pr list --state open`): only PR #237, which touches `.github/workflows/ci.yml` and `justfile`, in other places (HEIC jobs and recipes). Not touched. `origin/main` had not moved since the build began, so no rebase changed anything.
+
+**Temp folders:** the system temp folder had 5 `ddphotos-*` folders, 1,723,616 KB, before the first run and has the same 5 folders, 1,723,616 KB, after the last. Nothing leaked there: every run used a scratch `TMPDIR`, which I emptied after each red run and which is empty now. One leak, in the scratch folder only: `--self-test` keeps a `ddphotos-orientation-*` folder because its N3 row is deliberately red (existing harness behaviour); I deleted it by hand each time. Before the retry fix below, one local `just ddphotos-page` left a `ddphotos-page-chrome-*` profile (deleted by hand, 0 bytes freed from the system folder).
+
 - **Deviations from spec:**
-  - [list]
+  - `launchChrome` returns `{ chrome, cdp, exited, port }`, one field more than the spec. `demo_smoke.mjs`'s `file://` check reads the DevTools port.
+  - `findChrome` also accepts `CHROME` as a bare name on `PATH` (as `spawn` did before), and reports one that does not exist.
+  - The page check's profile delete is retried for about 15 s, not `maxRetries: 10` at 200 ms. The design's version failed once locally with `ENOTEMPTY … /Default` while Chrome's helper processes were still flushing, and left a folder (AC-13). After the change four local runs and the CI run left nothing.
+  - `drag-end` and `done` are two reducer cases with the same body, so M5 and E7 each change one action. Merged, E7's edit also turned X15 red.
+  - A first version of `cropReducer` returned the same object when the same preset was pressed twice. The design does not ask for it, and under M3 it turned X7P and X7R red, which the spec does not list. Removed.
+  - M4's quoted ternary does not exist in this code (see the table above); the closest edit also turns X21 red.
+  - Checkpoint 1 pushed a page check that imports `scripts/lib/chrome.mjs`, which arrived in checkpoint 2, so that one commit alone cannot run it. It was red on `main` by design.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The design's open question stands: `MIN_CROP = 64` is a usability floor and does not stop a watermark refusal on a thin strip. STAGE-060's watermark-fit entry is ordered before the DOM entry.
+  - `--self-test` keeps `ddphotos-orientation-*` and the parity harness keeps `ddphotos-*` folders on any red run; both are existing and unaddressed.
+  - M4's cell should say X10 and X21; the design's table is not edited.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec was clear: its literals made the 153 rows mechanical, and all 153 passed on the first run. What slowed me was the ordering of the checkpoints. The page check at checkpoint 1 needs `scripts/lib/chrome.mjs`, which the prompt schedules for checkpoint 2, so I wrote the lib first and committed it second. The spec's M4 and E7 edits also quote code shapes (a ternary guard, a lone `done` case) that I had to match by structure.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Two things. First, Chrome's helper processes can keep writing into the profile after the browser exits, so "await the exit, then delete" is not enough on its own; the delete needs a longer retry than the design's 2 s. Second, the table's red sets depend on code structure (shared helpers, merged cases), so the spec should say which cases are separate.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would write the reducer from the mutation table first: split `drag-end` and `done`, keep `toBox` separate for the drag and key paths, and leave out the same-object shortcut on `preset`. Those three choices cost me a re-run each. I would also build the scratch mutation worktree before the first push, since a 25 s harness makes the full table cheap. No design call turned out wrong; the one cell that needs a correction is M4's (X10 and X21).
 
 ---
 
