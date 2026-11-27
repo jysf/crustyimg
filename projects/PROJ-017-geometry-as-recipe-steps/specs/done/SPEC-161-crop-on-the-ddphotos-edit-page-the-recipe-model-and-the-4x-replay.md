@@ -141,22 +141,22 @@ cost:
       date: 2026-11-27
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2365501
+      tokens_total: 3598088
       tokens_breakdown:
-        input: 50
-        cache_creation: 89910
-        cache_read: 2260953
-        output: 14588
-      estimated_usd: 1.23
+        input: 70
+        cache_creation: 101188
+        cache_read: 3476561
+        output: 20269
+      estimated_usd: 1.73
       note: >
         Measured from the session JSONL (found by its first message, `prompts/SPEC-161-ship.md`),
-        deduped by message.id (25 messages; max output_tokens per id), 0 subagent transcripts.
-        Measured before the first ship commit; re-measured after the push in the follow-up commit.
+        deduped by message.id (35 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured after the ship push (e8d41c7), before this cost commit's own turns.
         Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
         (x0.10), $15 output.
   totals:
-    tokens_total: 61063828
-    estimated_usd: 37.10
+    tokens_total: 62296415
+    estimated_usd: 37.60
     session_count: 6
 ---
 
