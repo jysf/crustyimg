@@ -7,7 +7,7 @@
 task:
   id: SPEC-161
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -86,6 +86,40 @@ cost:
         Measured after the design push, before this cost commit's own turns.
         Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
         (x0.10), $25 output.
+    - cycle: build
+      date: 2026-11-26
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 15096078
+      tokens_breakdown:
+        input: 196
+        cache_creation: 202269
+        cache_read: 14832239
+        output: 61374
+      estimated_usd: 6.13
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-build.md`),
+        deduped by message.id (81 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured after the last code push, before the final cost commit's own turns.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
+    - cycle: punchlist
+      date: 2026-11-26
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 4275721
+      tokens_breakdown:
+        input: 86
+        cache_creation: 103792
+        cache_read: 4151038
+        output: 20805
+      estimated_usd: 1.95
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-punchlist.md`),
+        deduped by message.id (43 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured before the commit, so the commit's and CI-watch turns are not in it.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1041,33 +1075,33 @@ Body:
 
 ## Acceptance Criteria
 
-- [ ] **AC-1 The page takes a photo's size from its upright render.** `loadPhoto` returns R's size
+- [x] **AC-1 The page takes a photo's size from its upright render.** `loadPhoto` returns R's size
   as 1071×1600 (its stored size is 1600×1071) and the format of the stored file; the worker's `load`
   returns `loadPhoto({ info, transform }, source)`. TABLE rows 15–16 pass at 803×1200 and 723×1080
   with the transpose deleted.
-- [ ] **AC-2 An untouched preset is an aspect that follows the photo.** On a non-square photo a
+- [x] **AC-2 An untouched preset is an aspect that follows the photo.** On a non-square photo a
   preset other than 1:1 writes `aspect = "a:b"` and `orientation = "match"`; on a square photo, and
   for 1:1, it writes the aspect alone; no preset writes `gravity`. Sizes as C1–C23.
-- [ ] **AC-3 A swapped preset is the other orientation, as written, with no key** (C24, C25).
-- [ ] **AC-4 A placed box is four fractions that read back to its pixel edges.** Each is the shortest
+- [x] **AC-3 A swapped preset is the other orientation, as written, with no key** (C24, C25).
+- [x] **AC-4 A placed box is four fractions that read back to its pixel edges.** Each is the shortest
   text that reads back as the same number; every box on sides 1071 and 1600 reads back to the same
   edges with `x + width ≤ 1`; C26–C34 sizes.
-- [ ] **AC-5 The crop runs right after `auto-orient` and before `resize`,** in the pixel, CLI and
+- [x] **AC-5 The crop runs right after `auto-orient` and before `resize`,** in the pixel, CLI and
   preview recipes (goldens; C31; C32).
-- [ ] **AC-6 The page predicts exactly what wasm makes, in both forms**: `planEdit`'s `outW × outH`
+- [x] **AC-6 The page predicts exactly what wasm makes, in both forms**: `planEdit`'s `outW × outH`
   equals the output on every C and R row; `aspectSize` and `followOrientation` equal their literal
   tables; a preset's `cropBox` is where the engine places the aspect.
-- [ ] **AC-7 A crop re-fits the watermark**: W-refit is 400×1071 with mark 40, capped; R-refit is
+- [x] **AC-7 A crop re-fits the watermark**: W-refit is 400×1071 with mark 40, capped; R-refit is
   375×1600 with mark 37, capped (C29, C30, R14, R15).
-- [ ] **AC-8 Native and wasm agree on every crop row**: exact, bytes equal, without a resize;
+- [x] **AC-8 Native and wasm agree on every crop row**: exact, bytes equal, without a resize;
   within DEC-110 with one (C26, C27, C31, C33, C34, C35).
-- [ ] **AC-9 The CLI recipe replays on a 4× and a 3.75× original within DEC-118**: R1–R17 sizes,
+- [x] **AC-9 The CLI recipe replays on a 4× and a 3.75× original within DEC-118**: R1–R17 sizes,
   `judgeReplay`'s bound and floors; B11–B19.
-- [ ] **AC-10 Every control still sees what it guards**: N1, N2 red on exactly their grown lists; N4
+- [x] **AC-10 Every control still sees what it guards**: N1, N2 red on exactly their grown lists; N4
   red on exactly C26, C31, C32, C33, C34; N5 red on all 17 replay rows, each on `psnr`; N3 unchanged.
-- [ ] **AC-11 The run says what ran**: the summary line counts all five families on a green run; the
+- [x] **AC-11 The run says what ran**: the summary line counts all five families on a green run; the
   three P5 checks are `P5-pixel`, `P5-cli`, `P5-preview`.
-- [ ] **AC-12 Nothing else changes**: TABLE's 16 rows and its three `GOLDEN_*` texts, SPEC-163's 26
+- [x] **AC-12 Nothing else changes**: TABLE's 16 rows and its three `GOLDEN_*` texts, SPEC-163's 26
   rows and N3, the alpha rows, no file under `src/` or `tests/fixtures/`, `edit.js`; 0 B on the slim
   wasm. Pinned by: TABLE's literals and goldens are byte-for-byte unchanged in the diff (the P5
   relabel changes only the three failure strings at `:406–408`; the transpose deletion removes
@@ -1076,7 +1110,7 @@ Body:
   alpha code are untouched; `git diff --stat origin/main -- src tests/fixtures
   integrations/ddphotos/edit/edit.js recipes` is empty (`tests/fixtures` holds the recipe corpus goldens); the build's `just wasm-size` (or the
   ddphotos-parity build's size lines) reads brotli 833,619 B on the slim build, as on `main`.
-- [ ] **AC-13 DEC-118 is written** with the bounds and floors above, `affected_scope` a block list.
+- [x] **AC-13 DEC-118 is written** with the bounds and floors above, `affected_scope` a block list.
 
 ## Failing Tests
 
@@ -1281,37 +1315,107 @@ re-run the map after each rebase.**
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-161-page-crop-model`
+- **PR (if applicable):** #273 (draft)
+- **All acceptance criteria met?** yes (13 of 13; see below)
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-118` — A crop recipe from the edit page replays on the original within a stated bound
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`; 6 files: 4 code/test, DEC-118, and this spec):
+  - `integrations/ddphotos/edit/recipe.js` — the crop model (`aspectSize`, `followOrientation`, `presetCrop`, `swapCrop`, `cropBox`), `planEdit` with a crop and `Math.max(1, …)`, the crop step in `pixelRecipe`, `loadPhoto`
+  - `integrations/ddphotos/edit/worker.js` — `load` is `return loadPhoto({ info, transform }, source);`
+  - `tests/ddphotos_parity.mjs` — module check, `loadWasm` returns `{ transform, info }`, rows planned from `loadPhoto` (transpose deleted), CROP_TABLE C1–C35, REPLAY_TABLE R1–R17, model/placement/golden checks, `judgeReplay`, `psnr`, B11–B19, N4, N5, the five-family summary line, the P5 relabels
+  - `tests/ddphotos_upscale.py` — new: the Pillow upscale (and N5's left shift)
+  - `decisions/DEC-118-a-crop-recipe-from-the-edit-page-replays-on-the-original-within-a-stated-bound.md` — new
+  - `projects/PROJ-017-…/specs/SPEC-161-….md` — this section, the build cost entry, `cycle: verify`
+- **RED baseline on `main`** (new harness against `main`'s page files): exit 1 at the module check, red on `recipe.js lacks aspectSize`, `… followOrientation`, `… presetCrop`, `… swapCrop`, `… cropBox`, `… loadPhoto`, and `worker.js's load does not return loadPhoto({ info, transform }, source);`. Nothing else was red.
+- **Acceptance criteria:** AC-1 to AC-13 met. AC-1: R is 1071×1600 via `loadPhoto`, TABLE 15–16 pass at 803×1200 and 723×1080 with the transpose deleted. AC-10: N1, N2, N4, N5 red on exactly their lists (N4's reasons: see deviations); N3 untouched and green.
+- **Harness, main mode:** `16 table rows, 35 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows; 0 row failures, 0 other failures, K=1 (cap 78)`; largest differing-pixel count on a resampling row 1. Self-test: B1–B19, N1, N2, N4, N3, N5 all PASS, exit 0.
+- **Replay PSNR against floor** (aspect 53.5, box 59): R1 54.55, R2 58.07, R3 66.35, R4 55.10, R5 63.88, R6 63.22, R7 59.04, R8 55.17, **R9 53.95 (aspect low)**, R10 73.41, R17 68.10; R11 66.54, **R12 59.46 (box low)**, R13 74.11, R14 72.73, R15 59.90, R16 62.92. These equal the design's numbers to 2 decimals. N5 (shifted): 46.92, 48.16, 50.21, 49.90, 51.71, 51.30, 48.84, 49.51, 45.96, 48.53, 52.77, 50.72, 50.18, 48.12, 49.69, 52.00, 50.01, all red on `psnr`.
+- **Mutations** (the spec's quoted edit each time, in a scratch worktree of the pushed head; JS-only, so the binary and wasm built once were reused; each restored and re-run green; the red set read off that run):
+  - M1 `model-follow` only. Matches. Still invisible on page paths.
+  - M2 C2, C3, C4, C6, C7, C8, C10, C11, C12, C14, C15, C16, C24, C25, C35; R2, R3, R4, R5, R6, R7, R10, R17; `golden-crop-cli`, `model-follow`, `placement`. Matches.
+  - M3 C2, C3, C6, C7, C10, C11, C14, C15, C18, C19; R2, R3, R5, R6, R7, R17; `model-aspect`, `placement`. Matches.
+  - M4 15, 16, C14, C15, C16, C27, C30; R7, R12, R15. Matches the set. **Cell correction:** C30, R12 and R15 go red as "threw", because the engine refuses the stored-size fractions (`'height' must be a number > 0 and <= 1, got 1.4939…`), not as 560×1071 with mark 43. That reading holds only for the frame's fractions 0.325/0.35 at full height. C14–C16, C27, 15, 16 and R7 fail on `planEdit predicts …`.
+  - M5 C31; R1, R2, R10, R11, R12, R14, R16; `golden-crop-cli`. Matches. C35 and R3–R9, R13, R15, R17 stay green (commute); the CLI golden catches it.
+  - M6 `golden-crop-box`, `model-fractions`. Matches.
+  - M7 C24, C25, R10 (all "threw: undefined is not iterable"); `golden-crop-square`, `golden-crop-cli`. Matches.
+  - M8 C2, C7, C8, C11, C12, C15, C16, C35; R2, R5, R6, R7; `golden-crop-cli`, `placement`. Matches.
+  - M9 `golden-crop-square` only. Matches.
+  - M10 `placement` only (3 messages). Matches.
+  - M11 every C row except C17, and R1–R17. Matches.
+  - Trap 14: all three `main` page files restored: red on the six `lacks` lines and the worker line, exit 1. `worker.js` alone: the worker line only. `recipe.js` alone: the six `lacks` lines and `worker.js imports loadPhoto, which recipe.js lacks`. Matches.
+  - N4 (driven with a debug print in the scratch worktree): red set matches, but **the reasons differ from the design's "on `dims`"**: C26, C31, C33 and C34 read `comparator: max` (sizes equal, pixels differ), and only C32 reads `dims` (801×643 against 800×643).
+- **fmt / clippy / wasm-check:** `cargo fmt --check` 0; `cargo clippy --all-targets -- -D warnings` 0; `just wasm-check` 0. Slim wasm: raw 4,148,451 B, gzip 1,195,748 B, brotli **833,619 B**: 0 B of growth. `just decisions-audit`: `0 structural errors, 2257 scope warning(s) across 114 decision(s)` (overlaps among existing decisions).
+- **Do-not-change paths:** `git diff --stat origin/main...HEAD -- src tests/fixtures integrations/ddphotos/edit/edit.js justfile CHANGELOG.md recipes` is empty.
+- **Overlap after the last rebase:** only #237 (16 files, none in common; no rebase conflict).
+- **Temp folders:** the system temp folder's `ddphotos-*` count was 5 (1,683 MiB) before and 5 after; every harness run used `TMPDIR` in the scratchpad. Freed at the end: `target/` 2,143 MiB (of which `target/ddphotos-parity` 860 MiB), the mutation worktree 22 MiB, the harness folder 0 MiB (emptied after each red run). The first `just ddphotos-parity` run (baseline) was racing my edits and failed, leaving three folders in the scratchpad's harness folder, which I removed.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - N1, N2 and N4 were written with the crop rows in stage 2, not stage 4.
+  - The stage-3 and stage-4 work is one commit.
+  - The M4 and N4 cells above.
+  - A `--self-test` run leaves an `ddphotos-orientation-*` folder by design (N3 is red by design and the harness keeps red runs); I did not change that.
+- **Follow-up work identified:** none new.
+
+### Punch list (verify)
+
+Wording and checks only; no behaviour changed. Worktree reset onto PR #273's head `f9c81ae`.
+
+- **DEC-118 rule 1** now reads: "the copy made from the original by `resize` mode `max` to 1600 px, at
+  the ratios driven (1:1, 4:5, 3:2 and 16:9, in both orders). Portrait originals are assumed to mirror
+  landscape; no one drove them." The aspect bullet says "1 px at the ratios driven".
+- **DEC-118 rule 4** now reads: "A one-copy-pixel framing shift to the left reads at most 51.71 dB on an
+  aspect row and 52.77 dB on a box row, below both floors. A shift to the right does not: it cancels an
+  aspect's half-pixel centring offset, so driven right, R1 reads 54.66 dB and R9 54.05 dB, both above
+  the 53.5 floor. The `placement` check pins aspect placement instead."
+- **The comment** (`tests/ddphotos_parity.mjs:207`) now reads "A row that resizes is within the resize
+  tolerance." `:37` and `:43` are unchanged.
+- **`model-min`** (pure, in `modelChecks`): `planEdit` on W (1600×1071) with the box (93, 131, 1460, 1)
+  at size 400 predicts 400×1; on P (1071×1600) with (5, 100, 2, 1500) at 300 it predicts 1×300. Both
+  worked from `resize` mode `max` (`src/operation/mod.rs:999–1009`) with a short Python model (each
+  side times min(size / long side, 1), rounded half away from zero, at least 1): 1460×1 at 400 is
+  400 × 0.27397 → 400×1, and 2×1500 at 300 is 0.4 × 300 → 1×300. Neither literal was read from
+  `recipe.js`.
+- **C36**: `["R", { box: [100, 50, 800, 600] }, "400", true, "pixel", "png", [400, 300], [16, false]]`.
+  The box sits inside the upright 1071×1071 from the top-left, so its fractions stay ≤ 1 under both the
+  upright size and the stored 1600×1071. Size from the model: 800×600 at 400 is scale 0.5 → 400×300.
+  Mark from the font table's advances (7.798 em for the text), margin round(400 × 0.02) = 8, wanted
+  round(400 × 0.04) = 16, width cap floor(0.9 × 392 / 7.798) = 45, height cap floor(0.1 × 300) = 30 →
+  16, not capped. `crop-count` is 36; C36 resizes, so it joins the rows excluded from
+  `CROP_NO_RESAMPLE_ROWS`.
+- **Summary line**: the orientation and alpha counts now come from rows that ran (`orientationRows` and
+  `alphaRows` each record `ran`); `A-count` backs the alpha rows the way `O-count` backs the orientation
+  rows. The rows' checks and N3 are untouched.
+- **Red runs** (scratch tree, harness copied, never the real one):
+  - Both clamps dropped in `planEdit`: only `model-min` red, `0 row failures, 2 other failures
+    (model-min, model-min)`:
+    `FAIL model-min: box 1460x1 at 400 is 400x0, expected 400x1` and
+    `FAIL model-min: box 2x1500 at 300 is 0x300, expected 1x300`.
+  - M4 (`const shown = wasm.info(source);`): red C14–C16, 15, 16, C27, C30, C36, R7, R12, R15 (11 row
+    failures, 0 other). C36 reads `wasm size 239x400, expected 400x300` and
+    `native size 239x400, expected 400x300`, not "threw".
+  - Alpha row B skipped: `FAIL A-count: 1 rows ran, expected 2`, summary `1 alpha rows`.
+  - Restored after each (the real tree was never changed) and green below.
+- **C36 joined N1's red list**, appended at the end: `{3,4,7,8,11,12,13,14,16,C29,C30,C35,C36}`. It
+  carries a watermark at opacity 0.6, which N1 changes, like C29 and C30. N2 and N4 are unchanged.
+- **Green** (`just ddphotos-parity`, both modes, exit 0):
+  `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows; 0 row failures, 0 other failures, K=1 (cap 78)`.
+  Self-test: B1–B19, N1 `{3,4,7,8,11,12,13,14,16,C29,C30,C35,C36}`, N2, N4, N3, N5 all PASS.
+- **Temp folders**: the system temp folder's `ddphotos-*` count was 5 (1,683 MiB) before; the harness
+  ran with `TMPDIR` in the scratchpad and I emptied it after each read. The after count is in the report.
+- **CI snapshot**: see the PR.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — (filled at punch list from Build Completion and verify) The design's M4 and N4 cells named the wrong reasons: M4's C30, R12 and R15 go red as "threw" (the engine refuses a stored-size fraction above 1), not as 560×1071 with mark 43, and N4's C26, C31, C33 and C34 read `comparator: max`, not `dims`. Both were found only by driving the mutants.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — (filled at punch list from Build Completion and verify) Two limits were stated wider than they were driven: DEC-118's one-pixel shift floor holds for a shift to the left only (a right shift cancels an aspect's half-pixel centring offset), and "1 px at any ratio" was driven at four ratios in both orders. The `Math.max(1, …)` clamps in `planEdit` also had no guard.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — (filled at punch list from Build Completion and verify) Drive each mutation's red reasons while designing the table, and add a row whose failure shows as a wrong size or mark rather than a throw, so a guard is never tested only through the engine's own refusal.
 
 ---
 

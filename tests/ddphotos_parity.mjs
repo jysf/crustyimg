@@ -99,6 +99,45 @@ export function resamples(recipeText) {
   return /^op = "resize"$/m.test(recipeText);
 }
 
+/// The lowest PSNR (dB, RGB) a replay may read, per crop form. Measured on the Pillow-made
+/// original, the lowest row of each form rounded down to 0.5 dB, with no more headroom: an
+/// aspect is centred on each image separately, so its framing differs by up to half a copy
+/// pixel by design, and its rows read lower than a box's.
+export const PSNR_FLOOR = { aspect: 53.5, box: 59 };
+
+/// The verdict on one replay row: the page's output from the copy against the CLI's from the
+/// original. `form` is `aspect` or `box`, `band` is `integer` for a whole-number factor, `2x`
+/// for 2 or more and `under-2x` below. `page` and `cli` are `{ width, height }`. The sides may
+/// differ by 1 px (2 px for a box below 2×); then the PSNR must reach the form's floor, and a
+/// NaN fails. Returns `{ ok, reason }`; `reason` is `replay-dims` or `psnr`.
+export function judgeReplay({ form, band, page, cli, psnr: db }) {
+  const bound = form === "box" && band === "under-2x" ? 2 : 1;
+  const off = Math.max(Math.abs(page.width - cli.width), Math.abs(page.height - cli.height));
+  if (off > bound) return { ok: false, reason: "replay-dims" };
+  if (!(db >= PSNR_FLOOR[form])) return { ok: false, reason: "psnr" };
+  return { ok: true, reason: "" };
+}
+
+/// PSNR in dB over the RGB of the region both images share from the top-left, `Infinity` for
+/// equal pixels. `a` and `b` are `{ width, height, rgba }`.
+export function psnr(a, b) {
+  const w = Math.min(a.width, b.width);
+  const h = Math.min(a.height, b.height);
+  let sum = 0;
+  for (let y = 0; y < h; y++) {
+    let ia = y * a.width * 4;
+    let ib = y * b.width * 4;
+    for (let x = 0; x < w; x++, ia += 4, ib += 4) {
+      for (let c = 0; c < 3; c++) {
+        const d = a.rgba[ia + c] - b.rgba[ib + c];
+        sum += d * d;
+      }
+    }
+  }
+  if (sum === 0) return Infinity;
+  return 10 * Math.log10((255 * 255) / (sum / (w * h * 3)));
+}
+
 // ── the rows ─────────────────────────────────────────────────────────────────
 
 const WATERMARK_TEXT = "© Jane Doe 2026";
@@ -139,8 +178,8 @@ const TABLE = [
   [12, "W", "both", "preview", "jpeg", [1080, 723]],
   [13, "W", "both", "pixel", "webp", [1080, 723]],
   [14, "W", "both", "pixel", "avif", [1080, 723]],
-  // The rotated JPEG's stored size is 1600×1071, which is what `info` reports and so
-  // what the page plans from. The output is rotated, so its sides swap.
+  // The rotated JPEG is stored 1600×1071 and shown 1071×1600. The page plans from the
+  // shown size (`loadPhoto`), so its prediction is the output's sides as they are.
   [15, "R", "resize", "pixel", "png", [803, 1200]],
   [16, "R", "both", "pixel", "png", [723, 1080]],
 ].map(([n, input, edit, recipe, format, size]) => ({
@@ -150,11 +189,99 @@ const TABLE = [
   recipe,
   format,
   size,
+  family: "table",
+  crop: null,
+  form: EDITS[edit],
   id: `${input}/${edit}/${recipe}/${format}`,
 }));
 
 const ROW_COUNT = 16;
 const NO_RESAMPLE_ROWS = [1, 3, 9, 11];
+
+// ── the crop rows ────────────────────────────────────────────────────────────
+//
+// Native against wasm on the same input, as TABLE's rows, with a crop. "pub" is as
+// published: the size is the crop's own long edge, so there is no `resize` step and the
+// match is exact. Every size is a literal from an independent model of the engine's crop
+// (`rect_edges`, `aspect_size` and `resize` mode "max"), never read from recipe.js or
+// crustyimg. A row that resizes is within the resize tolerance.
+//   [id, input, crop, size, watermark on, recipe, format, output size, watermark [size, capped]]
+// crop: `{ preset: [a, b] }`, with `swap` for the other orientation, or `{ box: [x, y, w, h] }`
+// in pixels of the upright photo.
+const preset = (a, b, swap = false) => ({ preset: [a, b], swap });
+const BOX_FREE = { box: [160, 214, 800, 643] };
+const CROP_ROWS = [
+  // W presets, as published.
+  ["W", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["W", preset(4, 5), "pub", false, "pixel", "png", [1339, 1071]],
+  ["W", preset(3, 2), "pub", false, "pixel", "png", [1600, 1067]],
+  ["W", preset(16, 9), "pub", false, "pixel", "png", [1600, 900]],
+  // P presets.
+  ["P", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["P", preset(4, 5), "pub", false, "pixel", "png", [1071, 1339]],
+  ["P", preset(3, 2), "pub", false, "pixel", "png", [1067, 1600]],
+  ["P", preset(16, 9), "pub", false, "pixel", "png", [900, 1600]],
+  // N presets.
+  ["N", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["N", preset(4, 5), "pub", false, "pixel", "png", [858, 1072]],
+  ["N", preset(3, 2), "pub", false, "pixel", "png", [715, 1072]],
+  ["N", preset(16, 9), "pub", false, "pixel", "png", [603, 1072]],
+  // R presets (upright 1071×1600).
+  ["R", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["R", preset(4, 5), "pub", false, "pixel", "png", [1071, 1339]],
+  ["R", preset(3, 2), "pub", false, "pixel", "png", [1067, 1600]],
+  ["R", preset(16, 9), "pub", false, "pixel", "png", [900, 1600]],
+  // S presets, both written orders (a square follows nothing).
+  ["S", preset(1, 1), "pub", false, "pixel", "png", [1071, 1071]],
+  ["S", preset(4, 5), "pub", false, "pixel", "png", [857, 1071]],
+  ["S", preset(5, 4), "pub", false, "pixel", "png", [1071, 857]],
+  ["S", preset(3, 2), "pub", false, "pixel", "png", [1071, 714]],
+  ["S", preset(2, 3), "pub", false, "pixel", "png", [714, 1071]],
+  ["S", preset(16, 9), "pub", false, "pixel", "png", [1071, 602]],
+  ["S", preset(9, 16), "pub", false, "pixel", "png", [602, 1071]],
+  // Swapped presets.
+  ["W", preset(3, 2, true), "pub", false, "pixel", "png", [714, 1071]],
+  ["P", preset(3, 2, true), "pub", false, "pixel", "png", [1071, 714]],
+  // Boxes.
+  ["W", BOX_FREE, "600", false, "pixel", "png", [600, 482]],
+  ["R", { box: [107, 320, 536, 960] }, "800", false, "pixel", "png", [447, 800]],
+  ["W", { box: [0, 0, 1600, 1067] }, "pub", false, "pixel", "png", [1600, 1067]],
+  ["W", { box: [600, 0, 400, 1071] }, "pub", true, "pixel", "png", [400, 1071], [40, true]],
+  ["R", { box: [348, 0, 375, 1600] }, "pub", true, "pixel", "png", [375, 1600], [37, true]],
+  // The free box through the other recipes and formats.
+  ["W", BOX_FREE, "600", false, "cli", "png", [600, 482]],
+  ["W", BOX_FREE, "pub", false, "preview", "jpeg", [800, 643]],
+  ["W", BOX_FREE, "600", false, "pixel", "webp", [600, 482]],
+  ["W", BOX_FREE, "600", false, "pixel", "avif", [600, 482]],
+  // A following preset through the CLI recipe, with the watermark.
+  ["P", preset(3, 2), "1080", true, "cli", "png", [720, 1080], [43, false]],
+  // A placed box inside the upright photo's top-left 1071x1071, resized and marked. Read against
+  // the stored 1600x1071 it would be a different crop, with a different size and mark.
+  ["R", { box: [100, 50, 800, 600] }, "400", true, "pixel", "png", [400, 300], [16, false]],
+];
+const CROP_TABLE = CROP_ROWS.map(([input, crop, size, wm, recipe, format, want, mark], i) => ({
+  n: `C${i + 1}`,
+  input,
+  crop,
+  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm },
+  recipe,
+  format,
+  size: want,
+  mark: mark ?? null,
+  family: "crop",
+  id: `${input}/${cropLabel(crop)}/${size}/${recipe}/${format}`,
+}));
+
+function cropLabel(crop) {
+  if (crop.box) return `box(${crop.box})`;
+  return `${crop.preset.join(":")}${crop.swap ? "-swapped" : ""}`;
+}
+
+const CROP_ROW_COUNT = 36;
+// Every crop row but these has no resize step: C26, C27, C31, C33, C34, C35 and C36.
+const CROP_NO_RESAMPLE_ROWS = CROP_TABLE.map((r) => r.n).filter(
+  (n) => !["C26", "C27", "C31", "C33", "C34", "C35", "C36"].includes(n),
+);
 
 const INPUTS = {
   W: "photo.webp",
@@ -191,6 +318,61 @@ const GOLDEN_CLI_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = 
 // Row 12: the preview path, `previewRecipe(pixelRecipe(both))`. Without it a
 // previewRecipe that dropped its quality would stay green, native and wasm moving together.
 const GOLDEN_PREVIEW_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = "2"\nquality = 88\n');
+
+// The crop rows' golden texts. A box is four fractions of the photo, each the exact pixel
+// edge; a preset is its aspect alone on a square photo, and with the key on a photo that
+// has an orientation to follow. Neither writes a gravity.
+const GOLDEN_CROP_BOX = `version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+x = 0.1
+y = 0.19981325863678806
+width = 0.5
+height = 0.6003734827264239
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 600
+`;
+const GOLDEN_CROP_SQUARE = `version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+aspect = "3:2"
+`;
+const GOLDEN_CROP_CLI = `version = "2"
+format = "png"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+aspect = "3:2"
+orientation = "match"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1080
+
+[[step]]
+op = "watermark"
+text = "© Jane Doe 2026"
+gravity = "southeast"
+size = 43
+margin = 22
+color = "#ffffff"
+opacity = 0.6
+`;
 
 // ── the run ──────────────────────────────────────────────────────────────────
 
@@ -239,7 +421,21 @@ function checkModules(recipes) {
     "cliRecipe",
     "withQuality",
     "PREVIEW_QUALITY",
+    "aspectSize",
+    "followOrientation",
+    "presetCrop",
+    "swapCrop",
+    "cropBox",
+    "cropStep",
+    "shownAspect",
+    "loadPhoto",
+    "ORIENTED_BASE",
   ];
+  // What the model and the loader need from recipe.js, and the one line the worker's
+  // `load` is: the harness runs `loadPhoto` itself, so the worker must run the same one.
+  for (const name of ["aspectSize", "followOrientation", "presetCrop", "swapCrop", "cropBox", "loadPhoto"]) {
+    if (!exported.has(name)) problems.push(`recipe.js lacks ${name}`);
+  }
   for (const file of ["edit.js", "worker.js"]) {
     const text = readFileSync(join(EDIT_DIR, file), "utf8");
     // A .js file may be parsed as CommonJS; the .mjs extension forces a module.
@@ -256,6 +452,9 @@ function checkModules(recipes) {
         if (!exported.has(name)) problems.push(`${file} imports ${name}, which recipe.js lacks`);
       }
     }
+    if (file === "worker.js" && !text.includes("return loadPhoto({ info, transform }, source);")) {
+      problems.push("worker.js's load does not return loadPhoto({ info, transform }, source);");
+    }
     for (const name of owned) {
       if (new RegExp(`(function|const|let)\\s+${name}\\b`).test(text)) {
         problems.push(`${file} defines ${name}, which belongs to recipe.js`);
@@ -270,7 +469,7 @@ function checkModules(recipes) {
   return problems;
 }
 
-/// Load the slim wasm package and return its `transform`.
+/// Load the slim wasm package and return its `transform` and `info`.
 async function loadWasm(pkg) {
   const js = join(pkg, "crustyimg.js");
   const wasm = join(pkg, "crustyimg_bg.wasm");
@@ -280,15 +479,36 @@ async function loadWasm(pkg) {
   try {
     const mod = await import(pathToFileURL(js).href);
     mod.initSync({ module: readFileSync(wasm) });
-    return mod.transform;
+    return { transform: mod.transform, info: mod.info };
   } catch (e) {
     return fatal(`wasm package failed to initialise: ${e.message}`);
   }
 }
 
+/// The page's crop for a row's crop spec: null, a preset (`{ preset: [a, b] }`, with
+/// `swap` for the swapped orientation) or a box (`{ box: [x, y, w, h] }`).
+function cropFor(recipes, spec, photo) {
+  if (!spec) return null;
+  if (spec.box) {
+    const [x, y, w, h] = spec.box;
+    return { box: { x, y, w, h } };
+  }
+  const preset = recipes.presetCrop(...spec.preset, photo);
+  return spec.swap ? recipes.swapCrop(preset, photo) : preset;
+}
+
+/// The photo as the page reads it: `loadPhoto` on the input's bytes, the production
+/// function, so the oriented size comes the way the worker gets it.
+function photoFor(ctx, input) {
+  return ctx.recipes.loadPhoto(ctx, readFileSync(join(FIXTURES, INPUTS[input])));
+}
+
 /// The recipe text for a row, built only from recipe.js.
-function recipeFor(row, recipes) {
-  const edit = recipes.planEdit(STORED_SIZE, { ...FORM, ...EDITS[row.edit] });
+function recipeFor(row, ctx) {
+  const { recipes } = ctx;
+  const photo = photoFor(ctx, row.input);
+  const crop = cropFor(recipes, row.crop, photo);
+  const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, crop);
   const text =
     row.recipe === "pixel"
       ? recipes.pixelRecipe(edit)
@@ -301,19 +521,24 @@ function recipeFor(row, recipes) {
 /// Run every row through wasm and native, decode, compare. `mutateNative` rewrites
 /// the recipe text on the native side only, after it has left recipe.js. Returns the
 /// rows' results; nothing here exits on a failing row.
-function runTable({ recipes, transform, bin, python, mutateNative = (t) => t }) {
+function runTable(ctx, rowList, mutateNative = (t) => t) {
+  const { transform, bin, python } = ctx;
   const dir = mkdtempSync(join(tmpdir(), "ddphotos-parity-"));
   const rows = [];
   const files = [];
-  for (const row of TABLE) {
+  for (const row of rowList) {
     const inputBytes = readFileSync(join(FIXTURES, INPUTS[row.input]));
-    const { edit, text } = recipeFor(row, recipes);
     const base = String(row.n).padStart(2, "0");
     const wasmOut = join(dir, `${base}.wasm.${EXT[row.format]}`);
     const nativeOut = join(dir, `${base}.native.${EXT[row.format]}`);
     const recipeFile = join(dir, `${base}.toml`);
-    const result = { row, edit, text, resamples: resamples(text), error: null };
+    const result = { row, edit: null, text: null, resamples: false, error: null };
     try {
+      // Inside the row's try: a recipe.js that throws on one row fails that row.
+      const { edit, text } = recipeFor(row, ctx);
+      result.edit = edit;
+      result.text = text;
+      result.resamples = resamples(text);
       writeFileSync(wasmOut, transform(inputBytes, text, row.format));
       writeFileSync(recipeFile, mutateNative(text));
       const run = spawnSync(
@@ -356,12 +581,18 @@ function runTable({ recipes, transform, bin, python, mutateNative = (t) => t }) 
     if (native.width !== want[0] || native.height !== want[1]) {
       r.fail.push(`native size ${native.width}x${native.height}, expected ${want[0]}x${want[1]}`);
     }
-    // The page's own arithmetic predicts the size. Rows 15-16 start from the stored
-    // size, so the prediction is the transpose of the (rotated) output.
-    const rotated = r.row.input === "R";
-    const predicted = rotated ? [r.edit.outH, r.edit.outW] : [r.edit.outW, r.edit.outH];
+    // The page's own arithmetic predicts the size, from the photo's shown size.
+    const predicted = [r.edit.outW, r.edit.outH];
     if (predicted[0] !== want[0] || predicted[1] !== want[1]) {
       r.fail.push(`planEdit predicts ${predicted.join("x")}, expected ${want.join("x")}`);
+    }
+    // The watermark the page plans, where the row names it: its size and whether it was
+    // made smaller to fit.
+    if (r.row.mark) {
+      const wm = r.edit.watermark;
+      const got = wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+      const exp = `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`;
+      if (got !== exp) r.fail.push(`planEdit's watermark is ${got}, expected ${exp}`);
     }
   }
   return { dir, rows };
@@ -392,8 +623,9 @@ function image(dims, path) {
 }
 
 /// Checks that are about the table as a whole, not one row. Returns failure messages.
-function tableChecks({ rows }) {
+function tableChecks({ rows: allRows }) {
   const failures = [];
+  const rows = allRows.filter((r) => r.row.family === "table");
   const ran = rows.filter((r) => !r.error).length;
   if (rows.length !== ROW_COUNT) failures.push(`P4: ${rows.length} rows ran, expected ${ROW_COUNT}`);
   if (ran !== rows.length) failures.push(`rows-threw: ${rows.length - ran} rows threw`);
@@ -403,9 +635,9 @@ function tableChecks({ rows }) {
   }
   const byN = (n) => rows.find((r) => r.row.n === n);
   const [r1, r2, r3, r4, r8, r12] = [1, 2, 3, 4, 8, 12].map(byN);
-  if (r4 && r4.text !== GOLDEN_PIXEL_BOTH) failures.push("P5: row 4's recipe text moved");
-  if (r8 && r8.text !== GOLDEN_CLI_BOTH) failures.push("P5: row 8's recipe text moved");
-  if (r12 && r12.text !== GOLDEN_PREVIEW_BOTH) failures.push("P5: row 12's recipe text moved");
+  if (r4 && r4.text !== GOLDEN_PIXEL_BOTH) failures.push("P5-pixel: row 4's recipe text moved");
+  if (r8 && r8.text !== GOLDEN_CLI_BOTH) failures.push("P5-cli: row 8's recipe text moved");
+  if (r12 && r12.text !== GOLDEN_PREVIEW_BOTH) failures.push("P5-preview: row 12's recipe text moved");
   if (r2?.wasm && r2.wasm.width === STORED_SIZE.width && r2.wasm.height === STORED_SIZE.height) {
     failures.push("P2: row 2's resize left the size unchanged");
   }
@@ -414,6 +646,320 @@ function tableChecks({ rows }) {
       if (Buffer.compare(r1[side].rgba, r3[side].rgba) === 0) {
         failures.push(`P3: the watermark drew nothing on the ${side} side (row 3 == row 1)`);
       }
+    }
+  }
+  return failures;
+}
+
+/// Checks about the crop rows as a whole. Returns failure messages.
+function cropChecks({ rows: allRows }) {
+  const failures = [];
+  const rows = allRows.filter((r) => r.row.family === "crop");
+  if (rows.length !== CROP_ROW_COUNT) failures.push(`crop-count: ${rows.length} rows ran, expected ${CROP_ROW_COUNT}`);
+  const exact = rows.filter((r) => !r.resamples).map((r) => r.row.n);
+  if (JSON.stringify(exact) !== JSON.stringify(CROP_NO_RESAMPLE_ROWS)) {
+    failures.push(`crop-resize-set: the rows without a resize step are {${exact}}, expected {${CROP_NO_RESAMPLE_ROWS}}`);
+  }
+  const byN = (n) => rows.find((r) => r.row.n === n);
+  const [c20, c26, c35] = ["C20", "C26", "C35"].map(byN);
+  if (c26 && c26.text !== GOLDEN_CROP_BOX) failures.push("golden-crop-box: C26's recipe text moved");
+  if (c20 && c20.text !== GOLDEN_CROP_SQUARE) failures.push("golden-crop-square: C20's recipe text moved");
+  if (c35 && c35.text !== GOLDEN_CROP_CLI) failures.push("golden-crop-cli: C35's recipe text moved");
+  return failures;
+}
+
+// ── the replay rows ──────────────────────────────────────────────────────────
+//
+// The page's recipe on the published copy (wasm) against the CLI recipe on an original that
+// is `factor` times larger (native), the original made by Pillow (tests/ddphotos_upscale.py).
+// The sizes are literals and equal on both sides in every row; the framing is checked by the
+// PSNR floor of the row's form.
+//   [input, crop, size, watermark on, output size, watermark [size, capped], factor]
+// The form (aspect or box) is read off the crop; the band off the factor.
+const REPLAY_ROWS = [
+  ["W", preset(1, 1), "pub", false, [1071, 1071], null, 4],
+  ["W", preset(4, 5), "pub", false, [1339, 1071], null, 4],
+  ["W", preset(3, 2), "pub", false, [1600, 1067], null, 4],
+  ["W", preset(16, 9), "pub", false, [1600, 900], null, 4],
+  ["P", preset(3, 2), "pub", false, [1067, 1600], null, 4],
+  ["N", preset(3, 2), "pub", false, [715, 1072], null, 4],
+  ["R", preset(3, 2), "pub", false, [1067, 1600], null, 4],
+  ["S", preset(3, 2), "pub", false, [1071, 714], null, 4],
+  ["S", preset(2, 3), "pub", false, [714, 1071], null, 4],
+  ["W", preset(3, 2, true), "pub", false, [714, 1071], null, 4],
+  ["W", BOX_FREE, "600", false, [600, 482], null, 4],
+  ["R", { box: [107, 320, 536, 960] }, "800", false, [447, 800], null, 4],
+  ["W", { box: [0, 0, 1600, 1067] }, "pub", false, [1600, 1067], null, 4],
+  ["W", { box: [600, 0, 400, 1071] }, "pub", true, [400, 1071], [40, true], 4],
+  ["R", { box: [348, 0, 375, 1600] }, "pub", true, [375, 1600], [37, true], 4],
+  // A factor that is not a whole number: a 6000×4016 original.
+  ["W", BOX_FREE, "600", false, [600, 482], null, 3.75],
+  ["W", preset(3, 2), "pub", false, [1600, 1067], null, 3.75],
+].map(([input, crop, size, wm, want, mark, factor], i) => ({
+  n: `R${i + 1}`,
+  input,
+  crop,
+  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm },
+  size: want,
+  mark,
+  factor,
+  kind: crop.box ? "box" : "aspect",
+  band: Number.isInteger(factor) ? "integer" : factor >= 2 ? "2x" : "under-2x",
+  id: `${input}/${cropLabel(crop)}/${size}/${factor}x`,
+}));
+const REPLAY_ROW_COUNT = 17;
+
+/// The replay originals for one run, made once per input and factor in `dir`. `shift` moves
+/// their content left by round(factor) px (the framing-shift control).
+function replayOriginal(ctx, dir, row, shift, made) {
+  const key = `${row.input}@${row.factor}`;
+  if (!made.has(key)) {
+    const dst = join(dir, `original-${row.input}-${row.factor}.${row.input === "R" ? "jpg" : "png"}`);
+    const args = ["-I", join(HERE, "ddphotos_upscale.py"), join(FIXTURES, INPUTS[row.input]), dst, String(row.factor)];
+    if (shift) args.push(String(Math.round(row.factor)));
+    const run = spawnSync(ctx.python, args, { encoding: "utf8" });
+    if (run.error || run.status !== 0) {
+      return fatal(`the replay original could not be made: ${run.error?.message ?? run.stderr.trim()}`);
+    }
+    made.set(key, dst);
+  }
+  return made.get(key);
+}
+
+/// The replay rows. `shift` makes the originals' content move left (the self-test's control).
+/// Returns `{ dir, rows }`; a row's `reasons` list names every limb that failed, in order:
+/// `threw`, `page-size`, `cli-size`, `plan`, `mark`, then `replay-dims` or `psnr`.
+function replayRows(ctx, { shift = false } = {}) {
+  const { recipes, transform, bin, python } = ctx;
+  const dir = mkdtempSync(join(tmpdir(), "ddphotos-replay-"));
+  const made = new Map();
+  const rows = [];
+  const files = [];
+  for (const row of REPLAY_ROWS) {
+    const result = { row, reasons: [], notes: [], error: null };
+    try {
+      // Inside the row's try, so a recipe.js that throws fails this row and not the run.
+      const photo = photoFor(ctx, row.input);
+      const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, cropFor(recipes, row.crop, photo));
+      const original = replayOriginal(ctx, dir, row, shift, made);
+      const pageOut = join(dir, `${row.n}.page.png`);
+      const cliOut = join(dir, `${row.n}.cli.png`);
+      const recipeFile = join(dir, `${row.n}.toml`);
+      writeFileSync(pageOut, transform(readFileSync(join(FIXTURES, INPUTS[row.input])), recipes.pixelRecipe(edit), "png"));
+      writeFileSync(recipeFile, recipes.cliRecipe(edit));
+      const run = spawnSync(bin, ["apply", "--recipe", recipeFile, original, "-o", cliOut, "-y", "-Q"], {
+        encoding: "utf8",
+      });
+      if (run.error) fatal(`native binary could not run: ${run.error.message}`);
+      if (run.status !== 0) throw new Error(`native apply exited ${run.status}: ${run.stderr.trim()}`);
+      files.push(pageOut, cliOut);
+      Object.assign(result, { edit, pageOut, cliOut });
+    } catch (e) {
+      result.error = e.message;
+      result.reasons.push("threw");
+    }
+    rows.push(result);
+  }
+
+  const dims = decode(python, files);
+  for (const r of rows) {
+    if (r.error) continue;
+    const page = image(dims, r.pageOut);
+    const cli = image(dims, r.cliOut);
+    const want = r.row.size;
+    r.page = page;
+    r.cli = cli;
+    r.psnr = psnr(page, cli);
+    if (page.width !== want[0] || page.height !== want[1]) {
+      r.reasons.push("page-size");
+      r.notes.push(`page is ${page.width}x${page.height}, expected ${want.join("x")}`);
+    }
+    if (cli.width !== want[0] || cli.height !== want[1]) {
+      r.reasons.push("cli-size");
+      r.notes.push(`cli is ${cli.width}x${cli.height}, expected ${want.join("x")}`);
+    }
+    if (r.edit.outW !== want[0] || r.edit.outH !== want[1]) {
+      r.reasons.push("plan");
+      r.notes.push(`planEdit predicts ${r.edit.outW}x${r.edit.outH}, expected ${want.join("x")}`);
+    }
+    if (r.row.mark) {
+      const wm = r.edit.watermark;
+      const got = wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+      const exp = `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`;
+      if (got !== exp) {
+        r.reasons.push("mark");
+        r.notes.push(`planEdit's watermark is ${got}, expected ${exp}`);
+      }
+    }
+    const verdict = judgeReplay({ form: r.row.kind, band: r.row.band, page, cli, psnr: r.psnr });
+    if (!verdict.ok) {
+      r.reasons.push(verdict.reason);
+      r.notes.push(`${verdict.reason}: PSNR ${r.psnr.toFixed(2)} dB, floor ${PSNR_FLOOR[r.row.kind]}`);
+    }
+  }
+  return { dir, rows };
+}
+
+/// Checks about the replay rows as a whole. Returns failure messages.
+function replayChecks({ rows }) {
+  const failures = [];
+  if (rows.length !== REPLAY_ROW_COUNT) {
+    failures.push(`replay-count: ${rows.length} rows ran, expected ${REPLAY_ROW_COUNT}`);
+  }
+  return failures;
+}
+
+function reportReplay({ rows }) {
+  for (const r of rows) {
+    const verdict = r.reasons.length === 0 ? "PASS" : "FAIL";
+    const sizes = r.page ? `page ${r.page.width}x${r.page.height} cli ${r.cli.width}x${r.cli.height}` : "did not run";
+    console.log(`${verdict} ${r.row.n} ${r.row.id} ${r.row.kind}/${r.row.band} ${sizes}`);
+    if (r.error) console.log(`     threw: ${r.error}`);
+    for (const note of r.notes) console.log(`     ${note}`);
+  }
+}
+
+// ── the model's own checks ───────────────────────────────────────────────────
+//
+// Pure checks against literals, no binary: a recipe.js mutant moves native and wasm together,
+// so only a number written here can see it.
+
+// [a, b, width, height, expected width, expected height]: the largest a:b box, the short side
+// rounded half up (856.8 is 857, and floors to 856).
+const ASPECT_SIZES = [
+  [3, 2, 1600, 1071, 1600, 1067],
+  [2, 3, 1071, 1600, 1067, 1600],
+  [3, 2, 1071, 1071, 1071, 714],
+  [2, 3, 1071, 1072, 715, 1072],
+  [4, 5, 1071, 1071, 857, 1071],
+  [4, 5, 1071, 1072, 858, 1072],
+  [9, 16, 1600, 1071, 602, 1071],
+  [16, 9, 3, 1, 2, 1],
+];
+
+// [a, b, width, height, expected a, expected b]: the engine's own table of how an aspect is
+// ordered by the image's shape (src/operation/mod.rs, follow_orientation's test).
+const FOLLOW_ROWS = [
+  [16, 9, 64, 48, 16, 9],
+  [9, 16, 64, 48, 16, 9],
+  [16, 9, 48, 64, 9, 16],
+  [9, 16, 48, 64, 9, 16],
+  // A square keeps the aspect as written, either order.
+  [16, 9, 48, 48, 16, 9],
+  [9, 16, 48, 48, 9, 16],
+  // One pixel decides: no tolerance.
+  [16, 9, 48, 49, 9, 16],
+  [9, 16, 49, 48, 16, 9],
+  [1, 1, 64, 48, 1, 1],
+  [1, 1, 48, 64, 1, 1],
+  [1, 1, 48, 48, 1, 1],
+];
+
+const FRACTION_SIDES = [1071, 1600];
+// Every (x, width) on both sides: side · (side + 1) / 2 boxes each.
+const FRACTION_BOX_COUNT = (1071 * 1072) / 2 + (1600 * 1601) / 2;
+
+function modelChecks(recipes) {
+  const failures = [];
+  for (const [a, b, w, h, ew, eh] of ASPECT_SIZES) {
+    const got = recipes.aspectSize(a, b, w, h);
+    if (got[0] !== ew || got[1] !== eh) {
+      failures.push(`model-aspect: ${a}:${b} on ${w}x${h} is ${got.join("x")}, expected ${ew}x${eh}`);
+    }
+  }
+  for (const [a, b, w, h, ea, eb] of FOLLOW_ROWS) {
+    const got = recipes.followOrientation(a, b, w, h);
+    if (got[0] !== ea || got[1] !== eb) {
+      failures.push(`model-follow: ${a}:${b} on ${w}x${h} is ${got.join(":")}, expected ${ea}:${eb}`);
+    }
+  }
+  failures.push(...fractionChecks(recipes));
+  failures.push(...minimumSideChecks(recipes));
+  return failures;
+}
+
+// `resize` mode "max" keeps each side at least 1 px, so a box thinner than the scale predicts
+// a 1 px side, not 0. Pure literals, worked out by hand from the engine's rule (each side is
+// its length times min(size / long side, 1), rounded half up, at least 1):
+//   1460 x 1 at 400:  scale 0.27397, so 400 x 0.27 -> 400 x 1
+//   2 x 1500 at 300:  scale 0.2,     so 0.4 x 300  -> 1 x 300
+const MINIMUM_SIDE_ROWS = [
+  [{ width: 1600, height: 1071 }, { x: 93, y: 131, w: 1460, h: 1 }, 400, [400, 1]],
+  [{ width: 1071, height: 1600 }, { x: 5, y: 100, w: 2, h: 1500 }, 300, [1, 300]],
+];
+
+function minimumSideChecks(recipes) {
+  const failures = [];
+  for (const [photo, box, size, [ew, eh]] of MINIMUM_SIDE_ROWS) {
+    const edit = recipes.planEdit(photo, { ...FORM, size: String(size), wmOn: false }, { box });
+    if (edit.outW !== ew || edit.outH !== eh) {
+      failures.push(
+        `model-min: box ${box.w}x${box.h} at ${size} is ${edit.outW}x${edit.outH}, expected ${ew}x${eh}`,
+      );
+    }
+  }
+  return failures;
+}
+
+/// `planEdit`'s crop text for every box on the sides, read back the way the engine reads it
+/// (each edge rounded on its own, in f64): the same four edges, and the box inside the photo.
+function fractionChecks(recipes) {
+  const failures = [];
+  const form = { ...FORM, size: String(Infinity), wmOn: false };
+  let count = 0;
+  let wrongEdges = 0;
+  let outside = 0;
+  let example = "";
+  for (const side of FRACTION_SIDES) {
+    const photo = { width: side, height: side };
+    for (let x = 0; x < side; x++) {
+      for (let w = 1; x + w <= side; w++) {
+        const text = recipes.planEdit(photo, form, { box: { x, y: 0, w, h: side } }).crop;
+        const [fx, , fw] = text.split("\n").map((line) => Number(line.split(" = ")[1]));
+        count += 1;
+        if (Math.round(fx * side) !== x || Math.round((fx + fw) * side) !== x + w) {
+          wrongEdges += 1;
+          example ||= `${side}: x ${x} w ${w}`;
+        }
+        if (fx + fw > 1) {
+          outside += 1;
+          example ||= `${side}: x ${x} w ${w}`;
+        }
+      }
+    }
+  }
+  if (count !== FRACTION_BOX_COUNT) {
+    failures.push(`model-fractions: ${count} boxes checked, expected ${FRACTION_BOX_COUNT}`);
+  }
+  if (wrongEdges || outside) {
+    failures.push(
+      `model-fractions: ${wrongEdges} boxes read back to other edges and ${outside} run past the photo (first: ${example})`,
+    );
+  }
+  return failures;
+}
+
+/// A preset's box is where the engine puts the aspect: the preset's recipe and a box at
+/// `cropBox`'s numbers give the same pixels. The margins are odd, so a centre rounded the
+/// wrong way moves the frame by a pixel.
+function placementChecks(ctx) {
+  const failures = [];
+  const { recipes, transform } = ctx;
+  const form = { ...FORM, size: String(Infinity), wmOn: false };
+  for (const [input, a, b] of [["W", 1, 1], ["W", 4, 5], ["S", 2, 3]]) {
+    const label = `placement: ${input} ${a}:${b}`;
+    try {
+      const photo = photoFor(ctx, input);
+      const crop = recipes.presetCrop(a, b, photo);
+      const bytes = readFileSync(join(FIXTURES, INPUTS[input]));
+      const asPreset = transform(bytes, recipes.pixelRecipe(recipes.planEdit(photo, form, crop)), "png");
+      const box = { box: recipes.cropBox(crop, photo) };
+      const asBox = transform(bytes, recipes.pixelRecipe(recipes.planEdit(photo, form, box)), "png");
+      if (Buffer.compare(Buffer.from(asPreset), Buffer.from(asBox)) !== 0) {
+        failures.push(`${label} -- the box at cropBox is not where the aspect is placed`);
+      }
+    } catch (e) {
+      failures.push(`${label} -- threw: ${e.message}`);
     }
   }
   return failures;
@@ -450,6 +996,25 @@ function flat(w, h, differ = 0, by = 0) {
   return [
     { width: w, height: h, rgba: base },
     { width: w, height: h, rgba: other },
+  ];
+}
+
+/// B11-B19: the replay comparator's limbs, on synthetic input.
+function replayCases() {
+  const size = (width, height) => ({ width, height });
+  const judged = (form, band, page, cli, db) => () => judgeReplay({ form, band, page, cli, psnr: db });
+  const pair = (value) => ({ width: 2, height: 1, rgba: new Uint8Array(8).fill(value) });
+  return [
+    ["B11 box, integer, 1 px", judged("box", "integer", size(600, 482), size(601, 482), 70), true, ""],
+    ["B12 box, integer, 2 px", judged("box", "integer", size(600, 482), size(602, 482), 70), false, "replay-dims"],
+    ["B13 box, under 2x, 2 px", judged("box", "under-2x", size(600, 482), size(600, 484), 70), true, ""],
+    ["B14 aspect, under 2x, 2 px", judged("aspect", "under-2x", size(1600, 1067), size(1600, 1069), 70), false, "replay-dims"],
+    ["B15 aspect, PSNR 53.5", judged("aspect", "integer", size(8, 8), size(8, 8), 53.5), true, ""],
+    ["B16 aspect, PSNR 53.49", judged("aspect", "integer", size(8, 8), size(8, 8), 53.49), false, "psnr"],
+    ["B17 box, PSNR 58.99", judged("box", "integer", size(8, 8), size(8, 8), 58.99), false, "psnr"],
+    ["B18 box, PSNR NaN", judged("box", "integer", size(8, 8), size(8, 8), NaN), false, "psnr"],
+    // 100 against 101 on every channel: MSE 1, so 10 * log10(255^2) = 48.13 dB.
+    ["B19 PSNR of 100 against 101", () => ({ ok: Math.abs(psnr(pair(100), pair(101)) - 48.13) < 0.005, reason: "" }), true, ""],
   ];
 }
 
@@ -508,6 +1073,7 @@ function comparatorCases() {
       false,
       "bytes",
     ],
+    ...replayCases(),
   ];
   const results = [];
   for (const [name, run, ok, reason] of cases) {
@@ -526,17 +1092,26 @@ function comparatorCases() {
   return results.every((r) => r.good);
 }
 
-const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16];
-const N2_EXPECTED_RED = [4, 8, 12, 13, 14, 16];
+// The table's rows, then the crop rows that carry a watermark or a resize to 1080.
+const N1_EXPECTED_RED = [3, 4, 7, 8, 11, 12, 13, 14, 16, "C29", "C30", "C35", "C36"];
+const N2_EXPECTED_RED = [4, 8, 12, 13, 14, 16, "C35"];
+// One copy pixel of crop width on the free box (C26 and the rows that reuse it): the native
+// output is 601 px wide where the page's is 600, so the sizes differ.
+const N4_EXPECTED_RED = ["C26", "C31", "C32", "C33", "C34"];
 
 function selfTest(ctx) {
   let good = comparatorCases();
   const mutations = [
     ["N1 native opacity 0.6 -> 0.61", (t) => t.replace("opacity = 0.6\n", "opacity = 0.61\n"), N1_EXPECTED_RED],
     ["N2 native width 1080 -> 1079", (t) => t.replace("width = 1080\n", "width = 1079\n"), N2_EXPECTED_RED],
+    [
+      "N4 native crop width 0.5 -> 0.500625",
+      (t) => t.replace("width = 0.5\n", "width = 0.500625\n"),
+      N4_EXPECTED_RED,
+    ],
   ];
   for (const [name, mutateNative, expected] of mutations) {
-    const table = runTable({ ...ctx, mutateNative });
+    const table = runTable(ctx, [...TABLE, ...CROP_TABLE], mutateNative);
     const red = table.rows.filter((r) => r.fail.length > 0).map((r) => r.row.n);
     const same = JSON.stringify(red) === JSON.stringify(expected);
     console.log(`${same ? "PASS" : "FAIL"} ${name}: red rows {${red}}, expected {${expected}}`);
@@ -549,7 +1124,32 @@ function selfTest(ctx) {
     }
   }
   if (!orientationSelfTest(ctx)) good = false;
+  if (!shiftSelfTest(ctx)) good = false;
   return good;
+}
+
+// N5: the originals' content moved left by round(factor) px with the sizes kept, so every size
+// still matches and only the framing is off. Every replay row must go red, and on the PSNR
+// floor alone. Left, not right: an aspect is centred on the copy with its floor and on the
+// original exactly, so the copy's frame always sits half a pixel left of the original's, and a
+// shift to the right would cancel that on some rows.
+const N5_EXPECTED_RED = REPLAY_ROWS.map((r) => r.n);
+
+function shiftSelfTest(ctx) {
+  const replay = replayRows(ctx, { shift: true });
+  const red = replay.rows.filter((r) => r.reasons.length > 0).map((r) => r.row.n);
+  const onPsnr = replay.rows.every((r) => r.reasons.length === 1 && r.reasons[0] === "psnr");
+  const same = JSON.stringify(red) === JSON.stringify(N5_EXPECTED_RED) && onPsnr;
+  console.log(
+    `${same ? "PASS" : "FAIL"} N5 the original's content moved left: red rows {${red}}, expected {${N5_EXPECTED_RED}}` +
+      `${onPsnr ? ", each on psnr" : ", NOT each on psnr"}`,
+  );
+  for (const r of replay.rows) {
+    console.log(`     ${r.row.n} ${r.psnr === undefined ? "-" : r.psnr.toFixed(2)} dB (${r.row.kind} floor ${PSNR_FLOOR[r.row.kind]}) ${r.reasons.join(",") || "green"}`);
+  }
+  if (same) rmSync(replay.dir, { recursive: true, force: true });
+  else console.log(`     kept ${replay.dir}`);
+  return same;
 }
 
 // ── The alpha rule (a pad with a transparent fill) ───────────────────────────
@@ -566,6 +1166,7 @@ const ALPHA_JPEG_LINE =
 
 function alphaRows({ transform, bin, python }) {
   const failures = [];
+  let ran = 0;
   const dir = mkdtempSync(join(tmpdir(), "ddphotos-alpha-"));
   const inputPath = join(FIXTURES, INPUTS.W);
   const inputBytes = readFileSync(inputPath);
@@ -573,6 +1174,7 @@ function alphaRows({ transform, bin, python }) {
   writeFileSync(recipeFile, ALPHA_RECIPE);
 
   // Row A.
+  ran += 1;
   const wasmOut = join(dir, "A.wasm.png");
   const nativeOut = join(dir, "A.native.png");
   try {
@@ -600,6 +1202,7 @@ function alphaRows({ transform, bin, python }) {
   }
 
   // Row B.
+  ran += 1;
   let thrown = null;
   try {
     transform(inputBytes, ALPHA_RECIPE, "jpeg");
@@ -619,7 +1222,10 @@ function alphaRows({ transform, bin, python }) {
   }
   if (existsSync(jpegOut)) failures.push("alpha-B: native wrote a JPEG");
 
+  if (ran !== ALPHA_ROW_COUNT) failures.push(`A-count: ${ran} rows ran, expected ${ALPHA_ROW_COUNT}`);
   if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  // The summary line prints what ran, not the constant.
+  failures.ran = ran;
   return failures;
 }
 
@@ -656,6 +1262,7 @@ const ORIENTATION_ROWS = [
   ["R", false, true, "16:9", [1600, 900], [1904, 1071]],
 ];
 const ORIENTATION_ROW_COUNT = 26;
+const ALPHA_ROW_COUNT = 2;
 
 function orientationText(op, autoOrient, key, aspect) {
   let t = 'version = "2"\n';
@@ -717,6 +1324,8 @@ function orientationRows({ transform, bin, python }, mutate = (t) => t) {
   }
   if (ran !== ORIENTATION_ROW_COUNT) failures.push(`O-count -- ${ran} rows ran, expected ${ORIENTATION_ROW_COUNT}`);
   if (failures.length === 0) rmSync(dir, { recursive: true, force: true });
+  // The summary line prints what ran, not the constant.
+  failures.ran = ran;
   return failures;
 }
 
@@ -757,25 +1366,41 @@ if (problems.length) {
 }
 console.log("PASS modules: edit.js and worker.js parse, and import only what recipe.js exports");
 
-const transform = await loadWasm(resolve(args.pkg));
+const { transform, info } = await loadWasm(resolve(args.pkg));
 const bin = resolve(args.bin);
 if (!existsSync(bin)) fatal(`native binary missing: ${bin}`);
-const ctx = { recipes, transform, bin, python: args.python };
+const ctx = { recipes, transform, info, bin, python: args.python };
 
 if (args.selfTest) {
   process.exit(selfTest(ctx) ? 0 : 1);
 }
 
-const table = runTable(ctx);
+const table = runTable(ctx, [...TABLE, ...CROP_TABLE]);
 report(table);
-const failures = [...tableChecks(table), ...alphaRows(ctx), ...orientationRows(ctx)];
-const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
+const replay = replayRows(ctx);
+reportReplay(replay);
+const alpha = alphaRows(ctx);
+const orientation = orientationRows(ctx);
+const failures = [
+  ...tableChecks(table),
+  ...cropChecks(table),
+  ...modelChecks(recipes),
+  ...placementChecks(ctx),
+  ...replayChecks(replay),
+  ...alpha,
+  ...orientation,
+];
+const rowsFailed =
+  table.rows.filter((r) => r.fail.length > 0).length + replay.rows.filter((r) => r.reasons.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
-// Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each
+// Every failure is counted: row lines, then the other checks (P1-P5 and the rest), each
 // named by the label before its first colon.
 const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
+const familyRows = (family) => table.rows.filter((r) => r.row.family === family).length;
 console.log(
-  `${table.rows.length} rows, ${rowsFailed} row failures, ${failures.length} table failure${failures.length === 1 ? "" : "s"}` +
+  `${familyRows("table")} table rows, ${familyRows("crop")} crop rows, ${replay.rows.length} replay rows, ` +
+    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows; ` +
+    `${rowsFailed} row failures, ${failures.length} other failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
 );
 // Informational, not an assertion: raising K up to the cap turns nothing red, so this
@@ -783,8 +1408,13 @@ console.log(
 const resampled = table.rows.filter((r) => r.cmp && r.resamples && r.cmp.px !== null);
 const largest = Math.max(0, ...resampled.map((r) => r.cmp.px));
 console.log(`largest differing-pixel count on a resampling row: ${largest} (K = ${K})`);
+for (const r of replay.rows) {
+  const db = r.psnr === undefined ? "-" : r.psnr === Infinity ? "inf" : r.psnr.toFixed(2);
+  console.log(`replay ${r.row.n} ${r.row.id}: PSNR ${db} dB, floor ${PSNR_FLOOR[r.row.kind]} (${r.row.kind})`);
+}
 if (rowsFailed > 0 || failures.length > 0) {
-  console.log(`outputs kept in ${table.dir}`);
+  console.log(`outputs kept in ${table.dir} and ${replay.dir}`);
   process.exit(1);
 }
 rmSync(table.dir, { recursive: true, force: true });
+rmSync(replay.dir, { recursive: true, force: true });

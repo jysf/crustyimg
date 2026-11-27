@@ -7,7 +7,7 @@
 // here, so each preview only sends the recipe.
 
 import init, { info, optimizeDetailed, score, transform, version } from "./vendor/crustyimg.js";
-import { previewRecipe } from "./recipe.js";
+import { loadPhoto, previewRecipe } from "./recipe.js";
 
 const msg = (e) => e?.message ?? String(e);
 
@@ -37,10 +37,7 @@ async function handle(req) {
   switch (req.type) {
     case "load": {
       source = new Uint8Array(req.bytes);
-      const i = info(source);
-      const meta = { width: i.width, height: i.height, format: i.format };
-      i.free(); // wasm-side objects are not garbage-collected
-      return meta;
+      return loadPhoto({ info, transform }, source);
     }
 
     case "preview": {
