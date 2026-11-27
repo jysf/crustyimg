@@ -34,4 +34,4 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
 - [x] **punch list 2** (2026-11-27, Sonnet, `prompts/SPEC-164-punchlist-2.md`): `81ea04f`; `open()` waits for
   the new document; CI failure reproduced (body delay) red then green; stale-page form not reproduced. $1.37.
 - [x] **merge** (2026-11-27, maintainer) — PR #274 as 81905d9, head f102e2a.
-- [x] **ship** (2026-11-27, Sonnet, `prompts/SPEC-164-ship.md`): PR #274 merged as 81905d9; spec corrected (design sentence, AC-4, M4, 153 to 157), two ideas filed, archived. Total $39.41.
+- [x] **ship** (2026-11-27, Sonnet, `prompts/SPEC-164-ship.md`): PR #274 merged as 81905d9; spec corrected (design sentence, AC-4, M4, 153 to 157), two ideas filed, archived. Total $39.93.
