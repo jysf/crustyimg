@@ -68,8 +68,8 @@ export class CDP {
     this.handlers.get(msg.method)?.(msg.params, msg.sessionId);
   }
 
-  /// `sessionId` addresses an auto-attached target — the engine's Web Worker is one
-  /// (SPEC-078), and it is a genuinely separate target with its own Runtime and its
+  /// `sessionId` addresses an auto-attached target — the engine's Web Worker is one,
+  /// and it is a genuinely separate target with its own Runtime and its
   /// own Network domain. Without this, the worker's traffic (including the .wasm it
   /// fetches) is invisible from the page's session.
   send(method, params = {}, sessionId) {
@@ -103,13 +103,8 @@ export class CDP {
 
 // ── starting Chrome ───────────────────────────────────────────────────────────
 
-// Chrome startup gets the same budget as every other wait in the checks that use it
-// (90 s). It previously had 100 x 100 ms = 10 s — an order of magnitude tighter than
-// its siblings, for no stated reason — and a cold Chrome on a loaded CI runner misses
-// 10 s routinely. Measured: this was the sole cause of three `pages / build + browser
-// smoke` failures on 2026-08-21, including one on a DOCS-ONLY commit and one on
-// `main`, each dying at almost exactly 10.03 s after the server came up. The
-// identical tree passed on re-run.
+// Chrome's start-up gets 90 s because a cold Chrome on a loaded CI runner can take
+// well over 10 s to open its DevTools port.
 const CHROME_STARTUP_MS = 90_000;
 
 /// Start headless Chrome with its profile in `profileDir`, and attach to its page.

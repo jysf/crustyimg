@@ -993,8 +993,8 @@ function placementChecks(ctx) {
 // Every expected value below is a literal, not read from recipe.js: both sides of the page
 // harness load that file, so a function that is wrong there would agree with itself.
 
-// The crop-mode rows that run: 114 reducer rows, 31 geometry rows and 8 size-line rows.
-const MODE_ROW_COUNT = 153;
+// The crop-mode rows that run: 118 reducer rows, 31 geometry rows and 8 size-line rows.
+const MODE_ROW_COUNT = 157;
 
 // The form the crop-mode rows plan with: the harness's defaults, as published, no watermark.
 const FORM_NO_WM = { ...FORM, size: "", wmOn: false };
@@ -1118,6 +1118,10 @@ const MODE_ROWS = [
   ["X30P","P","p3:2 rs","none",null,null,false,null],
   ["X30S","S","p3:2 rs","none",null,null,false,null],
   ["X30R","R","p3:2 rs","none",null,null,false,null],
+  ["X31W","W","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X31P","P","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X31S","S","p3:2 p3:2","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X31R","R","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
   ["X28S","S","p4:5 sw","aspect 5:4","4:5",null,false,"aspect = \"5:4\"\n"],
   ["X29S","S","p5:4 sw","aspect 4:5","5:4",null,false,"aspect = \"4:5\"\n"],
 ];
@@ -1310,7 +1314,7 @@ function sizeLineChecks(ctx, photos) {
   return failures;
 }
 
-/// The crop mode's reducer, box geometry and size line: 153 rows. `failures.ran` is how many
+/// The crop mode's reducer, box geometry and size line: 157 rows. `failures.ran` is how many
 /// ran, which the summary line prints and which must be the count the rows add up to.
 function modeChecks(ctx) {
   const photos = modePhotos(ctx);

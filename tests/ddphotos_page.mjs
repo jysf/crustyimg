@@ -131,7 +131,7 @@ const ERROR_NOW = `(() => { const e = ${byId("error")}; return e && !e.hidden &&
 
 /// Poll `expression` every 100 ms until it is truthy. Fails at once, quoting the page's
 /// own error box and every page exception so far, when `#error` shows a failure, and
-/// after `timeoutMs` otherwise. (A wait that only timed out took 60 s and could not say why.)
+/// after `timeoutMs` otherwise.
 async function waitFor(expression, what, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   const stop = (lead, error) =>
