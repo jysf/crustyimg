@@ -338,6 +338,24 @@ ideas:
     gate: null
     notes: "A symlink planted at an output name that points to a source now fails at planning with exit 2 `would overwrite \"dist/a.png\", which target #0 reads as a source`, where it used to be the sink's exit 6. Safer, but the message doesn't say the output is a link. Optional polish: add 'through a link' when the planned path is a symlink."
 
+  - id: chrome-checks-leak-on-sigint
+    title: "Ctrl-C during the headless Chrome checks leaves Chrome and two temp folders behind"
+    status: proposed
+    source: "2026-11-27 SPEC-164 verify (PR #274)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Ctrl-C (SIGINT) during `tests/ddphotos_page.mjs` or `tests/demo_smoke.mjs` leaves Chrome running and both temp folders (the fake site and Chrome's profile) behind, because the `finally` cleanup never runs on a signal. Optional polish: handle SIGINT and SIGTERM in `scripts/lib/chrome.mjs` so they kill Chrome and delete the folders."
+
+  - id: chrome-checks-hang-without-timeout
+    title: "A hung Chrome hangs the whole headless check, and the CI job has no timeout"
+    status: proposed
+    source: "2026-11-27 SPEC-164 verify (PR #274)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "CDP calls in `scripts/lib/chrome.mjs` have no timeout, and the `ddphotos-parity` CI job has no `timeout-minutes`, so a Chrome that stops answering hangs the run until the runner's own limit. Optional polish: a per-call timeout in the CDP client and a `timeout-minutes` on the job."
+
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule
     title: "A lint rule that flags near-duplicate images in a site's assets"

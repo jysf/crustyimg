@@ -7,7 +7,7 @@
 task:
   id: SPEC-164
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -20,7 +20,7 @@ repo:
 
 agents:
   architect: claude-opus-5-5
-  implementer: claude-opus-5-5     # usually same Claude, different session
+  implementer: claude-sonnet-5-5   # usually same Claude, different session
   created_at: 2026-11-27
 
 references:
@@ -80,45 +80,71 @@ cost:
       date: 2026-11-27
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 17895068
+      tokens_total: 20478361
       tokens_breakdown:
-        input: 174
-        cache_creation: 252184
-        cache_read: 17556625
-        output: 86085
-      estimated_usd: 7.5
+        input: 192
+        cache_creation: 266124
+        cache_read: 20111903
+        output: 100142
+      estimated_usd: 8.53
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "Measured before the final cost commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 86 messages, all claude-sonnet-5-5, no subagents. Excludes the turns after this measurement (the cost commit, the cycle advance and the report)."
+      note: "Re-measured at ship (was 7.5, taken before the last commits), from the session transcript (found by its first message), deduped by message.id (max output_tokens); 95 messages, all claude-sonnet-5-5, no subagents. Includes the whole session."
+    - cycle: verify
+      date: 2026-11-27
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 13540900
+      tokens_breakdown:
+        input: 148
+        cache_creation: 214080
+        cache_read: 13266700
+        output: 59972
+      estimated_usd: 9.47
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured at ship (the verify session reported 9.18), from the session transcript (found by its first message), deduped by message.id (max output_tokens); 74 messages, all claude-opus-5-5, no subagents. Includes the whole session."
     - cycle: punchlist
       date: 2026-11-27
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2577337
+      tokens_total: 3565856
       tokens_breakdown:
-        input: 66
-        cache_creation: 66263
-        cache_read: 2499687
-        output: 11321
-      estimated_usd: 1.17
+        input: 90
+        cache_creation: 73245
+        cache_read: 3477182
+        output: 15339
+      estimated_usd: 1.55
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "Measured just before the docs commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 32 messages, all claude-sonnet-5-5, no subagents. Excludes the docs commit's own turn and the final report."
+      note: "Re-measured at ship (was 1.17, taken before the docs commit), from the session transcript (found by its first message), deduped by message.id (max output_tokens); 42 messages, all claude-sonnet-5-5, no subagents. Includes the whole session."
     - cycle: punchlist-2
       date: 2026-11-27
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 2059972
+      tokens_total: 2911342
       tokens_breakdown:
-        input: 56
-        cache_creation: 60333
-        cache_read: 1987878
-        output: 11705
-      estimated_usd: 1.0
+        input: 78
+        cache_creation: 69991
+        cache_read: 2823643
+        output: 17630
+      estimated_usd: 1.37
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
-      note: "Measured just before the commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 27 messages, all claude-sonnet-5-5, no subagents. Excludes the commit, the push, the CI check and the report."
+      note: "Re-measured at ship (was 1.0, which excluded the commit, the push and the CI watch), from the session transcript (found by its first message), deduped by message.id (max output_tokens); 36 messages, all claude-sonnet-5-5, no subagents. Includes the whole session."
+    - cycle: ship
+      date: 2026-11-27
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1266384
+      tokens_breakdown:
+        input: 30
+        cache_creation: 73525
+        cache_read: 1183297
+        output: 9532
+      estimated_usd: 0.77
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Provisional; re-measured after the final push."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 63713809
+    estimated_usd: 39.41
+    session_count: 7
 ---
 
 # SPEC-164: Crop on the ddphotos edit page: the crop state model, the CLI sentence and a headless page check
@@ -717,7 +743,8 @@ runner, a headless page check) lived in the scratchpad and are not committed.*
   - **It never mutates `state`** (the table deep-freezes every state, so a write throws).
   - **An action that changes nothing returns the same object** (`===`). That is how the DOM
     disables Swap (`cropReducer(state, { type: "swap" }, photo) === state`), with no rule of its
-    own.
+    own. The two exceptions: `preset` and `drag-start` always return a new state (X31 pins
+    `preset`) (corrected at ship).
   - **The actions:**
     - `{ type: "preset", a, b }`: `crop: presetCrop(a, b, photo)`, `preset: [a, b]`, `drag: null`.
     - `{ type: "swap" }`: the same object in S0, on a box and on a 1:1 aspect. Otherwise
@@ -913,8 +940,8 @@ call `just ddphotos-page`, so it builds the wasm once.)
 A new `modeChecks(ctx)` runs after `modelChecks`, and its failures join `failures` with three
 labels: `mode-reducer:`, `mode-geometry:` and `mode-size-line:`. The summary line names each
 failure kind (trap 15), and gains one count of what ran, not the constant:
-`…, 2 alpha rows, 153 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`.
-`modeChecks` also fails `mode-count: <n> crop-mode rows ran, expected 153` when the count is off.
+`…, 2 alpha rows, 157 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`.
+`modeChecks` also fails `mode-count: <n> crop-mode rows ran, expected 157` when the count is off.
 Every expected value is a literal from this design's independent model (trap 19); none is computed
 from `recipe.js`.
 
@@ -1120,7 +1147,7 @@ const MODE_ROWS = [
   (the frame's example)
 - L8 W, `swapCrop(presetCrop(3, 2))`, 1080: `Crop 2:3, 714 × 1071 of 1600 × 1071 · the copy will be 714 × 1071`
 
-**Count: 114 + 31 + 8 = 153 crop-mode rows.** The prototype ran all 153 green against the
+**Count: 118 + 31 + 8 = 157 crop-mode rows** (corrected at ship: X31 added at punch list 1). The prototype ran all 153 green against the
 candidate `recipe.js`.
 
 ### The mutation table, driven
@@ -1139,7 +1166,9 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
   `… crop step "aspect = \"2:3\"\norientation = \"match\"\n", expected "aspect = \"2:3\"\n"`.
   Driven. (The real harness's existing swapped CROP_TABLE rows also go red on it.)
 - **M4 a zero move turns S1 into S3.** Edit: `toBox` drops its
-  `!s.crop?.box && sameBox(box, from) ? s :` guard. Red: X10 on all four shapes. First message:
+  `!s.crop?.box && sameBox(box, from) ? s :` guard. Red: X10 and X21 on all four shapes, 28 failure lines, because the drag and key paths share
+  `toBox`; a drag-only edit turns only X10 red (found by build, confirmed by verify; corrected at
+  ship). First message:
   `FAIL mode-reducer: X10W "p4:5 ds:move dm:0,0": crop box 130,0,1339,1071, expected aspect 4:5 follow`.
   Driven.
 - **M5 Done keeps the drag** (the function side; the DOM entry drives the wiring). Edit:
@@ -1243,7 +1272,7 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
 ### Nothing else changes: what pins it
 
 - **The parity summary line keeps its counts:** `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows`,
-  with `153 crop-mode rows` added after them, and `0 row failures, 0 other failures, K=1 (cap 78)`.
+  with `157 crop-mode rows` added after them, and `0 row failures, 0 other failures, K=1 (cap 78)`.
 - **`--self-test`'s output is unchanged:** B1–B19 and N1–N5 PASS on their expected rows.
 - **`TABLE`, `CROP_TABLE`, `REPLAY_TABLE`, `ORIENTATION_ROWS`, the alpha rows and the golden
   texts are unchanged.** The build's `git diff` of `tests/ddphotos_parity.mjs` adds only
@@ -1305,7 +1334,7 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
   - `integrations/ddphotos/edit/index.html`: the `#cli-note` paragraph.
   - `integrations/ddphotos/edit/edit.js`: one line filling `#cli-size` from `photo`.
   - `integrations/ddphotos/README.md`: the CLI row's clause.
-  - `tests/ddphotos_parity.mjs`: `modeChecks` and its 153 rows, the `owned` and required-export
+  - `tests/ddphotos_parity.mjs`: `modeChecks` and its 157 rows, the `owned` and required-export
     names, and the summary count.
   - `tests/demo_smoke.mjs`: imports from `scripts/lib/chrome.mjs`; no behaviour change.
   - `justfile`: `ddphotos-page`.
@@ -1327,7 +1356,8 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
   box under 64 px grow but not shrink, and throws on an unknown handle (G12–G27, G30).
 - [x] **AC-4** `cropReducer` implements the nine actions and the `{ crop, preset, drag }` state as
   designed. It starts from `cropReducer(null, { type: "reset" })`, returns the same object when
-  nothing changes, never mutates its input, and throws on an unknown action (X1–X30, G29, G31).
+  nothing changes, except `preset` and `drag-start`, which always return a new state, never
+  mutates its input, and throws on an unknown action (X1–X31, G29, G31) (corrected at ship).
 - [x] **AC-5** Every reducer row's crop step text, through `planEdit`, equals its literal. Swap is
   disabled in S0, on a box and on 1:1, live on a square, and twice stays explicit (X4–X9, X17,
   X28S, X29S). `cropStep`, `presetCrop`, `swapCrop` and `cropBox` are unchanged, so no recipe rule
@@ -1337,7 +1367,7 @@ guard is a literal (trap 19). The literal that catches each one is in the red li
 - [x] **AC-7** `checkModules` requires the six names from `recipe.js` and lists them, and every
   private helper the build adds, in `owned`. `main`'s `recipe.js` restored gives the six
   `recipe.js lacks …` lines, and an `edit.js` that defines one of them is refused.
-- [x] **AC-8** The parity summary line keeps its five counts and adds `153 crop-mode rows`. Every
+- [x] **AC-8** The parity summary line keeps its five counts and adds `157 crop-mode rows`. Every
   crop-mode failure is counted under "other failures" with its `mode-reducer`, `mode-geometry`,
   `mode-size-line` or `mode-count` label. `--self-test` is unchanged.
 - [x] **AC-9** The CLI panel shows the designed sentence. `edit.js` fills its size from `photo` at
@@ -1374,8 +1404,8 @@ Written during **design**, BEFORE build. The implementer's job in **build** is t
     `cropReducer`).
   - `"mode-geometry G1 … G31"`: the 31 geometry rows (AC-1, AC-2, AC-3, AC-4).
   - `"mode-size-line L1 … L8"`: the 8 size-line rows (AC-6).
-  - `"mode-count"`: 153 crop-mode rows ran (AC-8).
-  - `"summary line"`: it reads `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 153 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`
+  - `"mode-count"`: 157 crop-mode rows ran (AC-8).
+  - `"summary line"`: it reads `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 157 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`
     (AC-8, AC-16).
 - **`tests/ddphotos_page.mjs`** (run by `just ddphotos-page`; new)
   - `"H1 page loads"` (AC-11).
@@ -1475,7 +1505,7 @@ create a new spec rather than expanding this one.
 ## Notes for the Implementer
 
 - **Order and checkpoints** (long cycles must checkpoint; push after each):
-  1. The failing tests: `modeChecks` with the 153 literal rows, the `checkModules` names, and
+  1. The failing tests: `modeChecks` with the 157 literal rows, the `checkModules` names, and
      `tests/ddphotos_page.mjs` with H1–H8. Run both against `main`'s page and quote the red lines
      (the six module lines; H4 and H7 `<no #cli-note>`). Commit and push.
   2. `scripts/lib/chrome.mjs` and `demo_smoke.mjs` on it; `just demo-smoke` green. Commit and push.
@@ -1542,7 +1572,7 @@ create a new spec rather than expanding this one.
   - `justfile`: the `ddphotos-page` recipe.
   - `scripts/lib/chrome.mjs` (new): `findChrome`, `CDP`, `launchChrome`.
   - `tests/ddphotos_page.mjs` (new): the headless page check, H1–H8.
-  - `tests/ddphotos_parity.mjs`: `modeChecks` with 153 literal rows, the six names in `checkModules` (required and `owned`), the four helpers in `owned`, and the summary count.
+  - `tests/ddphotos_parity.mjs`: `modeChecks` with 157 literal rows, the six names in `checkModules` (required and `owned`), the four helpers in `owned`, and the summary count.
   - `tests/demo_smoke.mjs`: imports the shared lib; its start-up code moved out; checks and output unchanged.
   - This spec (timeline, ACs, cost, Build Completion).
 - **Unchanged, as required:** `git diff --stat origin/main...HEAD -- src tests/fixtures recipes integrations/ddphotos/edit/worker.js CHANGELOG.md` prints nothing.
@@ -1688,10 +1718,42 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Four things, all from the evidence. (a) The page check's `open()` race passed the design's
+   prototype, the build, a local run and two CI runs, then failed on the third (CI at `10ae6e5`:
+   `Cannot read properties of null (reading 'src')`). No cycle asked how the check knows which document
+   it is reading. Two checks would have caught it: a prompt line that every wait after a navigation must
+   prove which document it is in (a marker on the old window, as punch list 2 added), and one run
+   against a server that delays the body. Punch list 2 showed only a delayed body reproduces it; a
+   delayed header did not, because `Page.navigate` waits for the response to start. (b) The orchestrator
+   predicted a second form (R reading the stale W page), and punch list 2 could not reproduce it with
+   any server delay. That form is a hypothesis read off the code, and it was filed as a prediction
+   before anyone drove it; a mechanism nobody has driven goes in as "not driven", not as a second
+   punch item. (c) Two cells claimed more than the code does. Design drove M4 but tabled the red set it
+   expected (X10), not the one it got (X10 and X21, because `toBox` is shared by the drag and key
+   paths), and AC-4's "the same object when nothing changes" is false for `preset` and `drag-start`.
+   The build found the first and the verify the second. (d) Punch list 1 ran its negative control on
+   its working copy of `recipe.js` and restored it with `git checkout`, not on a scratch copy; it came
+   back clean, but a control that edits the file under test can leave it edited.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) "A headless check waits for the navigated document before its first
+   poll": not covered. AGENTS §15–16 and `guidance/constraints.yaml` don't mention navigation, and the
+   PROJ-011 HANDOFF (`projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`, traps 1–21) has
+   nothing on it; this spec is the first evidence. (ii) "A mutation cell records the red set as
+   driven, never as expected": partly covered. HANDOFF trap 12 (name where the mutation is applied and
+   every test expected red) and trap 13 (quote each red row's message) cover the reason and the
+   targets, and AGENTS §15 says the red set is read off one run of every target; none says that a cell
+   which names the red set must hold the run's set. M4 is the first sighting where the design's
+   mutation was driven but its cell was not rewritten from the run. (iii) "A negative control runs on
+   a scratch copy": HANDOFF trap 14 asks for the old code put back verbatim, which covers the
+   restore but not the choice of file; this spec's punch list 1 is the first evidence. (iv)
+   SPEC-161's and SPEC-163's proposals
+   (parity mutants on both sides, both orders for square rows, a refused push) were applied as traps
+   19–21 and not exercised again here; SPEC-160's three proposals were not exercised either. No DEC
+   changes.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None beyond the two ideas and the DOM-entry sentence this ship filed
+   (`chrome-checks-leak-on-sigint`, `chrome-checks-hang-without-timeout`, and the stale `drag.start`
+   note on STAGE-060's DOM entry). The evidence names no other gap, and the stale-page form of the race
+   is not filed, because punch list 2 could not reproduce it.

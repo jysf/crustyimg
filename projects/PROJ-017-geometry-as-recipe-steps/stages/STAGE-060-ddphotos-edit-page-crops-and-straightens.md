@@ -124,7 +124,7 @@ In build order.
   **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
   reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
   orientation-key entry above.
-- [ ] **SPEC-164** (designed 2026-11-27) — [M] **Crop on the page: the crop mode.** The second half of the entry
+- [x] **SPEC-164** (merged 2026-11-27, PR #274) — [M] **Crop on the page: the crop mode.** The second half of the entry
   above, split at SPEC-161's frame. A "Crop" button shows the oriented base image (rendered once at
   load by SPEC-161's worker) with a DOM box over it; dragging renders nothing, and "Done" schedules
   one finished preview. Preset buttons (1:1, 4:5, 3:2, 16:9) that follow the photo's orientation,
@@ -175,6 +175,8 @@ In build order.
   (ratio not applied, ratio from the finished preview, per-move rounding, a drag that renders, Done
   not clearing the pointer state). ⚠ Alt+Left/Right are Back/Forward in Chrome on Windows and Linux:
   design checks the page can keep them. After SPEC-164 and the watermark-fit entry above.
+  Found at SPEC-164's verify: a Swap or a key press during a drag leaves `drag.start` stale, so the DOM
+  entry decides whether they end the drag or are ignored mid-drag.
 - [ ] (not yet written) — [S] **Straighten on the page.** An angle control emitting a
   `rotate` step in `crop-to-fit` mode, ordered before `crop` so a straighten-then-crop is the
   natural flow. Parity rows within STAGE-059's stated bound. Waits for STAGE-059.
@@ -194,7 +196,7 @@ In build order.
   no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
   Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
 
-**Count:** 4 resolved (3 shipped specs, 1 folded) / 1 active / 5 pending — re-derived 2026-11-27 at SPEC-164's frame, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (3), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
+**Count:** 5 resolved (4 shipped specs, 1 folded) / 0 active / 5 pending — re-derived 2026-11-27 at SPEC-164's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (4), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
 
 ## Design Notes
 
