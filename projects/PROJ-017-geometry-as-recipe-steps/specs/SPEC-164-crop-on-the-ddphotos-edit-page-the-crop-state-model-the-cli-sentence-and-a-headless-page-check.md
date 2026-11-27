@@ -89,6 +89,19 @@ cost:
       estimated_usd: 7.5
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "Measured before the final cost commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 86 messages, all claude-sonnet-5-5, no subagents. Excludes the turns after this measurement (the cost commit, the cycle advance and the report)."
+    - cycle: punchlist
+      date: 2026-11-27
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2577337
+      tokens_breakdown:
+        input: 66
+        cache_creation: 66263
+        cache_read: 2499687
+        output: 11321
+      estimated_usd: 1.17
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured just before the docs commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 32 messages, all claude-sonnet-5-5, no subagents. Excludes the docs commit's own turn and the final report."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1602,6 +1615,21 @@ Process-focused: how did the build go? What friction did the spec create?
 
 3. **If you did this task again, what would you do differently?**
    — I would write the reducer from the mutation table first: split `drag-end` and `done`, keep `toBox` separate for the drag and key paths, and leave out the same-object shortcut on `preset`. Those three choices cost me a re-run each. I would also build the scratch mutation worktree before the first push, since a 25 s harness makes the full table cheap. No design call turned out wrong; the one cell that needs a correction is M4's (X10 and X21).
+
+### Punch list (verify)
+
+- **Comments as they now read:**
+  - `scripts/lib/chrome.mjs`: "`sessionId` addresses an auto-attached target — the engine's Web Worker is one, and it is a genuinely separate target with its own Runtime and its own Network domain."
+  - `scripts/lib/chrome.mjs`: "Chrome's start-up gets 90 s because a cold Chrome on a loaded CI runner can take well over 10 s to open its DevTools port." (`CHROME_STARTUP_MS` unchanged.)
+  - `tests/ddphotos_page.mjs`, `waitFor`: ends "... and after `timeoutMs` otherwise."
+- **X31 rows** (`p3:2 p3:2`, same-object `false`), literals copied from the X1 row of the same shape (the `p3:2` press from `reset`):
+  - X31W from X1W and X31P from X1P: `aspect 3:2 follow`, preset `3:2`, no drag, step `aspect = "3:2"` + `orientation = "match"`.
+  - X31R from X1R: same literals as X1W.
+  - X31S from X1S: `aspect 3:2`, preset `3:2`, no drag, step `aspect = "3:2"`.
+  - Counts: crop-mode rows 153 to 157 (118 reducer rows); `MODE_ROW_COUNT` and the two comments holding the count updated.
+- **Negative control** (`return s` added to `case "preset"` when the preset is already active and no drag; run on the worktree's `recipe.js`, then restored with `git checkout`): red on all four. First failure line: `FAIL mode-reducer: X31W "p3:2 p3:2": same state true, expected false`. X7W/P/S/R (`p3:2 sw p3:2`) also went red, three failures each; no other row. Restored: green.
+- **Parity summary:** `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 157 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`. Page check last line: `ddphotos-page: 8 rows, 0 failed`. Demo smoke last line: `demo-smoke: the demo loads crustyimg 0.8.2 in a real browser over HTTP, runs the web flow client-side, and funnels to the CLI. ✓`.
+- **CI at 3852b45:** all legs pass (the release/publish legs skipped); the CI log's parity line and page-check line match the above.
 
 ---
 
