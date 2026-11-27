@@ -224,7 +224,11 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     design tabled N4 as red "on `dims`" and M4's C30 as "560×1071 with mark 43", reasons it hadn't
     read off a run. Build and verify found four of N4's five rows fail on the comparator's `max`,
     and M4's rows throw on an engine refusal. **A design that tables a mutation quotes each red
-    row's failure message from a run, or marks the reason "not driven".**
+    row's failure message from a run, or marks the reason "not driven".** **The red set is read off
+    the run too** (SPEC-164): its design drove M4 but kept the cell it expected, "X10 on all four
+    shapes". The build's edit turned X10 and X21 red, 28 failure lines, because the drag and key
+    paths share `toBox`. **When a run's red set differs from the cell, the cell is rewritten from the
+    run, and the cell names the edit that produced it.**
 14. **⚡ A TEST FOR A FIXED PATH CALLS THE PRODUCTION FUNCTION, AND THE OLD CODE PUT BACK VERBATIM
     TURNS IT RED.** SPEC-141's first punch list fixed a missing-golden panic in `golden_path_for`,
     and its new test (FT-9) drove the report builder through a closure that never called it. The
@@ -233,6 +237,10 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     new mutation. **A bless or golden guard's design also drives the next user's path:** add a new
     case by the README alone and record where it first goes green. That one row would have found
     SPEC-141's missing dump and unnamed literals at design, not over two verify rounds.
+    **A negative control edits a scratch copy, never the file under test** (SPEC-164). Its first
+    punch list put a same-object shortcut into the worktree's `recipe.js` and restored it with
+    `git checkout`. That came back clean, but a control that edits the real file can be committed
+    or left edited if the session stops. Point the harness at the copy, then show `git diff` empty.
 15. **⚡ A CI STEP THAT BRANCHES ON A COMMAND'S OUTPUT ASSIGNS IT FIRST, THEN VALIDATES IT; A
     SUMMARY LINE COUNTS EVERY FAILURE KIND.** SPEC-142's `changes` step compared
     `"$(… | scripts/ci-code-paths.sh)"` inside `[ … ]`. Under `bash -e` a failing substitution there
@@ -283,6 +291,16 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     **Every prompt that pushes says: if a push is refused, stop, name the commits and the command
     for the maintainer, and check `git ls-remote` before saying anything landed.** A "Changes must
     be made through a pull request" notice can still mean the push landed.
+22. **⚡ A HEADLESS CHECK PROVES WHICH DOCUMENT IT IS READING BEFORE ITS FIRST POLL.** SPEC-164's
+    page check sent `Page.navigate` and polled at once. The command returns when the navigation
+    starts, so a poll could run in the previous document. It passed the design prototype, the build,
+    local runs and two CI runs, then failed in CI on the third with `Cannot read properties of null
+    (reading 'src')` on `about:blank`. Punch list 2 reproduced it only by delaying the page's
+    **body**; a delayed header didn't, because the navigate waits for the response to start. **Every
+    navigation marks the old window and waits until the new one is loaded at the expected URL.
+    Design and verify run the check once against a server that delays the body.** A predicted second
+    form, the next photo read on the old page, was never reproduced, so it stays unclaimed: a
+    mechanism nobody drove is recorded as a guess, not filed as a finding.
 
 ## What is working, and worth keeping
 
