@@ -148,8 +148,26 @@ async function waitFor(expression, what, timeoutMs = 60_000) {
   throw stop("timed out", await cdp.eval(ERROR_NOW));
 }
 
+/// Navigate and wait until the new document is the one being read. The navigation
+/// command returns before the new page exists, so without this wait the first poll can
+/// run in the previous document (a blank page, or the last photo's page).
 async function open(path) {
-  await cdp.send("Page.navigate", { url: `${baseUrl}${path}` });
+  const url = `${baseUrl}${path}`;
+  // Marks the document we are leaving; the new document will not have it.
+  await cdp.eval("window.__leaving = true");
+  await cdp.send("Page.navigate", { url });
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    // A poll can land mid-navigation, so a throw here means "not there yet".
+    const arrived = await cdp
+      .eval(
+        `window.__leaving !== true && location.href === ${JSON.stringify(url)} && document.readyState !== "loading"`,
+      )
+      .catch(() => false);
+    if (arrived) return;
+    await sleep(50);
+  }
+  throw new Stop(`timed out waiting for ${url} to load`);
 }
 
 /// Wait until the first preview is on screen: the engine's JPEG, as a blob URL.

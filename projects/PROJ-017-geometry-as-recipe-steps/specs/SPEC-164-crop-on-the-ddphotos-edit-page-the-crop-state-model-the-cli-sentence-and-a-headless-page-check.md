@@ -102,6 +102,19 @@ cost:
       estimated_usd: 1.17
       rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "Measured just before the docs commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 32 messages, all claude-sonnet-5-5, no subagents. Excludes the docs commit's own turn and the final report."
+    - cycle: punchlist-2
+      date: 2026-11-27
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2059972
+      tokens_breakdown:
+        input: 56
+        cache_creation: 60333
+        cache_read: 1987878
+        output: 11705
+      estimated_usd: 1.0
+      rates: "Sonnet $3/$15 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured just before the commit, from the session transcript (found by content), deduped by message.id (max output_tokens); 27 messages, all claude-sonnet-5-5, no subagents. Excludes the commit, the push, the CI check and the report."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1630,6 +1643,42 @@ Process-focused: how did the build go? What friction did the spec create?
 - **Negative control** (`return s` added to `case "preset"` when the preset is already active and no drag; run on the worktree's `recipe.js`, then restored with `git checkout`): red on all four. First failure line: `FAIL mode-reducer: X31W "p3:2 p3:2": same state true, expected false`. X7W/P/S/R (`p3:2 sw p3:2`) also went red, three failures each; no other row. Restored: green.
 - **Parity summary:** `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 157 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)`. Page check last line: `ddphotos-page: 8 rows, 0 failed`. Demo smoke last line: `demo-smoke: the demo loads crustyimg 0.8.2 in a real browser over HTTP, runs the web flow client-side, and funnels to the CLI. ✓`.
 - **CI at 3852b45:** all legs pass (the release/publish legs skipped); the CI log's parity line and page-check line match the above.
+
+### Punch list 2 (CI race)
+
+- **Cause:** `open()` sent `Page.navigate` and returned, and the navigation command returns once the response has begun, not once the new document has parsed, so the first `waitFor` poll could run in a document with no `#preview` (CI at 10ae6e5: `Cannot read properties of null (reading 'src')`).
+- **The new `open()`** (only `tests/ddphotos_page.mjs` changed):
+  ```js
+  /// Navigate and wait until the new document is the one being read. The navigation
+  /// command returns before the new page exists, so without this wait the first poll can
+  /// run in the previous document (a blank page, or the last photo's page).
+  async function open(path) {
+    const url = `${baseUrl}${path}`;
+    // Marks the document we are leaving; the new document will not have it.
+    await cdp.eval("window.__leaving = true");
+    await cdp.send("Page.navigate", { url });
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      // A poll can land mid-navigation, so a throw here means "not there yet".
+      const arrived = await cdp
+        .eval(`window.__leaving !== true && location.href === ${JSON.stringify(url)} && document.readyState !== "loading"`)
+        .catch(() => false);
+      if (arrived) return;
+      await sleep(50);
+    }
+    throw new Stop(`timed out waiting for ${url} to load`);
+  }
+  ```
+  `waitFor` still lets predicate throws fail.
+- **(a) The CI failure.** A scratch preload wrapper (not committed) answers `/edit/index.html` with its headers at once and its body 2 s later. A delay on the headers alone did **not** reproduce it: `Page.navigate` waits for the response to begin, so that run passed (8 rows, exit 0).
+  - Without the fix, body delayed: exit 1, `FAIL Error: TypeError: Cannot read properties of null (reading 'src')` ... `at async waitForFirstPreview ... run`, then `ddphotos-page: 0 rows, 1 failed`.
+  - With the fix, same delay: exit 0, `ddphotos-page: 8 rows, 0 failed`.
+- **(b) The stale page.** A scratch copy logged `location.search` when `waitForFirstPreview("R")` returned, with the delay on `photo=2` only.
+  - Without the fix: **not reproduced**. Body delayed: exit 1, the same `reading 'src'` failure on R (5 rows, 1 failed), the new empty document and not the old W page. Headers delayed: `location.search = ?album=test&photo=2`, 8 rows, 0 failed. The stale-W form is a hypothesis from reading the code; I could not make it happen with a server delay.
+  - With the fix, body delayed: `PROBE ... location.search = ?album=test&photo=2`, exit 0, 8 rows, 0 failed.
+- **Five page-check runs, fix, no delay:** exit codes 0, 0, 0, 0, 0. Last line: `ddphotos-page: 8 rows, 0 failed`.
+- **Parity:** `16 table rows, 36 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows, 157 crop-mode rows; 0 row failures, 0 other failures, K=1 (cap 78)` (exit 0). **Demo smoke** (exit 0): `demo-smoke: the demo loads crustyimg 0.8.2 in a real browser over HTTP, runs the web flow client-side, and funnels to the CLI. ✓`.
+- **Temp folders:** `ddphotos-*` in the system temp folder: 5 folders, 1,723,616 KB before and after; none deleted.
 
 ---
 
