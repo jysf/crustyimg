@@ -430,10 +430,29 @@ function checkModules(recipes) {
     "shownAspect",
     "loadPhoto",
     "ORIENTED_BASE",
+    "toCopyDelta",
+    "moveBox",
+    "resizeBox",
+    "MIN_CROP",
+    "cropReducer",
+    "sizeLine",
   ];
   // What the model and the loader need from recipe.js, and the one line the worker's
   // `load` is: the harness runs `loadPhoto` itself, so the worker must run the same one.
-  for (const name of ["aspectSize", "followOrientation", "presetCrop", "swapCrop", "cropBox", "loadPhoto"]) {
+  for (const name of [
+    "aspectSize",
+    "followOrientation",
+    "presetCrop",
+    "swapCrop",
+    "cropBox",
+    "loadPhoto",
+    "toCopyDelta",
+    "moveBox",
+    "resizeBox",
+    "MIN_CROP",
+    "cropReducer",
+    "sizeLine",
+  ]) {
     if (!exported.has(name)) problems.push(`recipe.js lacks ${name}`);
   }
   for (const file of ["edit.js", "worker.js"]) {
@@ -965,6 +984,342 @@ function placementChecks(ctx) {
   return failures;
 }
 
+// ── the crop mode's state and box functions ──────────────────────────────────
+
+// Every expected value below is a literal, not read from recipe.js: both sides of the page
+// harness load that file, so a function that is wrong there would agree with itself.
+
+// The crop-mode rows that run: 114 reducer rows, 31 geometry rows and 8 size-line rows.
+const MODE_ROW_COUNT = 153;
+
+// The form the crop-mode rows plan with: the harness's defaults, as published, no watermark.
+const FORM_NO_WM = { ...FORM, size: "", wmOn: false };
+
+// Reducer rows: [id, photo, actions, crop, preset, drag, same state, crop step text].
+// Actions: pA:B a preset, sw swap, ds:H drag-start on handle H, dm:X,Y drag-move, de drag-end,
+// dn done, km:X,Y key-move, kr:X,Y key-resize, rs reset. The columns after the actions are what
+// the last action leaves: the crop (none, `aspect a:b`, `aspect a:b follow` or `box x,y,w,h`),
+// the preset button, the drag (`handle@x,y,w,h`), whether it returned the same state object,
+// and the crop step's text for the form above (null for no crop step).
+const MODE_ROWS = [
+  ["X1W","W","p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X1P","P","p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X1S","S","p3:2","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X1R","R","p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X2W","W","p2:3","aspect 2:3 follow","2:3",null,false,"aspect = \"2:3\"\norientation = \"match\"\n"],
+  ["X2P","P","p2:3","aspect 2:3 follow","2:3",null,false,"aspect = \"2:3\"\norientation = \"match\"\n"],
+  ["X2S","S","p2:3","aspect 2:3","2:3",null,false,"aspect = \"2:3\"\n"],
+  ["X2R","R","p2:3","aspect 2:3 follow","2:3",null,false,"aspect = \"2:3\"\norientation = \"match\"\n"],
+  ["X3W","W","p1:1","aspect 1:1","1:1",null,false,"aspect = \"1:1\"\n"],
+  ["X3P","P","p1:1","aspect 1:1","1:1",null,false,"aspect = \"1:1\"\n"],
+  ["X3S","S","p1:1","aspect 1:1","1:1",null,false,"aspect = \"1:1\"\n"],
+  ["X3R","R","p1:1","aspect 1:1","1:1",null,false,"aspect = \"1:1\"\n"],
+  ["X4W","W","p3:2 sw","aspect 2:3","3:2",null,false,"aspect = \"2:3\"\n"],
+  ["X4P","P","p3:2 sw","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X4S","S","p3:2 sw","aspect 2:3","3:2",null,false,"aspect = \"2:3\"\n"],
+  ["X4R","R","p3:2 sw","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X5W","W","p2:3 sw","aspect 2:3","2:3",null,false,"aspect = \"2:3\"\n"],
+  ["X5P","P","p2:3 sw","aspect 3:2","2:3",null,false,"aspect = \"3:2\"\n"],
+  ["X5S","S","p2:3 sw","aspect 3:2","2:3",null,false,"aspect = \"3:2\"\n"],
+  ["X5R","R","p2:3 sw","aspect 3:2","2:3",null,false,"aspect = \"3:2\"\n"],
+  ["X6W","W","p3:2 sw sw","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X6P","P","p3:2 sw sw","aspect 2:3","3:2",null,false,"aspect = \"2:3\"\n"],
+  ["X6S","S","p3:2 sw sw","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X6R","R","p3:2 sw sw","aspect 2:3","3:2",null,false,"aspect = \"2:3\"\n"],
+  ["X7W","W","p3:2 sw p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X7P","P","p3:2 sw p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X7S","S","p3:2 sw p3:2","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X7R","R","p3:2 sw p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X8W","W","sw","none",null,null,true,null],
+  ["X8P","P","sw","none",null,null,true,null],
+  ["X8S","S","sw","none",null,null,true,null],
+  ["X8R","R","sw","none",null,null,true,null],
+  ["X9W","W","p1:1 sw","aspect 1:1","1:1",null,true,"aspect = \"1:1\"\n"],
+  ["X9P","P","p1:1 sw","aspect 1:1","1:1",null,true,"aspect = \"1:1\"\n"],
+  ["X9S","S","p1:1 sw","aspect 1:1","1:1",null,true,"aspect = \"1:1\"\n"],
+  ["X9R","R","p1:1 sw","aspect 1:1","1:1",null,true,"aspect = \"1:1\"\n"],
+  ["X10W","W","p4:5 ds:move dm:0,0","aspect 4:5 follow","4:5","move@130,0,1339,1071",true,"aspect = \"4:5\"\norientation = \"match\"\n"],
+  ["X10P","P","p4:5 ds:move dm:0,0","aspect 4:5 follow","4:5","move@0,130,1071,1339",true,"aspect = \"4:5\"\norientation = \"match\"\n"],
+  ["X10S","S","p4:5 ds:move dm:0,0","aspect 4:5","4:5","move@107,0,857,1071",true,"aspect = \"4:5\"\n"],
+  ["X10R","R","p4:5 ds:move dm:0,0","aspect 4:5 follow","4:5","move@0,130,1071,1339",true,"aspect = \"4:5\"\norientation = \"match\"\n"],
+  ["X11W","W","p4:5 ds:move dm:50,50","box 180,0,1339,1071",null,"move@130,0,1339,1071",false,"x = 0.1125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X11P","P","p4:5 ds:move dm:50,50","box 0,180,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X11S","S","p4:5 ds:move dm:50,50","box 157,0,857,1071",null,"move@107,0,857,1071",false,"x = 0.1465919701213819\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X11R","R","p4:5 ds:move dm:50,50","box 0,180,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X12W","W","p4:5 ds:move dm:5000,5000","box 261,0,1339,1071",null,"move@130,0,1339,1071",false,"x = 0.163125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X12P","P","p4:5 ds:move dm:5000,5000","box 0,261,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.163125\nwidth = 1\nheight = 0.836875\n"],
+  ["X12S","S","p4:5 ds:move dm:5000,5000","box 214,0,857,1071",null,"move@107,0,857,1071",false,"x = 0.19981325863678806\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X12R","R","p4:5 ds:move dm:5000,5000","box 0,261,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.163125\nwidth = 1\nheight = 0.836875\n"],
+  ["X13W","W","p4:5 ds:move dm:50,50 dm:0,0","box 130,0,1339,1071",null,"move@130,0,1339,1071",false,"x = 0.08125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X13P","P","p4:5 ds:move dm:50,50 dm:0,0","box 0,130,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.836875\n"],
+  ["X13S","S","p4:5 ds:move dm:50,50 dm:0,0","box 107,0,857,1071",null,"move@107,0,857,1071",false,"x = 0.09990662931839403\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X13R","R","p4:5 ds:move dm:50,50 dm:0,0","box 0,130,1071,1339",null,"move@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.836875\n"],
+  ["X14W","W","p4:5 ds:move dm:50,50 de","box 180,0,1339,1071",null,null,false,"x = 0.1125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X14P","P","p4:5 ds:move dm:50,50 de","box 0,180,1071,1339",null,null,false,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X14S","S","p4:5 ds:move dm:50,50 de","box 157,0,857,1071",null,null,false,"x = 0.1465919701213819\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X14R","R","p4:5 ds:move dm:50,50 de","box 0,180,1071,1339",null,null,false,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X15W","W","p4:5 ds:move dm:50,50 dn dm:100,100","box 180,0,1339,1071",null,null,true,"x = 0.1125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X15P","P","p4:5 ds:move dm:50,50 dn dm:100,100","box 0,180,1071,1339",null,null,true,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X15S","S","p4:5 ds:move dm:50,50 dn dm:100,100","box 157,0,857,1071",null,null,true,"x = 0.1465919701213819\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X15R","R","p4:5 ds:move dm:50,50 dn dm:100,100","box 0,180,1071,1339",null,null,true,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X16W","W","p4:5 ds:move dm:50,50 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X16P","P","p4:5 ds:move dm:50,50 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X16S","S","p4:5 ds:move dm:50,50 p3:2","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X16R","R","p4:5 ds:move dm:50,50 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X17W","W","p4:5 ds:move dm:50,50 sw","box 180,0,1339,1071",null,"move@130,0,1339,1071",true,"x = 0.1125\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X17P","P","p4:5 ds:move dm:50,50 sw","box 0,180,1071,1339",null,"move@0,130,1071,1339",true,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X17S","S","p4:5 ds:move dm:50,50 sw","box 157,0,857,1071",null,"move@107,0,857,1071",true,"x = 0.1465919701213819\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X17R","R","p4:5 ds:move dm:50,50 sw","box 0,180,1071,1339",null,"move@0,130,1071,1339",true,"x = 0\ny = 0.1125\nwidth = 1\nheight = 0.836875\n"],
+  ["X18W","W","p4:5 ds:move dm:50,50 rs","none",null,null,false,null],
+  ["X18P","P","p4:5 ds:move dm:50,50 rs","none",null,null,false,null],
+  ["X18S","S","p4:5 ds:move dm:50,50 rs","none",null,null,false,null],
+  ["X18R","R","p4:5 ds:move dm:50,50 rs","none",null,null,false,null],
+  ["X19W","W","rs","none",null,null,true,null],
+  ["X19P","P","rs","none",null,null,true,null],
+  ["X19S","S","rs","none",null,null,true,null],
+  ["X19R","R","rs","none",null,null,true,null],
+  ["X20W","W","p4:5 km:1,1","box 131,0,1339,1071",null,null,false,"x = 0.081875\ny = 0\nwidth = 0.836875\nheight = 1\n"],
+  ["X20P","P","p4:5 km:1,1","box 0,131,1071,1339",null,null,false,"x = 0\ny = 0.081875\nwidth = 1\nheight = 0.836875\n"],
+  ["X20S","S","p4:5 km:1,1","box 108,0,857,1071",null,null,false,"x = 0.10084033613445378\ny = 0\nwidth = 0.800186741363212\nheight = 1\n"],
+  ["X20R","R","p4:5 km:1,1","box 0,131,1071,1339",null,null,false,"x = 0\ny = 0.081875\nwidth = 1\nheight = 0.836875\n"],
+  ["X21W","W","km:1,1","none",null,null,true,null],
+  ["X21P","P","km:1,1","none",null,null,true,null],
+  ["X21S","S","km:1,1","none",null,null,true,null],
+  ["X21R","R","km:1,1","none",null,null,true,null],
+  ["X22W","W","p4:5 kr:-1,0","box 130,0,1338,1071",null,null,false,"x = 0.08125\ny = 0\nwidth = 0.83625\nheight = 1\n"],
+  ["X22P","P","p4:5 kr:-1,0","box 0,130,1070,1339",null,null,false,"x = 0\ny = 0.08125\nwidth = 0.9990662931839402\nheight = 0.836875\n"],
+  ["X22S","S","p4:5 kr:-1,0","box 107,0,856,1071",null,null,false,"x = 0.09990662931839403\ny = 0\nwidth = 0.7992530345471522\nheight = 1\n"],
+  ["X22R","R","p4:5 kr:-1,0","box 0,130,1070,1339",null,null,false,"x = 0\ny = 0.08125\nwidth = 0.9990662931839402\nheight = 0.836875\n"],
+  ["X23W","W","p4:5 kr:-5000,-5000","box 130,0,64,64",null,null,false,"x = 0.08125\ny = 0\nwidth = 0.04\nheight = 0.059757236227824466\n"],
+  ["X23P","P","p4:5 kr:-5000,-5000","box 0,130,64,64",null,null,false,"x = 0\ny = 0.08125\nwidth = 0.059757236227824466\nheight = 0.04\n"],
+  ["X23S","S","p4:5 kr:-5000,-5000","box 107,0,64,64",null,null,false,"x = 0.09990662931839403\ny = 0\nwidth = 0.059757236227824466\nheight = 0.059757236227824466\n"],
+  ["X23R","R","p4:5 kr:-5000,-5000","box 0,130,64,64",null,null,false,"x = 0\ny = 0.08125\nwidth = 0.059757236227824466\nheight = 0.04\n"],
+  ["X24W","W","ds:nw dm:100,100","box 100,100,1500,971",null,"nw@0,0,1600,1071",false,"x = 0.0625\ny = 0.09337068160597572\nwidth = 0.9375\nheight = 0.9066293183940243\n"],
+  ["X24P","P","ds:nw dm:100,100","box 100,100,971,1500",null,"nw@0,0,1071,1600",false,"x = 0.09337068160597572\ny = 0.0625\nwidth = 0.9066293183940243\nheight = 0.9375\n"],
+  ["X24S","S","ds:nw dm:100,100","box 100,100,971,971",null,"nw@0,0,1071,1071",false,"x = 0.09337068160597572\ny = 0.09337068160597572\nwidth = 0.9066293183940243\nheight = 0.9066293183940243\n"],
+  ["X24R","R","ds:nw dm:100,100","box 100,100,971,1500",null,"nw@0,0,1071,1600",false,"x = 0.09337068160597572\ny = 0.0625\nwidth = 0.9066293183940243\nheight = 0.9375\n"],
+  ["X25W","W","p4:5 ds:w dm:5000,0","box 1405,0,64,1071",null,"w@130,0,1339,1071",false,"x = 0.878125\ny = 0\nwidth = 0.04\nheight = 1\n"],
+  ["X25P","P","p4:5 ds:w dm:5000,0","box 1007,130,64,1339",null,"w@0,130,1071,1339",false,"x = 0.9402427637721755\ny = 0.08125\nwidth = 0.059757236227824466\nheight = 0.836875\n"],
+  ["X25S","S","p4:5 ds:w dm:5000,0","box 900,0,64,1071",null,"w@107,0,857,1071",false,"x = 0.8403361344537815\ny = 0\nwidth = 0.059757236227824466\nheight = 1\n"],
+  ["X25R","R","p4:5 ds:w dm:5000,0","box 1007,130,64,1339",null,"w@0,130,1071,1339",false,"x = 0.9402427637721755\ny = 0.08125\nwidth = 0.059757236227824466\nheight = 0.836875\n"],
+  ["X26W","W","p4:5 ds:se dm:5000,5000","box 130,0,1470,1071",null,"se@130,0,1339,1071",false,"x = 0.08125\ny = 0\nwidth = 0.91875\nheight = 1\n"],
+  ["X26P","P","p4:5 ds:se dm:5000,5000","box 0,130,1071,1470",null,"se@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.91875\n"],
+  ["X26S","S","p4:5 ds:se dm:5000,5000","box 107,0,964,1071",null,"se@107,0,857,1071",false,"x = 0.09990662931839403\ny = 0\nwidth = 0.900093370681606\nheight = 1\n"],
+  ["X26R","R","p4:5 ds:se dm:5000,5000","box 0,130,1071,1470",null,"se@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.91875\n"],
+  ["X27W","W","p4:5 ds:s dm:0,-5000","box 130,0,1339,64",null,"s@130,0,1339,1071",false,"x = 0.08125\ny = 0\nwidth = 0.836875\nheight = 0.059757236227824466\n"],
+  ["X27P","P","p4:5 ds:s dm:0,-5000","box 0,130,1071,64",null,"s@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.04\n"],
+  ["X27S","S","p4:5 ds:s dm:0,-5000","box 107,0,857,64",null,"s@107,0,857,1071",false,"x = 0.09990662931839403\ny = 0\nwidth = 0.800186741363212\nheight = 0.059757236227824466\n"],
+  ["X27R","R","p4:5 ds:s dm:0,-5000","box 0,130,1071,64",null,"s@0,130,1071,1339",false,"x = 0\ny = 0.08125\nwidth = 1\nheight = 0.04\n"],
+  ["X30W","W","p3:2 rs","none",null,null,false,null],
+  ["X30P","P","p3:2 rs","none",null,null,false,null],
+  ["X30S","S","p3:2 rs","none",null,null,false,null],
+  ["X30R","R","p3:2 rs","none",null,null,false,null],
+  ["X28S","S","p4:5 sw","aspect 5:4","4:5",null,false,"aspect = \"5:4\"\n"],
+  ["X29S","S","p5:4 sw","aspect 4:5","5:4",null,false,"aspect = \"4:5\"\n"],
+];
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
+
+function parseAction(token) {
+  const [head, rest = ""] = token.split(":");
+  const nums = () => rest.split(",").map(Number);
+  if (/^p\d+$/.test(head)) {
+    const [a, b] = token.slice(1).split(":").map(Number);
+    return { type: "preset", a, b };
+  }
+  switch (head) {
+    case "sw":
+      return { type: "swap" };
+    case "ds":
+      return { type: "drag-start", handle: rest };
+    case "dm":
+      return { type: "drag-move", dx: nums()[0], dy: nums()[1] };
+    case "de":
+      return { type: "drag-end" };
+    case "dn":
+      return { type: "done" };
+    case "km":
+      return { type: "key-move", dx: nums()[0], dy: nums()[1] };
+    case "kr":
+      return { type: "key-resize", dx: nums()[0], dy: nums()[1] };
+    case "rs":
+      return { type: "reset" };
+    default:
+      throw new Error(`unknown action shorthand ${token}`);
+  }
+}
+
+const boxText = (b) => `${b.x},${b.y},${b.w},${b.h}`;
+
+function cropText(crop) {
+  if (crop === null) return "none";
+  const keys = Object.keys(crop).sort().join(",");
+  if (keys === "box") return `box ${boxText(crop.box)}`;
+  if (keys === "aspect,follow") return `aspect ${crop.aspect.join(":")}${crop.follow ? " follow" : ""}`;
+  return `odd ${JSON.stringify(crop)}`;
+}
+
+const presetText = (s) => (s.preset === null ? null : s.preset.join(":"));
+const dragText = (s) => (s.drag === null ? null : `${s.drag.handle}@${boxText(s.drag.start)}`);
+
+// One photo per shape for the whole run: W and P are the two landscape and portrait
+// fixtures, S the square, R the EXIF-rotated JPEG, all as the page reads them.
+function modePhotos(ctx) {
+  return Object.fromEntries(["W", "P", "S", "R"].map((k) => [k, photoFor(ctx, k)]));
+}
+
+function reducerRows(ctx, photos) {
+  const failures = [];
+  const { recipes } = ctx;
+  for (const [id, shape, actions, crop, preset, drag, same, step] of MODE_ROWS) {
+    const photo = photos[shape];
+    const label = `mode-reducer: ${id} "${actions}"`;
+    try {
+      let state = deepFreeze(recipes.cropReducer(null, { type: "reset" }, photo));
+      let last = state;
+      for (const token of actions.split(" ")) {
+        last = state;
+        state = deepFreeze(recipes.cropReducer(state, parseAction(token), photo));
+      }
+      const miss = (what, got, want) => {
+        if (got !== want) failures.push(`${label}: ${what} ${got}, expected ${want}`);
+      };
+      miss("crop", cropText(state.crop), crop);
+      miss("preset", presetText(state), preset);
+      miss("drag", dragText(state), drag);
+      miss("same state", state === last, same);
+      const gotStep = recipes.planEdit(photo, FORM_NO_WM, state.crop).crop;
+      if (gotStep !== step) {
+        failures.push(`${label}: crop step ${JSON.stringify(gotStep)}, expected ${JSON.stringify(step)}`);
+      }
+    } catch (e) {
+      failures.push(`${label} threw: ${e.message}`);
+    }
+  }
+  return failures;
+}
+
+// A box as { x, y, w, h } in that order, so two boxes compare as text.
+const boxJson = (b) => JSON.stringify({ x: b.x, y: b.y, w: b.w, h: b.h });
+const boxOf = (x, y, w, h) => ({ x, y, w, h });
+const W_PHOTO = { width: 1600, height: 1071 };
+const BOX_500 = boxOf(100, 100, 500, 400);
+
+// Geometry rows: [id, what it runs, expected]. `run` is given the recipe.js exports and
+// returns the value to compare; a row that must throw returns the message.
+function geometryRows() {
+  const thrown = (fn) => {
+    try {
+      fn();
+      return "did not throw";
+    } catch (e) {
+      return e.message;
+    }
+  };
+  const resize = (r, box, handle, dx, dy, photo = W_PHOTO) => boxJson(r.resizeBox(box, handle, dx, dy, photo));
+  const move = (r, dx, dy) => boxJson(r.moveBox(boxOf(264, 0, 1071, 1071), dx, dy, W_PHOTO));
+  const want = (x, y, w, h) => boxJson(boxOf(x, y, w, h));
+  return [
+    ["G1", (r) => r.toCopyDelta(3, 0.42875), 7],
+    ["G2", (r) => r.toCopyDelta(1, 0.234375), 4],
+    ["G3", (r) => r.toCopyDelta(-1, 0.4), -3],
+    ["G4", (r) => r.toCopyDelta(1, 0.4), 3],
+    ["G5", (r) => Object.is(r.toCopyDelta(-0.1, 0.5), 0), true],
+    ["G6", (r) => r.toCopyDelta(5, 0), 0],
+    ["G7", (r) => r.toCopyDelta(5, NaN), 0],
+    ["G8", (r) => r.toCopyDelta(30, 0.42875), 70],
+    ["G9", (r) => move(r, 50, 0), want(314, 0, 1071, 1071)],
+    ["G10", (r) => move(r, -5000, 0), want(0, 0, 1071, 1071)],
+    ["G11", (r) => move(r, 5000, 5000), want(529, 0, 1071, 1071)],
+    ["G12", (r) => resize(r, BOX_500, "n", 10, 10), want(100, 110, 500, 390)],
+    ["G13", (r) => resize(r, BOX_500, "s", 10, 10), want(100, 100, 500, 410)],
+    ["G14", (r) => resize(r, BOX_500, "e", 10, 10), want(100, 100, 510, 400)],
+    ["G15", (r) => resize(r, BOX_500, "w", 10, 10), want(110, 100, 490, 400)],
+    ["G16", (r) => resize(r, BOX_500, "ne", 10, 10), want(100, 110, 510, 390)],
+    ["G17", (r) => resize(r, BOX_500, "nw", 10, 10), want(110, 110, 490, 390)],
+    ["G18", (r) => resize(r, BOX_500, "se", 10, 10), want(100, 100, 510, 410)],
+    ["G19", (r) => resize(r, BOX_500, "sw", 10, 10), want(110, 100, 490, 410)],
+    ["G20", (r) => resize(r, BOX_500, "e", -5000, 0), want(100, 100, 64, 400)],
+    ["G21", (r) => resize(r, BOX_500, "n", 0, 5000), want(100, 436, 500, 64)],
+    ["G22", (r) => resize(r, BOX_500, "nw", -5000, -5000), want(0, 0, 600, 500)],
+    ["G23", (r) => resize(r, BOX_500, "se", 5000, 5000), want(100, 100, 1500, 971)],
+    ["G24", (r) => resize(r, boxOf(0, 0, 40, 30), "se", -10, -10, { width: 40, height: 30 }), want(0, 0, 40, 30)],
+    ["G25", (r) => resize(r, boxOf(0, 22, 100, 56), "s", 0, -10, { width: 100, height: 100 }), want(0, 22, 100, 56)],
+    ["G26", (r) => resize(r, boxOf(0, 22, 100, 56), "s", 0, 10, { width: 100, height: 100 }), want(0, 22, 100, 66)],
+    ["G27", (r) => thrown(() => r.resizeBox(BOX_500, "middle", 1, 1, W_PHOTO)), "unknown crop handle middle"],
+    ["G28", (r) => r.MIN_CROP, 64],
+    ["G29", (r) => thrown(() => r.cropReducer(null, { type: "zoom" }, W_PHOTO)), "unknown crop action zoom"],
+    ["G30", (r) => resize(r, BOX_500, "w", 5000, 0), want(536, 100, 64, 400)],
+    ["G31", (r) => JSON.stringify(r.cropReducer(null, { type: "reset" }, W_PHOTO)), '{"crop":null,"preset":null,"drag":null}'],
+  ];
+}
+
+function geometryChecks(ctx) {
+  const failures = [];
+  const rowList = geometryRows();
+  for (const [id, run, want] of rowList) {
+    try {
+      const got = run(ctx.recipes);
+      if (got !== want) failures.push(`mode-geometry: ${id}: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    } catch (e) {
+      failures.push(`mode-geometry: ${id} threw: ${e.message}`);
+    }
+  }
+  failures.ran = rowList.length;
+  return failures;
+}
+
+// Size-line rows: [id, photo, crop, size, text]. `crop` builds the crop from the photo with
+// recipe.js's own crop model, which the reducer rows already pin; the text is the literal.
+const SIZE_LINE_ROWS = [
+  ["L1", "W", () => null, "1600", "The whole photo, 1600 × 1071 · the copy will be 1600 × 1071"],
+  ["L2", "W", (r, p) => r.presetCrop(3, 2, p), "1200", "Crop 3:2, 1600 × 1067 of 1600 × 1071 · the copy will be 1200 × 800"],
+  ["L3", "P", (r, p) => r.presetCrop(3, 2, p), "1600", "Crop 2:3, 1067 × 1600 of 1071 × 1600 · the copy will be 1067 × 1600"],
+  ["L4", "S", (r, p) => r.presetCrop(4, 5, p), "1600", "Crop 4:5, 857 × 1071 of 1071 × 1071 · the copy will be 857 × 1071"],
+  ["L5", "S", (r, p) => r.presetCrop(5, 4, p), "800", "Crop 5:4, 1071 × 857 of 1071 × 1071 · the copy will be 800 × 640"],
+  ["L6", "R", () => ({ box: boxOf(0, 314, 1071, 1071) }), "800", "Crop 1071 × 1071 of 1071 × 1600 · the copy will be 800 × 800"],
+  ["L7", "W", () => ({ box: boxOf(0, 0, 1067, 711) }), "1600", "Crop 1067 × 711 of 1600 × 1071 · the copy will be 1067 × 711"],
+  ["L8", "W", (r, p) => r.swapCrop(r.presetCrop(3, 2, p), p), "1080", "Crop 2:3, 714 × 1071 of 1600 × 1071 · the copy will be 714 × 1071"],
+];
+
+function sizeLineChecks(ctx, photos) {
+  const failures = [];
+  const { recipes } = ctx;
+  for (const [id, shape, makeCrop, size, want] of SIZE_LINE_ROWS) {
+    try {
+      const photo = photos[shape];
+      const crop = makeCrop(recipes, photo);
+      const edit = recipes.planEdit(photo, { ...FORM_NO_WM, size }, crop);
+      const got = recipes.sizeLine(edit, photo, crop);
+      if (got !== want) failures.push(`mode-size-line: ${id}: "${got}", expected "${want}"`);
+    } catch (e) {
+      failures.push(`mode-size-line: ${id} threw: ${e.message}`);
+    }
+  }
+  failures.ran = SIZE_LINE_ROWS.length;
+  return failures;
+}
+
+/// The crop mode's reducer, box geometry and size line: 153 rows. `failures.ran` is how many
+/// ran, which the summary line prints and which must be the count the rows add up to.
+function modeChecks(ctx) {
+  const photos = modePhotos(ctx);
+  const geometry = geometryChecks(ctx);
+  const sizes = sizeLineChecks(ctx, photos);
+  const failures = [...reducerRows(ctx, photos), ...geometry, ...sizes];
+  failures.ran = MODE_ROWS.length + geometry.ran + sizes.ran;
+  if (failures.ran !== MODE_ROW_COUNT) {
+    failures.push(`mode-count: ${failures.ran} crop-mode rows ran, expected ${MODE_ROW_COUNT}`);
+  }
+  return failures;
+}
+
 function report(table) {
   for (const r of table.rows) {
     if (r.error || !r.native) {
@@ -1381,10 +1736,12 @@ const replay = replayRows(ctx);
 reportReplay(replay);
 const alpha = alphaRows(ctx);
 const orientation = orientationRows(ctx);
+const mode = modeChecks(ctx);
 const failures = [
   ...tableChecks(table),
   ...cropChecks(table),
   ...modelChecks(recipes),
+  ...mode,
   ...placementChecks(ctx),
   ...replayChecks(replay),
   ...alpha,
@@ -1399,7 +1756,7 @@ const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
 const familyRows = (family) => table.rows.filter((r) => r.row.family === family).length;
 console.log(
   `${familyRows("table")} table rows, ${familyRows("crop")} crop rows, ${replay.rows.length} replay rows, ` +
-    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows; ` +
+    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows, ${mode.ran} crop-mode rows; ` +
     `${rowsFailed} row failures, ${failures.length} other failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
 );
