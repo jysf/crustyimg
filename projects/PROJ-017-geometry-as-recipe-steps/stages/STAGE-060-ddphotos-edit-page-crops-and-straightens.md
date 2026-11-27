@@ -138,6 +138,9 @@ In build order.
   `resizeBox`, `MIN_CROP`, `cropReducer`, `sizeLine`) with a Node table, the CLI panel's
   smaller-file sentence, and an in-repo headless-Chrome check of the edit page (`tests/ddphotos_page.mjs`,
   in CI's `ddphotos-parity` job). The DOM is the next entry. See SPEC-164's `## Frame`.
+  **Ruled 2026-11-27:** all six frame recommendations accepted (split; `MIN_CROP = 64`; swap twice
+  stays explicit; crop mode updates only the size line; the check in the advisory job; README crop
+  rows with the DOM entry). See SPEC-164's "Maintainer rulings".
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with

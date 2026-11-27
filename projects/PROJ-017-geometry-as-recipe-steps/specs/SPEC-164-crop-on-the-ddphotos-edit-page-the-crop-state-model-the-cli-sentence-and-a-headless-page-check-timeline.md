@@ -12,7 +12,10 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
   smaller-file sentence (DEC-118 rule 5), and an in-repo headless-Chrome check of the edit page
   (prototype driven: render count, debounce, touch drag, a red negative control). The crop mode's DOM
   is a new STAGE-060 entry; the watermark fit on small crops is a new finding entry.
-- [ ] **design** (`prompts/SPEC-164-design.md`)
+- [x] **rulings** (2026-11-27, maintainer) — all six accepted: split; `MIN_CROP = 64` with the watermark fit
+  filed apart; swap twice stays explicit; crop mode updates only the size line, Done renders, Make disabled;
+  headless check in-repo in the advisory `ddphotos-parity` job; README crop rows go with the DOM entry.
+- [ ] **design** — `prompts/SPEC-164-design.md`
 - [ ] **build**
 - [ ] **verify**
 - [ ] **ship**

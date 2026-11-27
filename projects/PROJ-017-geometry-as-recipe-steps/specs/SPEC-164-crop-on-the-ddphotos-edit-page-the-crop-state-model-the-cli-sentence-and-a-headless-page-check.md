@@ -7,7 +7,7 @@
 task:
   id: SPEC-164
   type: story                      # epic | story | task | bug | chore
-  cycle: frame  # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -520,6 +520,22 @@ Out, and where each lives:
    run green for a while.
 6. **The README's crop rows go with the crop mode's DOM entry, not the test-bed entry?** Recommend
    yes.
+
+### Maintainer rulings (2026-11-27)
+
+All six recommendations above were accepted as written:
+1. **Split.** This spec is the pure state model and box functions with the Node table, the CLI
+   sentence with its README clause, and the headless page check proven on today's page. The crop
+   mode's DOM is the next STAGE-060 entry.
+2. **`MIN_CROP = 64` copy pixels per side.** The watermark's fit on a small or thin crop is its own
+   entry.
+3. **Swapping twice stays an explicit orientation with no key;** pressing the preset again restores
+   following.
+4. **In crop mode, form changes update only the size line and the note;** Done renders; "Make the
+   copy" is disabled.
+5. **The headless check lives in this repo,** as a step in the advisory `ddphotos-parity` job. It
+   becomes required once both halves have shipped and it has run green for a while.
+6. **The README's crop rows go with the crop mode's DOM entry,** not the test-bed entry.
 
 ## Inputs
 
