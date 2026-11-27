@@ -124,7 +124,7 @@ In build order.
   **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
   reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
   orientation-key entry above.
-- [ ] (not yet written) — [M] **Crop on the page: the crop mode.** The second half of the entry
+- [ ] **SPEC-164** (framed 2026-11-27) — [M] **Crop on the page: the crop mode.** The second half of the entry
   above, split at SPEC-161's frame. A "Crop" button shows the oriented base image (rendered once at
   load by SPEC-161's worker) with a DOM box over it; dragging renders nothing, and "Done" schedules
   one finished preview. Preset buttons (1:1, 4:5, 3:2, 16:9) that follow the photo's orientation,
@@ -133,7 +133,22 @@ In build order.
   file at least as large as the copy (a smaller one gives a smaller output, or a refused watermark).
   Calls SPEC-161's `recipe.js` functions and adds no recipe logic. Its browser check is the
   "Test-bed round and README" entry. After SPEC-161. See SPEC-161's `## Frame` for the interaction.
-  **Reserved: SPEC-164** (2026-11-27); frame prompt `specs/prompts/SPEC-164-frame.md`.
+  **Split at frame (2026-11-27):** SPEC-164 is the half provable before the DOM exists: the crop
+  mode's state machine and box geometry as pure `recipe.js` functions (`toCopyDelta`, `moveBox`,
+  `resizeBox`, `MIN_CROP`, `cropReducer`, `sizeLine`) with a Node table, the CLI panel's
+  smaller-file sentence, and an in-repo headless-Chrome check of the edit page (`tests/ddphotos_page.mjs`,
+  in CI's `ddphotos-parity` job). The DOM is the next entry. See SPEC-164's `## Frame`.
+- [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
+  above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
+  shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with
+  `touch-action: none` on the box and handles, arrow keys and Alt+arrow, ARIA (`role="group"` box,
+  `aria-pressed` presets, a polite `role="status"` on settle), the live size line and the live
+  "Made smaller to fit" note, all calling SPEC-164's functions with no logic of their own. The
+  README's Crop row and the reworded "No crop …" limit. Its rows go on SPEC-164's headless check:
+  drags (pointer and touch), keys, the render count across a drag and Done, and the drag mutants
+  (ratio not applied, ratio from the finished preview, per-move rounding, a drag that renders, Done
+  not clearing the pointer state). ⚠ Alt+Left/Right are Back/Forward in Chrome on Windows and Linux:
+  design checks the page can keep them. After SPEC-164.
 - [ ] (not yet written) — [S] **Straighten on the page.** An angle control emitting a
   `rotate` step in `crop-to-fit` mode, ordered before `crop` so a straighten-then-crop is the
   natural flow. Parity rows within STAGE-059's stated bound. Waits for STAGE-059.
@@ -152,8 +167,18 @@ In build order.
   SPEC-161's frame) but asserts nothing, so this stage's "stays inside its size gate" criterion has
   no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
   Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
+- [ ] (not yet written) — [S] **The watermark's fit on a small or thin crop.** `watermarkSize`
+  (`integrations/ddphotos/edit/recipe.js`) caps the mark to 90 % of the width and a tenth of the short
+  side, but not to the engine's 5 % coverage limit, and the margin (`round(outLong × 0.02)`) is never
+  checked against the short side. Without a crop the outputs are at least 400 px and neither was
+  reached; a dragged box reaches both. Driven at SPEC-164's frame with native `apply` on the 1600×1071
+  fixture: "© 2026 Jane Doe" at Medium is refused on square boxes of 1–13, 20–25, 30–35, 40, 41 and
+  50 px (`the mark would cover 5.08 % of the 50×50 px image … the limit is 5 %`), and a 1600×20 strip
+  at Large is refused on its 32 px margin. None above 50 px on the sweeps run (measured, not a bound).
+  SPEC-164 recommends a 64 px minimum box on the page as a stopgap; this entry makes the page predict
+  the engine instead. Parity rows for each refusal kind, with literals.
 
-**Count:** 4 resolved (3 shipped specs, 1 folded) / 0 active / 4 pending — re-derived 2026-11-27 at SPEC-161's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (3), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
+**Count:** 4 resolved (3 shipped specs, 1 folded) / 1 active / 5 pending — re-derived 2026-11-27 at SPEC-164's frame, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (3), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
 
 ## Design Notes
 
