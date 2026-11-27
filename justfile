@@ -727,3 +727,11 @@ ddphotos-parity:
     args=(--pkg "$out/pkg-slim" --bin "$out/native/release/crustyimg" --python "$out/venv/bin/python")
     node tests/ddphotos_parity.mjs "${args[@]}"
     node tests/ddphotos_parity.mjs "${args[@]}" --self-test
+
+# The ddphotos edit page in a real headless Chrome (tests/ddphotos_page.mjs): a fake site,
+# the worker's render count, the debounce and the CLI panel. Builds the slim wasm into
+# target/ddphotos-parity/pkg-slim, as ddphotos-parity does.
+ddphotos-page:
+    CARGO_TARGET_DIR="target/ddphotos-parity/wasm-target" just --set _wasm_features " --no-default-features --features avif" \
+        --set _wasm_out "$PWD/target/ddphotos-parity/pkg-slim" wasm-build
+    node tests/ddphotos_page.mjs --pkg target/ddphotos-parity/pkg-slim

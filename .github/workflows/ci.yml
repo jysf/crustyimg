@@ -102,6 +102,13 @@ jobs:
           key: ddphotos-parity
       - name: Parity harness
         run: just ddphotos-parity
+      # The edit page in a real headless Chrome (tests/ddphotos_page.mjs), against a fake
+      # ddphotos site, with the slim wasm the parity step just built. It counts the worker's
+      # renders and reads the CLI panel. ubuntu-latest ships Chrome; with none, the check
+      # fails rather than skips. It runs only after a green parity step: target/ comes back
+      # from the cache, so after a failed build pkg-slim could be an older commit's.
+      - name: Edit page in headless Chrome
+        run: node tests/ddphotos_page.mjs --pkg target/ddphotos-parity/pkg-slim
       # Native clippy never compiles the wasm-only code, so lint it here.
       - name: Clippy (wasm32 library)
         if: ${{ !cancelled() }} # still lint when the parity step fails
