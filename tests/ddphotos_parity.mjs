@@ -436,6 +436,10 @@ function checkModules(recipes) {
     "MIN_CROP",
     "cropReducer",
     "sizeLine",
+    "clamp",
+    "sameBox",
+    "toBox",
+    "HANDLE_EDGES",
   ];
   // What the model and the loader need from recipe.js, and the one line the worker's
   // `load` is: the harness runs `loadPhoto` itself, so the worker must run the same one.
