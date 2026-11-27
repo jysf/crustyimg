@@ -346,7 +346,9 @@ export function cropReducer(state, action, photo) {
       return toBox(s, box, start);
     }
     case "drag-end":
+      return s.drag ? { ...s, drag: null } : s;
     case "done":
+      // Leaving the mode also clears the pointer state, so a stray move after it does nothing.
       return s.drag ? { ...s, drag: null } : s;
     case "key-move": {
       const from = cropBox(s.crop, photo);

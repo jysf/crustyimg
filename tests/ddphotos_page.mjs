@@ -276,11 +276,20 @@ async function run(args, chromePath) {
       server.closeAllConnections?.();
       await new Promise((r) => server.close(r));
     }
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-    } catch (e) {
-      console.log(`warning: could not delete ${profile}: ${e.message}`);
+    // Chrome's helper processes can still be flushing into the profile just after the
+    // browser itself has exited, so a delete that fails is retried for about 15 s.
+    let deleteError = null;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        rmSync(profile, { recursive: true, force: true });
+        deleteError = null;
+        break;
+      } catch (e) {
+        deleteError = e;
+        await sleep(250);
+      }
     }
+    if (deleteError) console.log(`warning: could not delete ${profile}: ${deleteError.message}`);
     if (args.keep) console.log(`fake site kept in ${site}`);
     else rmSync(site, { recursive: true, force: true });
   }
