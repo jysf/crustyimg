@@ -971,8 +971,8 @@ The action shorthand in the rows:
 - `km:X,Y` is key-move and `kr:X,Y` is key-resize.
 - `rs` is reset.
 
-**Reducer rows (114):** 28 transitions × 4 shapes (W, P, S, R) = 112, plus 2 square-only rows
-(X28S, X29S), so the 4:5/5:4 swap is driven in both orders (trap 20). The orders are also covered
+**Reducer rows (118):** 29 transitions × 4 shapes (W, P, S, R) = 116, plus 2 square-only rows
+(X28S, X29S) (corrected after ship: X31, the active preset pressed again, added by the punch list), so the 4:5/5:4 swap is driven in both orders (trap 20). The orders are also covered
 by 3:2/2:3 in X1/X2 and X4/X5 on every shape. Columns: id, shape, actions, crop, preset, drag,
 same state, crop step text.
 
@@ -1092,6 +1092,10 @@ const MODE_ROWS = [
   ["X30R","R","p3:2 rs","none",null,null,false,null],
   ["X28S","S","p4:5 sw","aspect 5:4","4:5",null,false,"aspect = \"5:4\"\n"],
   ["X29S","S","p5:4 sw","aspect 4:5","5:4",null,false,"aspect = \"4:5\"\n"],
+  ["X31W","W","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X31P","P","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
+  ["X31S","S","p3:2 p3:2","aspect 3:2","3:2",null,false,"aspect = \"3:2\"\n"],
+  ["X31R","R","p3:2 p3:2","aspect 3:2 follow","3:2",null,false,"aspect = \"3:2\"\norientation = \"match\"\n"],
 ];
 ```
 
@@ -1399,7 +1403,7 @@ Written during **design**, BEFORE build. The implementer's job in **build** is t
   - `"modules: the crop-mode names"`: asserts `recipe.js` exports `toCopyDelta`, `moveBox`,
     `resizeBox`, `MIN_CROP`, `cropReducer` and `sizeLine`, and that neither `edit.js` nor
     `worker.js` defines them (AC-7). Red on `main` with the six `recipe.js lacks …` lines.
-  - `"mode-reducer X1W … X30R, X28S, X29S"`: the 114 reducer rows above, each comparing crop,
+  - `"mode-reducer X1W … X31R, X28S, X29S"`: the 118 reducer rows above (corrected after ship), each comparing crop,
     preset, drag, same-object and crop-step text with its literals (AC-4, AC-5). Red on `main` (no
     `cropReducer`).
   - `"mode-geometry G1 … G31"`: the 31 geometry rows (AC-1, AC-2, AC-3, AC-4).
