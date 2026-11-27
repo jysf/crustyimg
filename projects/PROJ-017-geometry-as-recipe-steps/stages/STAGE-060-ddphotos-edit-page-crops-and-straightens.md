@@ -102,7 +102,7 @@ In build order.
   `aspect`, not a box, so a recipe copied from the page reads `aspect = "3:2"` and works on any
   photo. To work on a folder of mixed photos it needs this key, so SPEC-161 emits it and this
   entry builds first. Builds after the STAGE-063 P1 fixes ship.
-- [ ] **SPEC-161** (designed 2026-11-26) — [M] **Crop on the page.** Free-form and aspect-preset crop over
+- [x] **SPEC-161** (merged 2026-11-27, PR #273) — [M] **Crop on the page.** Free-form and aspect-preset crop over
   the preview, emitting a `crop` step ahead of `resize` in both `pixelRecipe` and `cliRecipe`
   (`integrations/ddphotos/edit/recipe.js`): an untouched preset as an `aspect` (with
   `orientation = "match"` unless the photo is square or the preset is 1:1), a placed box as four
@@ -152,7 +152,7 @@ In build order.
   no gate for the bundle the page actually loads. Add a slim baseline and tolerance, or say in the
   Success Criteria that the full build's gate stands in for it. Found at SPEC-161's frame.
 
-**Count:** 3 resolved (2 shipped specs, 1 folded) / 1 active / 4 pending — re-derived 2026-11-26 at SPEC-163's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (2), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
+**Count:** 4 resolved (3 shipped specs, 1 folded) / 0 active / 4 pending — re-derived 2026-11-27 at SPEC-161's ship, over the Spec Backlog section, with `/usr/bin/grep -c '^- \[x\] \*\*SPEC-'` (3), `/usr/bin/grep -c '^- \[x\] (folded'` (1), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (4)
 
 ## Design Notes
 

@@ -32,5 +32,5 @@ Cycle prompts live in `prompts/SPEC-161-<cycle>.md`.
   pass). DEC-118 rules 1 and 4 reworded; comment id dropped; `model-min` (red only when the clamps go); C36 (R box,
   M4 red as 239x400, not a throw; joins N1's list); orientation and alpha counts from rows that ran, `A-count`; ACs
   ticked, reflection filled. 3 files. $2.40. PR marked ready by the orchestrator.
-- [ ] **ship** — `prompts/SPEC-161-ship.md`. PR #273 merged as `409f492` (head `8d1f1cb`, a clean update-branch
-  merge of `a0bc1a9`), 2026-11-27.
+- [x] **merge** (2026-11-27, maintainer) — PR #273 as 409f492, head 8d1f1cb (a clean update-branch merge of `a0bc1a9`).
+- [x] **ship** (2026-11-27, Sonnet) — `prompts/SPEC-161-ship.md`. PR #273 as 409f492. Verify's M4/N4/M5 cells, the two new mutation rows, C36 and AC-12 folded into the spec; reflected; six cost entries, total $37.10 (61,063,828 tokens).

@@ -7,7 +7,7 @@
 task:
   id: SPEC-161
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -90,40 +90,74 @@ cost:
       date: 2026-11-26
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 15096078
+      tokens_total: 18910504
       tokens_breakdown:
-        input: 196
-        cache_creation: 202269
-        cache_read: 14832239
-        output: 61374
-      estimated_usd: 6.13
+        input: 244
+        cache_creation: 217820
+        cache_read: 18622387
+        output: 70053
+      estimated_usd: 7.46
       note: >
         Measured from the session JSONL (found by its first message, `prompts/SPEC-161-build.md`),
-        deduped by message.id (81 messages; max output_tokens per id), 0 subagent transcripts.
-        Measured after the last code push, before the final cost commit's own turns.
+        deduped by message.id (97 messages; max output_tokens per id), 0 subagent transcripts.
+        Re-measured at ship (was 15,096,078 tokens, $6.13, taken before the final cost commit); this reading covers the whole session.
         Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
         (x0.10), $15 output.
+    - cycle: verify
+      date: 2026-11-26
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10923441
+      tokens_breakdown:
+        input: 138
+        cache_creation: 181131
+        cache_read: 10686822
+        output: 55350
+      estimated_usd: 7.86
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-verify.md`),
+        deduped by message.id (68 messages; max output_tokens per id), 0 subagent transcripts.
+        Added at ship. The verify session reported 10,710,415 tokens, $7.60; this reading covers the whole session.
+        Rates (Opus): $5/MTok input, $6.25 cache_creation (x1.25), $0.5 cache_read
+        (x0.10), $25 output.
     - cycle: punchlist
       date: 2026-11-26
       model: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 4275721
+      tokens_total: 6065588
       tokens_breakdown:
-        input: 86
-        cache_creation: 103792
-        cache_read: 4151038
-        output: 20805
-      estimated_usd: 1.95
+        input: 112
+        cache_creation: 116703
+        cache_read: 5920927
+        output: 27846
+      estimated_usd: 2.63
       note: >
         Measured from the session JSONL (found by its first message, `prompts/SPEC-161-punchlist.md`),
-        deduped by message.id (43 messages; max output_tokens per id), 0 subagent transcripts.
-        Measured before the commit, so the commit's and CI-watch turns are not in it.
+        deduped by message.id (56 messages; max output_tokens per id), 0 subagent transcripts.
+        Re-measured at ship (was 4,275,721 tokens, $1.95, taken before the commit and CI watches; it reported 5,498,685 tokens, $2.40 afterwards); this reading covers the whole session.
+        Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
+        (x0.10), $15 output.
+    - cycle: ship
+      date: 2026-11-27
+      model: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2365501
+      tokens_breakdown:
+        input: 50
+        cache_creation: 89910
+        cache_read: 2260953
+        output: 14588
+      estimated_usd: 1.23
+      note: >
+        Measured from the session JSONL (found by its first message, `prompts/SPEC-161-ship.md`),
+        deduped by message.id (25 messages; max output_tokens per id), 0 subagent transcripts.
+        Measured before the first ship commit; re-measured after the push in the follow-up commit.
         Rates (Sonnet): $3/MTok input, $3.75 cache_creation (x1.25), $0.3 cache_read
         (x0.10), $15 output.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 61063828
+    estimated_usd: 37.10
+    session_count: 6
 ---
 
 # SPEC-161: crop on the ddphotos edit page: the recipe model and the 4x replay
@@ -897,7 +931,7 @@ Every size is a literal from the independent model (or the frame's and SPEC-163'
 which agree), never from `recipe.js` or crustyimg. "pub" is as published: the form's size is the
 crop's own long edge, so there is no `resize` step.
 
-**Crop rows (native against wasm, same input; family `CROP_TABLE`, ids C1–C35).** Exact (0 px,
+**Crop rows (native against wasm, same input; family `CROP_TABLE`, ids C1–C35, and C36 added at the punch list *(corrected at ship)*).** Exact (0 px,
 bytes equal for PNG and JPEG, as TABLE's rule) unless marked *DEC-110* (a resize, ≤ 1/255 on ≤ K px).
 Recipe `pixel` and format `png` unless stated.
 - C1–C4, W presets pub: 1:1 → 1071×1071; 4:5 → 1339×1071; 3:2 → 1600×1067; 16:9 → 1600×900.
@@ -918,7 +952,7 @@ Recipe `pixel` and format `png` unless stated.
 - C33, C26's box, `pixel`/webp at 600 → 600×482, *DEC-110*. C34, the same as avif → 600×482,
   *DEC-110*.
 - C35, P 3:2 preset, `cli`/png at 1080, watermark on → 720×1080, mark [43, uncapped], *DEC-110*.
-- `CROP_ROW_COUNT = 35`; `CROP_NO_RESAMPLE_ROWS` = every C row except C26, C27, C31, C33, C34, C35.
+- `CROP_ROW_COUNT = 35`; `CROP_NO_RESAMPLE_ROWS` = every C row except C26, C27, C31, C33, C34, C35 *(corrected at ship: 36 and C36 after the punch list)*.
 
 **Goldens** (literal texts in the harness; HANDOFF trap 13: each has a mutant that turns it red by
 text, below):
@@ -968,6 +1002,7 @@ C rows. Their row shape (literal sizes, decoded RGBA equal) is reused.
 `aspect-orientation-loose-ends`):
 `16 table rows, 35 crop rows, 17 replay rows, 26 orientation rows, 2 alpha rows; <n> row failures,
 <m> other failures (<labels>), K=1 (cap 78)`, then the replay PSNR per row on its own line.
+*(Corrected at ship: after the punch list the run prints 36 crop rows.)*
 
 ### DEC-118 (build writes `decisions/DEC-118-<slug>.md`; a new record, not an amendment)
 
@@ -1094,7 +1129,7 @@ Body:
 - [x] **AC-7 A crop re-fits the watermark**: W-refit is 400×1071 with mark 40, capped; R-refit is
   375×1600 with mark 37, capped (C29, C30, R14, R15).
 - [x] **AC-8 Native and wasm agree on every crop row**: exact, bytes equal, without a resize;
-  within DEC-110 with one (C26, C27, C31, C33, C34, C35).
+  within DEC-110 with one (C26, C27, C31, C33, C34, C35, and C36 *(corrected at ship)*).
 - [x] **AC-9 The CLI recipe replays on a 4× and a 3.75× original within DEC-118**: R1–R17 sizes,
   `judgeReplay`'s bound and floors; B11–B19.
 - [x] **AC-10 Every control still sees what it guards**: N1, N2 red on exactly their grown lists; N4
@@ -1109,7 +1144,7 @@ Body:
   lists keep their TABLE entries in order and only append C rows; `ORIENTATION_ROWS`, N3 and the
   alpha code are untouched; `git diff --stat origin/main -- src tests/fixtures
   integrations/ddphotos/edit/edit.js recipes` is empty (`tests/fixtures` holds the recipe corpus goldens); the build's `just wasm-size` (or the
-  ddphotos-parity build's size lines) reads brotli 833,619 B on the slim build, as on `main`.
+  ddphotos-parity build's size lines) reads brotli 833,619 B on the slim build, as on `main`. *(Corrected at ship: 833,619 B is the Mac's figure; CI reads 836,219 B, the same as `main`, so 0 B of growth either way.)* TABLE's hunk also adds three fields in its `.map` (`family`, `crop`, `form`); its row literals are unchanged *(corrected at ship)*.
 - [x] **AC-13 DEC-118 is written** with the bounds and floors above, `affected_scope` a block list.
 
 ## Failing Tests
@@ -1124,9 +1159,9 @@ the literals above, and they must fail against `main`'s `recipe.js` (trap 14 row
   `ORIENTED_BASE` (added to `owned`). AC-1, AC-6.
 - **TABLE rows 15–16** — asserts: `planEdit(loadPhoto(R))` predicts 803×1200 and 723×1080 with no
   transpose. AC-1.
-- **C1–C35** (`runTable` on `CROP_TABLE`) — asserts per row: wasm and native size equal the literal;
+- **C1–C36** (`runTable` on `CROP_TABLE`; C36 added at the punch list, *corrected at ship*) — asserts per row: wasm and native size equal the literal;
   `planEdit` predicts it; the comparator (exact or DEC-110); the mark where given. AC-2, 3, 4, 6, 7, 8.
-- **`crop-count`, `crop-resize-set`** — 35 rows ran; the rows without a resize are exactly
+- **`crop-count`, `crop-resize-set`** — 36 rows ran *(35 at design; C36 added, corrected at ship)*; the rows without a resize are exactly
   `CROP_NO_RESAMPLE_ROWS`. AC-8.
 - **`golden-crop-box`, `golden-crop-square`, `golden-crop-cli`** — C26, C20, C35's texts equal the
   literals. AC-2, AC-4, AC-5.
@@ -1137,7 +1172,7 @@ the literals above, and they must fail against `main`'s `recipe.js` (trap 14 row
   given; `judgeReplay` green. AC-7, AC-9.
 - **B11–B19** (`--self-test`) — `judgeReplay` and `psnr` on synthetic input. AC-9.
 - **N1, N2, N4** (`--self-test`, `runTable` on TABLE + CROP_TABLE, native-side text mutation) — red
-  rows equal, in order: N1 `{3,4,7,8,11,12,13,14,16,C29,C30,C35}`; N2 `{4,8,12,13,14,16,C35}`; N4
+  rows equal, in order: N1 `{3,4,7,8,11,12,13,14,16,C29,C30,C35,C36}` *(C36 added at ship)*; N2 `{4,8,12,13,14,16,C35}`; N4
   `{C26,C31,C32,C33,C34}` (driven). AC-10.
 - **N5** (`--self-test`, `replayRows(ctx, { shift: true })`) — red rows `{R1…R17}`, each failure on
   `psnr`. AC-10.
@@ -1163,16 +1198,19 @@ read, so only a literal catches it (SPEC-163's verify rule).
   Red: C2, C3, C6, C7, C10, C11, C14, C15, C18, C19; R2, R3, R5, R6, R7, R17; `model-aspect`,
   `placement`. *Driven.* (C18/C19 are S 4:5 and 5:4: the square rows in both orders catch it.)
 - **M4** `loadPhoto`: `const shown = wasm.info(bytes);` → `const shown = wasm.info(source);` (the
-  stored size; trap 10). Red: 15, 16, C14, C15, C16, C27, C30; R7, R12, R15. *Driven.* C30 reads
-  560×1071 with mark 43, uncapped (size, mark and `capped` all differ). C13 (R 1:1) stays green:
-  1:1 is the same either way.
+  stored size; trap 10). Red: 15, 16, C14, C15, C16, C27, C30, C36; R7, R12, R15 *(corrected at
+  ship: C30 and C36 added, with verify's reasons)*. *Driven.* C27, C30, R12 and R15 fail as "threw"
+  (the engine refuses the stored-size fractions); 15, 16, C14–C16 and R7 fail on `planEdit predicts …`;
+  C36 fails on its size (239×400 against 400×300) *(corrected at ship)*. C13 (R 1:1) stays green: 1:1
+  is the same either way.
 - **M5** crop after resize, in `cliRecipe` only: `let r = pixelRecipe({ ...edit, resize:
   edit.outLong });` → `let r = pixelRecipe({ ...edit, crop: null, resize: edit.outLong });` plus
   `if (edit.crop) r = r.replace(/(op = "resize"\nmode = "max"\nwidth = \d+\n)/, `$1\n[[step]]\nop =
   "crop"\n${edit.crop}`);`. Red: C31; R1, R2, R10, R11, R12, R14, R16; `golden-crop-cli`. *Driven.*
   Green, because crop and resize commute on them: C35 (P 3:2 at 1080: 723×1080 then 3:2 is 720×1080
   either way) and R3–R9, R13, R15, R17 (a preset or a full-height box whose long side is the photo's,
-  resized to that same long side). The golden and the box rows are the guard.
+  resized to that same long side). The golden and the box rows are the guard. R14 fails as "threw"
+  (the watermark is refused on 267×717) *(corrected at ship)*.
 - **M6** box fractions `toFixed(4)` (all four in `cropStep`). Red: `golden-crop-box`,
   `model-fractions`. *Driven.* No size moves on these sides.
 - **M7** an untouched preset emits a box: `presetCrop` returns `{ box: cropBox({ aspect: [a, b],
@@ -1188,9 +1226,13 @@ read, so only a literal catches it (SPEC-163's verify rule).
 - **M10** `cropBox` centring `Math.floor` → `Math.ceil` (both). Red: `placement` only. *Driven.*
 - **M11** `planEdit` ignores the crop: `const box = cropBox(crop, photo);` → `cropBox(null, photo)`.
   Red: every C row except C17 (S 1:1, the whole square), so C1–C16, C18–C35; and R1–R17. *Driven.*
+- **M12** *(driven by verify, added at ship)* `planEdit`'s two `Math.max(1, …)` dropped. Green at
+  `f9c81ae`; since the punch list, `model-min` only.
+- **M13** *(driven by verify, added at ship)* a box's `x + width` one ulp past 1. Red:
+  `model-fractions` (2,671 boxes), and C28 and R13 as engine refusals.
 - **N4** (`--self-test`): `t.replace("width = 0.5\n", "width = 0.500625\n")` on the native text. Red
-  exactly C26, C31, C32, C33, C34, on `dims` (C26 natively 601×482 at 600 → the comparator's
-  `dims`). *Driven.*
+  exactly C26, C31, C32, C33, C34 *(corrected at ship: C26, C31, C33 and C34 fail on the comparator's
+  `max`, C26 at 600×482; only C32 fails on `dims`, 801×643)*. *Driven.*
 - **N5** (`--self-test`): the original's content moved left `round(factor)` px, size kept. Red
   exactly R1–R17, each `psnr`; the shifted PSNRs are listed under "What was driven". *Driven.*
 - **N1, N2** (`--self-test`): the grown lists above. *Driven.*
@@ -1335,7 +1377,7 @@ re-run the map after each rebase.**
   - M1 `model-follow` only. Matches. Still invisible on page paths.
   - M2 C2, C3, C4, C6, C7, C8, C10, C11, C12, C14, C15, C16, C24, C25, C35; R2, R3, R4, R5, R6, R7, R10, R17; `golden-crop-cli`, `model-follow`, `placement`. Matches.
   - M3 C2, C3, C6, C7, C10, C11, C14, C15, C18, C19; R2, R3, R5, R6, R7, R17; `model-aspect`, `placement`. Matches.
-  - M4 15, 16, C14, C15, C16, C27, C30; R7, R12, R15. Matches the set. **Cell correction:** C30, R12 and R15 go red as "threw", because the engine refuses the stored-size fractions (`'height' must be a number > 0 and <= 1, got 1.4939…`), not as 560×1071 with mark 43. That reading holds only for the frame's fractions 0.325/0.35 at full height. C14–C16, C27, 15, 16 and R7 fail on `planEdit predicts …`.
+  - M4 15, 16, C14, C15, C16, C27, C30; R7, R12, R15. Matches the set. *(Corrected at ship: verify found C27 also throws, rather than failing on `planEdit predicts …`; the line below is kept as history.)* **Cell correction:** C30, R12 and R15 go red as "threw", because the engine refuses the stored-size fractions (`'height' must be a number > 0 and <= 1, got 1.4939…`), not as 560×1071 with mark 43. That reading holds only for the frame's fractions 0.325/0.35 at full height. C14–C16, C27, 15, 16 and R7 fail on `planEdit predicts …`.
   - M5 C31; R1, R2, R10, R11, R12, R14, R16; `golden-crop-cli`. Matches. C35 and R3–R9, R13, R15, R17 stay green (commute); the CLI golden catches it.
   - M6 `golden-crop-box`, `model-fractions`. Matches.
   - M7 C24, C25, R10 (all "threw: undefined is not iterable"); `golden-crop-square`, `golden-crop-cli`. Matches.
@@ -1425,10 +1467,36 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things, from the evidence. (a) The design's mutation table gave two failure reasons it had not
+   checked: N4's "on `dims`" (four of five rows read `comparator: max`; only C32 reads `dims`) and M4's
+   "C30 reads 560×1071" (C27, C30, R12 and R15 throw, and C36 reads 239×400), and verify found a mutant
+   (`Math.max(1, …)` dropped) that no row or check caught. HANDOFF trap 13 asks the build's RED baseline
+   to quote each red row's message; a design that tables a mutation should quote the message too, or
+   mark the cell "reason not driven". (b) The build ticked no AC and left all three reflection answers
+   as `<answer>`, though its prompt asked for the reflection; the punch list filled both. A prompt
+   line "`grep -c '<answer>'` on the spec is 0, and no AC reads `[ ]`, before the last push" would make
+   that hard to miss. (c) The temp-folder instructions (point `TMPDIR` into the scratchpad, count system
+   `ddphotos-*` before and after) were followed in all three sessions: the system count stayed at 5.
+   Worth keeping as a standing instruction for any harness that keeps failed runs; the build's first
+   run raced its own edits and left three folders, which it removed, so the instruction also needs
+   "no run while editing".
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) "A spec that adds parity rows drives one mutant into both sides"
+   (SPEC-163's proposal): this spec is the second evidence. Every mutant M1 to M11 sat in `recipe.js`,
+   which both sides read, so only literals caught any of them (M1, M9 and M10 only a pure check). Not
+   covered: AGENTS §15 and `guidance/` don't say it, and HANDOFF trap 13 and 14 speak of reasons and
+   restored files. (ii) "Write each square row in both orders": C18 and C19 caught M3 that way, which
+   is the second sighting after SPEC-163's M1. Not covered in §15–16 or HANDOFF; it is in
+   `aspect-orientation-loose-ends`. (iii) "A prompt says what to do when a push is refused": this
+   spec's prompts did, and no push was refused, so it was not exercised; AGENTS and `guidance/` are
+   still silent. (iv) New, from (a) above: trap 13's "quote each red row's message" extended from the
+   build's RED baseline to the design's mutation table. Trap 13 covers the baseline only. HANDOFF is
+   `projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`; I read it. SPEC-160's three
+   proposals (comments swept with DECs, red set off every target, separator normalisation) were not
+   exercised here. No DEC changes: DEC-118 was written and corrected on the PR.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. The crop-mode entry already says its CLI panel must tell the user to run the recipe on a file
+   at least as large as the copy, which covers verify's rule-5 finding, and `aspect-orientation-loose-ends`
+   already has the summary line resolved and the N3 temp folder added. The evidence names no other gap.
