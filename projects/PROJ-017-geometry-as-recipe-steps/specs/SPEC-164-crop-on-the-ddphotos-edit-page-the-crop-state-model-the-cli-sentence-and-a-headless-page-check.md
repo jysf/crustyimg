@@ -49,7 +49,20 @@ value_link: "The tested half of STAGE-060's \"crop on the ddphotos edit page\" c
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-27
+      model: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7564921
+      tokens_breakdown:
+        input: 102
+        cache_creation: 189694
+        cache_read: 7317842
+        output: 57283
+      estimated_usd: 6.28
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "Measured after the frame push, from the session transcript (found by content), deduped by message.id (max output_tokens); 50 messages, all claude-opus-5-5, no subagents. Excludes this cost commit's own turn."
   totals:
     tokens_total: 0
     estimated_usd: 0
