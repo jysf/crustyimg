@@ -112,7 +112,7 @@ To update the page, replace the whole `edit` folder, then Build (and Export) aga
 | **Watermark** | Text, position, size (scaled to the output, and made smaller when the text would not fit a portrait or narrow photo), colour, opacity. Uses crustyimg's bundled font. |
 | **Format** | JPEG (searched for the smallest file that scores 90 for similarity), AVIF (fixed high quality), PNG, WebP (lossless only in this build), or let the engine choose (the smallest file at high, not identical, quality: usually AVIF). |
 | **Preview** | Live, re-rendered by the engine about 200 ms after each change. |
-| **CLI** | Every result shows the same edit as a crustyimg recipe, plus the `crustyimg apply` command to run on the original file. Optional: only for people with the crustyimg CLI installed. Run it in the folder named by the album's `base:` entry (listed under `bases:` in `albums.yaml`, relative to the site folder), with the recipe saved there as `edit.toml`: the command uses the photo's path relative to that folder. |
+| **CLI** | Every result shows the same edit as a crustyimg recipe, plus the `crustyimg apply` command to run on the original file. Optional: only for people with the crustyimg CLI installed. Run it in the folder named by the album's `base:` entry (listed under `bases:` in `albums.yaml`, relative to the site folder), with the recipe saved there as `edit.toml`: the command uses the photo's path relative to that folder. Run it on the original or on a file at least as large as the web copy: a smaller file gives a smaller image, or a refused watermark, with no warning. |
 
 Work runs in a Web Worker, so the page stays responsive during an encode. The JPEG
 quality search is the slow part in wasm: on 1200 px copies in headless Chromium on an

@@ -224,3 +224,150 @@ export function loadPhoto(wasm, source) {
   shown.free();
   return photo;
 }
+
+// ── the crop mode ────────────────────────────────────────────────────────────
+//
+// The state and the box geometry behind a crop control, as plain functions of values:
+// the page's pointer and key handlers turn what they read into the arguments here, and
+// draw what comes back. Boxes are `{ x, y, w, h }` in pixels of the upright photo, whole
+// numbers, and the recipe text still comes only from `cropStep`.
+
+/// The smallest side, in photo pixels, that a box can be resized to. It is the box's
+/// usability floor (a handle can still be grabbed), not a promise that a watermark fits.
+export const MIN_CROP = 64;
+
+/// A pointer's movement on screen, in CSS pixels, as whole photo pixels. `ratio` is the
+/// shown image's width over its natural width. Halves round away from zero on both signs,
+/// so dragging left and dragging right by the same distance move the box the same
+/// distance, and a drag too small to count is `0`, never `-0`. A ratio that is not a
+/// positive finite number (an image not yet laid out) moves nothing.
+export function toCopyDelta(dCss, ratio) {
+  if (!(ratio > 0) || !Number.isFinite(ratio) || !Number.isFinite(dCss)) return 0;
+  const photoPixels = Math.sign(dCss) * Math.round(Math.abs(dCss) / ratio);
+  return photoPixels === 0 ? 0 : photoPixels;
+}
+
+const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+
+const sameBox = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+
+/// `box` moved by (`dx`, `dy`) and held inside `photo`, with its size unchanged. It
+/// expects a box that is already inside the photo, as every box here is.
+export function moveBox(box, dx, dy, photo) {
+  return {
+    x: clamp(box.x + dx, 0, photo.width - box.w),
+    y: clamp(box.y + dy, 0, photo.height - box.h),
+    w: box.w,
+    h: box.h,
+  };
+}
+
+// The edges each handle moves: n, s, e and w are the sides, the corners are two sides.
+const HANDLE_EDGES = { n: "n", s: "s", e: "e", w: "w", ne: "ne", nw: "nw", se: "se", sw: "sw" };
+
+/// `box` with the edges `handle` names moved by `dx` (east and west) and `dy` (north and
+/// south); the other edges stay put. An edge stops at the photo, and at `MIN_CROP` from
+/// the opposite edge. It never passes the opposite edge: that would change which handle
+/// is being dragged part-way through, and a key press has no way to flip. A box already
+/// smaller than `MIN_CROP` (a preset on a very small photo) can grow but not shrink.
+export function resizeBox(box, handle, dx, dy, photo) {
+  if (!Object.hasOwn(HANDLE_EDGES, handle)) throw new Error(`unknown crop handle ${handle}`);
+  const edges = HANDLE_EDGES[handle];
+  const minW = Math.min(MIN_CROP, box.w);
+  const minH = Math.min(MIN_CROP, box.h);
+  let left = box.x;
+  let top = box.y;
+  let right = box.x + box.w;
+  let bottom = box.y + box.h;
+  if (edges.includes("w")) left = clamp(left + dx, 0, right - minW);
+  if (edges.includes("e")) right = clamp(right + dx, left + minW, photo.width);
+  if (edges.includes("n")) top = clamp(top + dy, 0, bottom - minH);
+  if (edges.includes("s")) bottom = clamp(bottom + dy, top + minH, photo.height);
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+// The state with its crop made the box `box`, which was moved from `from`. A box that is
+// where the crop already was changes nothing, so a press with no movement leaves a preset
+// a preset, and the same state object comes back for the caller to see that.
+function toBox(s, box, from) {
+  if (!s.crop?.box && sameBox(box, from)) return s;
+  if (s.crop?.box && sameBox(box, s.crop.box)) return s;
+  return { crop: { box }, preset: null, drag: s.drag };
+}
+
+/// The crop mode's state machine. `state` is `{ crop, preset, drag }`:
+///   crop    what `planEdit` takes: null, a preset (`presetCrop`, or `swapCrop` once
+///           swapped) or a box (`{ box }`);
+///   preset  `[a, b]` of the preset button that made the crop, null after a drag, a key
+///           press or a reset, so the page can show which button is on;
+///   drag    null, or `{ handle, start }` while a pointer is down: `handle` is "move" or
+///           a resize handle, `start` the box when the pointer went down.
+/// `cropReducer(null, { type: "reset" }, photo)` is the starting state.
+///
+/// The actions:
+///   preset { a, b }     the preset's centred box, from any state
+///   swap                the other orientation of a preset; nothing on no crop, a box or 1:1
+///   drag-start { handle }
+///   drag-move { dx, dy }    photo pixels from where the drag started, not per move
+///   drag-end, done          the pointer is up
+///   key-move { dx, dy }     the box moved, from the crop's box (the whole photo for none)
+///   key-resize { dx, dy }   the box's bottom-right corner moved
+///   reset                   no crop
+/// An action that changes nothing returns the same object, which is how the page tells
+/// that Swap does nothing here. The state is never changed in place.
+export function cropReducer(state, action, photo) {
+  const s = state ?? { crop: null, preset: null, drag: null };
+  switch (action.type) {
+    case "preset":
+      return { crop: presetCrop(action.a, action.b, photo), preset: [action.a, action.b], drag: null };
+    case "swap":
+      // 1:1 swaps to itself, so there is nothing to change; a box has no aspect to swap.
+      if (!s.crop || s.crop.box || s.crop.aspect[0] === s.crop.aspect[1]) return s;
+      return { ...s, crop: swapCrop(s.crop, photo) };
+    case "drag-start":
+      return { ...s, drag: { handle: action.handle, start: cropBox(s.crop, photo) } };
+    case "drag-move": {
+      if (!s.drag) return s; // a stray move after the pointer went up
+      const { handle, start } = s.drag;
+      const box =
+        handle === "move"
+          ? moveBox(start, action.dx, action.dy, photo)
+          : resizeBox(start, handle, action.dx, action.dy, photo);
+      return toBox(s, box, start);
+    }
+    case "drag-end":
+      return s.drag ? { ...s, drag: null } : s;
+    case "done":
+      // Leaving the mode also clears the pointer state, so a stray move after it does nothing.
+      return s.drag ? { ...s, drag: null } : s;
+    case "key-move": {
+      const from = cropBox(s.crop, photo);
+      return toBox(s, moveBox(from, action.dx, action.dy, photo), from);
+    }
+    case "key-resize": {
+      const from = cropBox(s.crop, photo);
+      return toBox(s, resizeBox(from, "se", action.dx, action.dy, photo), from);
+    }
+    case "reset":
+      if (s.crop === null && s.preset === null && s.drag === null) return s;
+      return { crop: null, preset: null, drag: null };
+    default:
+      throw new Error(`unknown crop action ${action.type}`);
+  }
+}
+
+/// The crop mode's size line: what is cropped, then what the copy will be, from
+/// `planEdit`'s output for the same crop (so a size below the crop's long edge reads as
+/// the resized size). A preset shows the aspect as shown, so a swap is visible.
+export function sizeLine(edit, photo, crop) {
+  const of = `${photo.width} × ${photo.height}`;
+  const box = cropBox(crop, photo);
+  let what = `The whole photo, ${of}`;
+  if (crop?.box) {
+    what = `Crop ${box.w} × ${box.h} of ${of}`;
+  } else if (crop) {
+    const [a, b] = shownAspect(crop, photo);
+    what = `Crop ${a}:${b}, ${box.w} × ${box.h} of ${of}`;
+  }
+  return `${what} · the copy will be ${edit.outW} × ${edit.outH}`;
+}

@@ -325,6 +325,9 @@ async function showEditor(album, index, config) {
   ]);
   const meta = await ask("load", { bytes }, [bytes]);
   photo = { album, entry, index, width: meta.width, height: meta.height };
+  // The web copy's upright size, which the CLI panel names: the size to run the recipe
+  // on or above. It is the copy's, so a size or crop change never touches it.
+  $("cli-size").textContent = `${photo.width} × ${photo.height}`;
   fillSizes(Math.max(meta.width, meta.height));
 
   const form = $("controls");
