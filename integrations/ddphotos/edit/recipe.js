@@ -318,18 +318,8 @@ function toBox(s, box, from) {
 export function cropReducer(state, action, photo) {
   const s = state ?? { crop: null, preset: null, drag: null };
   switch (action.type) {
-    case "preset": {
-      const crop = presetCrop(action.a, action.b, photo);
-      const same =
-        s.crop?.aspect &&
-        s.crop.aspect[0] === crop.aspect[0] &&
-        s.crop.aspect[1] === crop.aspect[1] &&
-        s.crop.follow === crop.follow &&
-        s.preset?.[0] === action.a &&
-        s.preset?.[1] === action.b &&
-        s.drag === null;
-      return same ? s : { crop, preset: [action.a, action.b], drag: null };
-    }
+    case "preset":
+      return { crop: presetCrop(action.a, action.b, photo), preset: [action.a, action.b], drag: null };
     case "swap":
       // 1:1 swaps to itself, so there is nothing to change; a box has no aspect to swap.
       if (!s.crop || s.crop.box || s.crop.aspect[0] === s.crop.aspect[1]) return s;
