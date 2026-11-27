@@ -33,4 +33,5 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
   `10ae6e5` on the page check: `open()` returns before the new document exists. $1.17.
 - [ ] **punch list 2** — `prompts/SPEC-164-punchlist-2.md`: `open()` waits for the new document; prove the
   race (W `reading 'src'`, R read on the stale W page) red then green with a delayed server.
-- [ ] **ship**
+- [ ] **ship** — `prompts/SPEC-164-ship.md`, after the maintainer merges #274 (approved head `81ea04f`:
+  punch list 2 reported CI green, marked ready 2026-11-27).
