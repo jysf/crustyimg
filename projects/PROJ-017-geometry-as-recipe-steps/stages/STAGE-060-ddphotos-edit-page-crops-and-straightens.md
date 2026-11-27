@@ -124,7 +124,7 @@ In build order.
   **Ruled 2026-11-22:** an untouched preset emits `aspect` plus the orientation key (readable and
   reusable), and a dragged box emits a box. See SPEC-161's "Maintainer rulings". After the
   orientation-key entry above.
-- [ ] **SPEC-164** (framed 2026-11-27) — [M] **Crop on the page: the crop mode.** The second half of the entry
+- [ ] **SPEC-164** (designed 2026-11-27) — [M] **Crop on the page: the crop mode.** The second half of the entry
   above, split at SPEC-161's frame. A "Crop" button shows the oriented base image (rendered once at
   load by SPEC-161's worker) with a DOM box over it; dragging renders nothing, and "Done" schedules
   one finished preview. Preset buttons (1:1, 4:5, 3:2, 16:9) that follow the photo's orientation,
@@ -141,6 +141,9 @@ In build order.
   **Ruled 2026-11-27:** all six frame recommendations accepted (split; `MIN_CROP = 64`; swap twice
   stays explicit; crop mode updates only the size line; the check in the advisory job; README crop
   rows with the DOM entry). See SPEC-164's "Maintainer rulings".
+  **Designed 2026-11-27:** six functions with a `{ crop, preset, drag }` reducer, 153 Node rows, a
+  headless check H1–H8 with a shared `scripts/lib/chrome.mjs`. Finding: `MIN_CROP = 64` still lets
+  thin resized strips refuse a watermark (69 of 1,260 runs); put to the maintainer, ruling kept.
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with

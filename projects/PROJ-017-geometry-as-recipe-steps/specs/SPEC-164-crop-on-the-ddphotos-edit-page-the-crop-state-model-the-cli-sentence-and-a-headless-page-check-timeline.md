@@ -15,7 +15,11 @@ Cycle prompts live in `prompts/SPEC-164-<cycle>.md`.
 - [x] **rulings** (2026-11-27, maintainer) — all six accepted: split; `MIN_CROP = 64` with the watermark fit
   filed apart; swap twice stays explicit; crop mode updates only the size line, Done renders, Make disabled;
   headless check in-repo in the advisory `ddphotos-parity` job; README crop rows go with the DOM entry.
-- [ ] **design** — `prompts/SPEC-164-design.md`
-- [ ] **build**
+- [x] **design** (2026-11-27, Opus, `prompts/SPEC-164-design.md`): the six crop-mode functions, with
+  the drag's start box in the reducer's `{ crop, preset, drag }` state; 153 literal Node rows (114
+  reducer, 31 geometry, 8 size-line) and 18 Node mutants plus 5 headless controls, all driven red;
+  a headless check H1–H8 driven green in a prototype. `MIN_CROP = 64` refused on thin resized strips
+  (smallest clean 122 over the sweep); ruling kept, question put to the maintainer.
+- [ ] **build** — `prompts/SPEC-164-build.md`
 - [ ] **verify**
 - [ ] **ship**
