@@ -36,12 +36,13 @@
 //
 // Run: `just demo-smoke`.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CDP, findChrome, launchChrome } from "../scripts/lib/chrome.mjs";
 import { makePng, makePhotoPng, makeGraphicPng, readIhdr } from "../scripts/lib/png.mjs";
 import { startServer } from "../scripts/serve.mjs";
 
@@ -100,87 +101,6 @@ async function die(msg) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// ── find Chrome ───────────────────────────────────────────────────────────────
-
-function findChrome() {
-  if (process.env.CHROME) return process.env.CHROME;
-  const candidates = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ];
-  return candidates.find((p) => existsSync(p));
-}
-
-// ── a minimal DevTools Protocol client ────────────────────────────────────────
-
-class CDP {
-  #ws;
-  #next = 1;
-  #pending = new Map();
-  handlers = new Map();
-
-  static async attach(wsUrl) {
-    const cdp = new CDP();
-    cdp.#ws = new WebSocket(wsUrl);
-    cdp.#ws.addEventListener("message", (ev) => cdp.#onMessage(JSON.parse(ev.data)));
-    await new Promise((res, rej) => {
-      cdp.#ws.addEventListener("open", res, { once: true });
-      cdp.#ws.addEventListener("error", rej, { once: true });
-    });
-    return cdp;
-  }
-
-  #onMessage(msg) {
-    if (msg.id !== undefined) {
-      const p = this.#pending.get(msg.id);
-      this.#pending.delete(msg.id);
-      if (msg.error) p?.rej(new Error(`${msg.error.message} (${JSON.stringify(msg.error.data)})`));
-      else p?.res(msg.result);
-      return;
-    }
-    // Events from an attached target carry its sessionId; events from the page do
-    // not. The handlers below are keyed by METHOD, so a worker's console error and
-    // a page's console error land in the same list — which is what we want.
-    this.handlers.get(msg.method)?.(msg.params, msg.sessionId);
-  }
-
-  /// `sessionId` addresses an auto-attached target — the engine's Web Worker is one
-  /// (SPEC-078), and it is a genuinely separate target with its own Runtime and its
-  /// own Network domain. Without this, the worker's traffic (including the .wasm it
-  /// fetches) is invisible from the page's session.
-  send(method, params = {}, sessionId) {
-    const id = this.#next++;
-    this.#ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
-    return new Promise((res, rej) => this.#pending.set(id, { res, rej }));
-  }
-
-  on(method, fn) {
-    this.handlers.set(method, fn);
-  }
-
-  close() {
-    this.#ws.close();
-  }
-
-  /// Evaluate an expression in the page and return its value. `await`s a promise
-  /// result, and turns a page-side throw into a real rejection here.
-  async eval(expression) {
-    const r = await this.send("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    if (r.exceptionDetails) {
-      throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
-    }
-    return r.result.value;
-  }
-}
 
 /// The page's own state, or null if there is no document yet. Every read of the
 /// page goes through this: right after `Page.navigate` the document can still be
@@ -285,74 +205,20 @@ ok(`serving demo/ at ${baseUrl}`);
 const profileDir = mkdtempSync(join(tmpdir(), "crustyimg-chrome-"));
 cleanups.push(() => rmSync(profileDir, { recursive: true, force: true }));
 
-const chrome = spawn(
-  chromePath,
-  [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-extensions",
-    "--remote-allow-origins=*",
-    "--remote-debugging-port=0",
-    `--user-data-dir=${profileDir}`,
-    ...(process.env.CI ? ["--no-sandbox"] : []),
-    "about:blank",
-  ],
-  { stdio: ["ignore", "ignore", "pipe"] },
-);
-cleanups.push(() => chrome.kill());
-
-// Drain Chrome's stderr. Two reasons, and the second is not cosmetic: an
-// un-drained pipe fills its buffer (~64 KB) and then BLOCKS the writer, so a
-// chatty Chrome could hang before it ever writes DevToolsActivePort. Keep only
-// the tail — the useful line ("Failed to launch", a sandbox refusal, a missing
-// shared library) is always near the end.
-let chromeErr = "";
-chrome.stderr.setEncoding("utf8");
-chrome.stderr.on("data", (d) => {
-  chromeErr = (chromeErr + d).slice(-4000);
-});
-
-// Fail fast if Chrome dies rather than waiting out the whole budget for a
-// port file that can never appear.
-let chromeExit = null;
-chrome.on("exit", (code, signal) => {
-  chromeExit = signal ? `signal ${signal}` : `exit code ${code}`;
-});
-
-// Chrome startup gets the same budget as every other wait in this file
-// (`waitFor`'s 90 s default). It previously had 100 x 100 ms = 10 s — an order
-// of magnitude tighter than its siblings, for no stated reason — and a cold
-// Chrome on a loaded CI runner misses 10 s routinely. Measured: this was the
-// sole cause of three `pages / build + browser smoke` failures on 2026-08-21,
-// including one on a DOCS-ONLY commit and one on `main`, each dying at almost
-// exactly 10.03 s after the server came up. The identical tree passed on re-run.
-const CHROME_STARTUP_MS = 90_000;
-const portFile = join(profileDir, "DevToolsActivePort");
+let chrome;
+let cdp;
+let exited;
 let devtoolsPort;
-const startupDeadline = Date.now() + CHROME_STARTUP_MS;
-while (!devtoolsPort && chromeExit === null && Date.now() < startupDeadline) {
-  await sleep(100);
-  if (existsSync(portFile)) devtoolsPort = readFileSync(portFile, "utf8").split("\n")[0].trim();
+try {
+  ({ chrome, cdp, exited, port: devtoolsPort } = await launchChrome(chromePath, profileDir));
+} catch (e) {
+  await die(e.message);
 }
-if (!devtoolsPort) {
-  const why =
-    chromeExit !== null
-      ? `Chrome exited (${chromeExit}) before writing DevToolsActivePort`
-      : `no DevToolsActivePort after ${CHROME_STARTUP_MS / 1000}s`;
-  await die(
-    `headless Chrome never came up — ${why}\n` +
-      `  binary: ${chromePath}\n` +
-      `  chrome stderr (tail):\n${chromeErr.trim() || "    (nothing on stderr)"}`,
-  );
-}
-
-const targets = await (await fetch(`http://127.0.0.1:${devtoolsPort}/json/list`)).json();
-const page = targets.find((t) => t.type === "page");
-if (!page) await die("headless Chrome exposed no page target");
-
-const cdp = await CDP.attach(page.webSocketDebuggerUrl);
+// The profile folder goes last (cleanups run in reverse), and only once Chrome is gone.
+cleanups.push(async () => {
+  chrome.kill();
+  await exited;
+});
 cleanups.push(() => cdp.close());
 ok(`attached to headless Chrome (${chromePath.split("/").pop()})`);
 
