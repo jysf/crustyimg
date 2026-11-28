@@ -36,21 +36,45 @@ export function textEms(text) {
   return units / 2048;
 }
 
-/// The watermark's font size in pixels for an output of `outW` × `outH`.
+/// The watermark's font size in pixels for an output of `outW` × `outH`: the ceiling,
+/// not the final size. The engine decides the size under it (`fitWatermark`).
 ///
 /// The chosen size (Small, Medium, Large) is a fraction of the long edge, so the
 /// mark looks the same at any output size. On a portrait or a narrow photo that
-/// can make the text wider than the image, which the engine refuses. So the size
-/// is capped to keep the text within 90% of the width (after the margin), and to
-/// a tenth of the short edge, which keeps the mark's height and its share of the
-/// image well inside the engine's limits. `capped` says the cap applied.
+/// can make the text wider than the image. So the size is capped to keep the text
+/// within 90% of the width (after the margin), and to a tenth of the short edge.
+/// That is an estimate: only the engine knows how wide and tall the mark is drawn,
+/// and how many pixels it covers. `wanted` is the size the form asked for, and
+/// `capped` says this cap lowered it.
 export function watermarkSize(text, outW, outH, margin, sizeFraction) {
   const outLong = Math.max(outW, outH);
   const wanted = Math.max(8, Math.round(outLong * Number(sizeFraction)));
   const fitsWidth = Math.floor((0.9 * (outW - margin)) / textEms(text));
   const fitsHeight = Math.floor(0.1 * Math.min(outW, outH));
   const size = Math.max(1, Math.min(wanted, fitsWidth, fitsHeight));
-  return { size, capped: size < wanted };
+  return { size, capped: size < wanted, wanted };
+}
+
+/// How much smaller than the copy a box's output can be on the original, per side, in
+/// pixels: the CLI recipe's output differs from the page's by up to this much for a box
+/// on an original under 2x. A mark that fits the copy and not this much less would be
+/// refused by the CLI on the original.
+export const FIT_HEADROOM = 2;
+
+/// The largest watermark size, from `ceiling` down to 1, that the engine accepts on the
+/// output and on the output `FIT_HEADROOM` px smaller per side (each side at least 1),
+/// or `null` when no size does. `refuses` is the engine's own check: it returns
+/// `undefined` when the text mark fits an image of the given size, and the refusal's
+/// text otherwise. Every size is asked, from the top, so acceptance need not be
+/// monotone in the size for the answer to be the largest.
+export function fitWatermark(refuses, text, ceiling, gravity, margin, color, outW, outH) {
+  const smallW = Math.max(1, outW - FIT_HEADROOM);
+  const smallH = Math.max(1, outH - FIT_HEADROOM);
+  for (let size = ceiling; size >= 1; size--) {
+    if (refuses(text, size, gravity, margin, color, outW, outH) !== undefined) continue;
+    if (refuses(text, size, gravity, margin, color, smallW, smallH) === undefined) return size;
+  }
+  return null;
 }
 
 /// The size of the largest `a:b` box that fits a `w` × `h` image, as the engine's
@@ -125,7 +149,14 @@ function cropStep(crop, photo) {
 /// a preset (`presetCrop`) or a box (`{ box: { x, y, w, h } }`). `outW` and `outH` are
 /// the output's sides, which the page uses to say what it made; they, the size and the
 /// watermark's fit all come from the cropped size.
-export function planEdit(photo, form, crop = null) {
+///
+/// `refuses(text, size, gravity, margin, color, width, height)` is the engine's check of a
+/// text watermark against an output size (the wasm export `watermarkRefusal`): `undefined`
+/// when the mark fits, the refusal's text when it does not. It is needed only with the
+/// watermark on. The watermark's size is the largest the engine accepts up to
+/// `watermarkSize`'s ceiling, and `blocked` is `{ reason: "watermark" }` when none does
+/// (then the watermark's `size` is `null`), else `null`. A blocked edit has no recipe.
+export function planEdit(photo, form, crop = null, refuses = null) {
   const box = cropBox(crop, photo);
   const longEdge = Math.max(box.w, box.h);
   const target = Number(form.size) || longEdge;
@@ -138,7 +169,13 @@ export function planEdit(photo, form, crop = null) {
   const wm = form.wmOn && text !== "";
   // Margin scales with the output, like the size.
   const margin = Math.round(outLong * 0.02);
-  const fit = wm ? watermarkSize(text, outW, outH, margin, form.wmSize) : null;
+  let fit = null;
+  let size = null;
+  if (wm) {
+    if (typeof refuses !== "function") throw new Error("planEdit needs the engine's watermark check");
+    fit = watermarkSize(text, outW, outH, margin, form.wmSize);
+    size = fitWatermark(refuses, text, fit.size, form.wmGravity, margin, form.wmColor, outW, outH);
+  }
   return {
     crop: cropStep(crop, photo),
     resize: target < longEdge ? target : null,
@@ -149,20 +186,24 @@ export function planEdit(photo, form, crop = null) {
       ? {
           text,
           gravity: form.wmGravity,
-          size: fit.size,
-          capped: fit.capped,
+          size,
+          capped: size !== null && size < fit.wanted,
           margin,
           color: form.wmColor,
           opacity: Number(form.wmOpacity),
         }
       : null,
+    blocked: wm && size === null ? { reason: "watermark" } : null,
     format: form.format,
   };
 }
 
 /// The edit as a crustyimg recipe: the same TOML the CLI reads. A crop goes right
-/// after `auto-orient`, so it acts on the upright photo, and before `resize`.
+/// after `auto-orient`, so it acts on the upright photo, and before `resize`. An edit
+/// whose watermark fits at no size has no recipe: leaving the mark out would make a copy
+/// the user asked to have marked without one.
 export function pixelRecipe(edit) {
+  if (edit.blocked) throw new Error("the watermark does not fit this copy at any size");
   let r = 'version = "2"\n\n[[step]]\nop = "auto-orient"\n';
   if (edit.crop) r += `\n[[step]]\nop = "crop"\n${edit.crop}`;
   if (edit.resize) {
