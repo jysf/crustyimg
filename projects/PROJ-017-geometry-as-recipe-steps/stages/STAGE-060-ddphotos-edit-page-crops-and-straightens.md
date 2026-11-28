@@ -167,8 +167,9 @@ In build order.
   **Reserved: SPEC-165** (2026-11-27, frame prompt `specs/prompts/SPEC-165-frame.md`).
   **Framed 2026-11-27: GO at [M].** Over 37.7M planned runs, 465,951 refused (0 without a crop), and
   97.6 % have no size that fits. The page asks the engine (a wasm export, +697 B brotli) with 2 px of
-  headroom, because the CLI recipe on a 3.75× original refused a mark the copy accepted (driven 30/30),
-  and it leaves the mark off with a note when nothing fits. See SPEC-165's `## Frame`.
+  headroom, because the CLI recipe on a 3.75× original refused a mark the copy accepted (driven 30/30).
+  **Ruled 2026-11-28:** when nothing fits, Make is blocked with a sentence naming the fixes, turning
+  the watermark off among them. The mark is never silently left off. See SPEC-165's `## Frame`.
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with

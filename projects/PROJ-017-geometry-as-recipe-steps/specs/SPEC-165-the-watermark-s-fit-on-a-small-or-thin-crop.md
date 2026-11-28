@@ -86,8 +86,10 @@ that lets a user draw such a box.
 ## Goal
 
 The page never asks the engine for a watermark it will refuse, on the copy or on the original. It asks
-the engine whether its mark fits: a smaller mark gets the existing "Made smaller" note, and a mark
-that can't fit at any size is left off, with a plain sentence saying why and what to change.
+the engine whether its mark fits: a smaller mark gets the existing "Made smaller" note. When the mark
+can't fit at any size, the page doesn't make the copy. It blocks Make with a plain sentence saying why
+and what to change, including turning the watermark off. A copy the page makes with the watermark
+on always carries it (ruled 2026-11-28).
 
 ## Frame
 
@@ -382,6 +384,24 @@ harness.
 4. A readable floor (no mark under 8 px) is **not** in this spec. Today a long text at 400 px already
    gets 4–6 px marks with no crop (F11), so a floor changes uncropped outputs. **Recommend filing it as
    an idea** (done: `guidance/ideas.yaml`).
+
+### Maintainer rulings (2026-11-28)
+
+1. **When no size fits, block Make; don't leave the mark off.** This overrides the frame's
+   recommendation. The reason: if the watermark is on, every copy and recipe the page produces carries
+   it. The page never decides on its own to make an unmarked copy. The user gets one without the mark
+   by turning the watermark off, and the message names that as one way out, next to "make the box
+   larger" and "use shorter text". Shrinking still comes first: the page takes the largest size up to
+   today's ceiling that the engine accepts, with the 2 px headroom, and blocks only when no size ≥ 1
+   passes. Every "off" row, the replay row's "off", the "left off" sentences and M7 in the Frame
+   become "blocked" rows. Design re-derives them.
+2. **(c): ask the engine through a wasm export.** (b) is rejected because it moves 11.9M accepted
+   marks.
+3. **One [M] spec.** No split.
+4. **No readable floor here.** It stays the idea `watermark-readable-floor`.
+
+DEC-119's sentence changes accordingly: "The edit page asks the engine whether its watermark fits, and
+blocks Make when no size does."
 
 ## Inputs
 

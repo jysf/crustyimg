@@ -11,7 +11,9 @@ Cycle prompts live in `prompts/SPEC-165-<cycle>.md`.
   are refused (fit-w 288,078, fit-w-margin 166,680, coverage 11,193; 0 without a crop), and 97.6 % have no
   size that fits. Recommend asking the engine through a wasm export (+697 B brotli on `pkg-slim`), with
   2 px of headroom for DEC-118's original, and leaving the mark off with a note when nothing fits.
-- [ ] **design** (`prompts/SPEC-165-design.md`)
+  **Ruled 2026-11-28:** (c), one spec, no floor; and when nothing fits, **Make is blocked** with the
+  fixes named (larger box, shorter text, watermark off), rather than the mark left off.
+- [~] **design** (`prompts/SPEC-165-design.md`, Opus)
 - [ ] **build**
 - [ ] **verify**
 - [ ] **ship**
