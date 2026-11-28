@@ -18,6 +18,6 @@ Cycle prompts live in `prompts/SPEC-165-<cycle>.md`.
   message. A blocked plan disables Make, with the reason beside it, and renders nothing unmarked.
   15 fit, 3 replay, 5 export and 3 page rows, all literal and driven; portrait originals driven
   (at most 1 px per side).
-- [ ] **build** (`prompts/SPEC-165-build.md`)
+- [~] **build** (`prompts/SPEC-165-build.md`, Sonnet)
 - [ ] **verify**
 - [ ] **ship**
