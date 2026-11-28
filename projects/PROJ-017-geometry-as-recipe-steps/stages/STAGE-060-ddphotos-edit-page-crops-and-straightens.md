@@ -146,7 +146,7 @@ In build order.
   thin resized strips refuse a watermark (69 of 1,260 runs); put to the maintainer, ruling kept.
   **Ruled on the design (2026-11-27):** keep `MIN_CROP = 64`; the watermark-fit entry takes the
   width-plus-margin case and lands before the DOM entry.
-- [ ] **SPEC-165** (framed 2026-11-27) — [M] **The watermark's fit on a small or thin crop.** `watermarkSize`
+- [ ] **SPEC-165** (designed 2026-11-28) — [M] **The watermark's fit on a small or thin crop.** `watermarkSize`
   (`integrations/ddphotos/edit/recipe.js`) caps the mark to 90 % of the width and a tenth of the short
   side, but not to the engine's 5 % coverage limit, and the margin (`round(outLong × 0.02)`) is never
   checked against the short side. Without a crop the outputs are at least 400 px and neither was
@@ -170,6 +170,10 @@ In build order.
   headroom, because the CLI recipe on a 3.75× original refused a mark the copy accepted (driven 30/30).
   **Ruled 2026-11-28:** when nothing fits, Make is blocked with a sentence naming the fixes, turning
   the watermark off among them. The mark is never silently left off. See SPEC-165's `## Frame`.
+  **Designed 2026-11-28:** a verdict export `watermarkRefusal` (+966 B brotli), called by `planEdit`
+  through a callback that the worker satisfies with a new `plan` message. A blocked plan disables
+  Make, with the reason beside it, and renders nothing without the mark. 15 fit rows, 3 replay rows
+  (R18 and R19 are blocked on 3.75× landscape and portrait originals), 5 export rows and 3 page rows.
 - [ ] (not yet written) — [M] **Crop on the page: the crop mode's DOM.** The second half of the entry
   above, split at SPEC-164's frame. The Crop button and the box over the oriented base (`meta.bytes`,
   shown at copy size and scaled by CSS), the preset, Swap, Reset and Done buttons, Pointer Events with
