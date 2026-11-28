@@ -42,6 +42,13 @@ const cliNote = (size) =>
   `Run it on the original, or on a file at least as large as the web copy this page edits (${size}). ` +
   "On a smaller file the CLI makes a smaller image than this page did, and may refuse the watermark, without warning.";
 
+// What the page says when no watermark size fits, with its whitespace collapsed. T is 64 × 1600,
+// and at 400 px the copy is 16 × 400.
+const BLOCKED_TEXT =
+  "The watermark does not fit this copy at any size, so the copy cannot be made with it. " +
+  "Make the crop or the size larger, use shorter text, or turn the watermark off.";
+const PUBLISHED_T = "/albums/test/full/photo_thin.webp";
+
 // The CLI recipe for photo W at 800 px, JPEG, no watermark (what H3 leaves the form at).
 const RECIPE_W_800 =
   'version = "2"\nformat = "jpeg"\n\n[[step]]\nop = "auto-orient"\n\n' +
@@ -80,8 +87,9 @@ function parseArgs(argv) {
 
 // What the page reads of a ddphotos site, and no more: config.json, albums.json, one
 // album's index.json (fileName, src.full, src.grid) and the photos. The photos are the
-// parity fixtures: W (a 1600 × 1071 WebP) and R (a JPEG stored 1600 × 1071 with an
-// EXIF rotation, upright 1071 × 1600).
+// parity fixtures: W (a 1600 × 1071 WebP), R (a JPEG stored 1600 × 1071 with an EXIF
+// rotation, upright 1071 × 1600) and T (a 64 × 1600 WebP, so narrow that the watermark
+// has no size that fits it at 400 px).
 function buildSite(pkg) {
   const site = mkdtempSync(join(tmpdir(), "ddphotos-page-site-"));
   const json = (path, value) => {
@@ -89,8 +97,8 @@ function buildSite(pkg) {
     writeFileSync(join(site, path), JSON.stringify(value));
   };
   json("albums/config.json", { siteName: "Test site", copyrightOwner: "Jane Doe", encrypted: false });
-  json("albums/albums.json", [{ slug: "test", title: "Test album", count: 2, dateSpan: "2026" }]);
-  const photos = ["photo.webp", "photo_rot.jpg"];
+  json("albums/albums.json", [{ slug: "test", title: "Test album", count: 3, dateSpan: "2026" }]);
+  const photos = ["photo.webp", "photo_rot.jpg", "photo_thin.webp"];
   json("albums/test/index.json", {
     slug: "test",
     title: "Test album",
@@ -275,6 +283,73 @@ async function run(args, chromePath) {
     // H7 the sentence names the upright size, not the stored one.
     await makeCopy("R");
     row("H7 the CLI sentence on R", expectEqual(`"${await readNote()}"`, `"${cliNote("1071 × 1600")}"`));
+
+    // T: 64 × 1600. A new document, so a new counter.
+    await open("/edit/index.html?album=test&photo=3");
+    await waitForFirstPreview("T");
+
+    // H9 with the watermark on at 400 px the copy is 16 × 400 and no mark fits: Make is blocked,
+    // with the reason, and nothing is rendered. The watermark and the size change in one tick.
+    await read(
+      `(() => { ${byId("wm-on")}.checked = true; ${byId("size")}.value = "400"; ` +
+        `for (const id of ["wm-on", "size"]) ${byId(id)}.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(`!${byId("make-blocked")}.hidden && ${byId("busy")}.hidden`, "the blocked message on T");
+    const held = await read(
+      `({ text: ${byId("make-blocked")}.textContent${collapse}, disabled: ${byId("make")}.disabled, ` +
+        `described: ${byId("make")}.getAttribute("aria-describedby"), ` +
+        `error: ${byId("error")}.hidden ? null : ${byId("error")}.textContent, ` +
+        `result: ${byId("result")}.hidden, capped: ${byId("wm-capped")}.hidden, ` +
+        `path: new URL(${byId("preview")}.src).pathname })`,
+    );
+    const problems = [];
+    if (held.text !== BLOCKED_TEXT) problems.push(`the message is ${q(held.text)}`);
+    if (!held.disabled) problems.push("Make is enabled");
+    if (held.described !== "make-blocked") problems.push(`Make's aria-describedby is ${q(held.described)}`);
+    if (held.error !== null) problems.push(`error box ${q(held.error)}`);
+    if (!held.result) problems.push("the result panel is shown");
+    if (!held.capped) problems.push("the made-smaller note is shown");
+    if (held.path !== PUBLISHED_T) problems.push(`the preview is ${held.path}, not the published photo`);
+    const counted = await renders();
+    if (counted !== LOADED) problems.push(`renders ${counted}, expected ${LOADED}`);
+    row("H9 T at 400: Make is blocked, with the reason", problems.length ? problems.join("; ") : null);
+
+    // H10 the position set to the centre leaves the block (the centre has no margin): the copy
+    // is made, and it carries the watermark.
+    await read(
+      `(() => { ${byId("wm-gravity")}.value = "center"; ` +
+        `${byId("wm-gravity")}.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(
+      `${byId("make-blocked")}.hidden && !${byId("make")}.disabled && ${byId("preview")}.src.startsWith("blob:") && ${byId("busy")}.hidden`,
+      "the block to clear on T",
+    );
+    await makeCopy("T");
+    const marked = await read(`${byId("recipe")}.textContent`);
+    const carries = marked.includes('op = "watermark"') && marked.includes('gravity = "center"\nsize = 1\n');
+    row(
+      "H10 T at the centre: the block clears and the copy carries the mark",
+      carries ? null : `the panel's recipe has no centred size-1 watermark: ${JSON.stringify(marked)}`,
+    );
+
+    // H11 back to the corner blocks again, and turning the watermark off clears it.
+    await read(
+      `(() => { ${byId("wm-gravity")}.value = "southeast"; ` +
+        `${byId("wm-gravity")}.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(
+      `!${byId("make-blocked")}.hidden && ${byId("make")}.disabled && ${byId("busy")}.hidden`,
+      "the block again on T",
+    );
+    await read(
+      `(() => { ${byId("wm-on")}.checked = false; ` +
+        `${byId("wm-on")}.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(
+      `${byId("make-blocked")}.hidden && !${byId("make")}.disabled && ${byId("busy")}.hidden`,
+      "the block to clear on T",
+    );
+    row("H11 T: turning the watermark off clears the block", null);
 
     // H8 nothing threw on the page.
     row("H8 no page errors", exceptions.length === 0 ? null : exceptions.join(" | "));

@@ -1842,6 +1842,41 @@ impl Watermark {
             _ => "the mark would draw no visible pixel".to_owned(),
         }
     }
+
+    /// [`Operation::refusal`] for an image `bw` × `bh` px, without building
+    /// one: the fit and the coverage cap read only the image's size.
+    pub(crate) fn refusal_at(&self, bw: u32, bh: u32) -> Option<Refusal> {
+        let Some((mw, mh)) = self.mark_size(bw) else {
+            return Some(Refusal::ScaledMarkTooLarge { image: (bw, bh) });
+        };
+        let (inset_x, inset_y) = if self.tile {
+            (false, false)
+        } else {
+            self.gravity.inset_axes()
+        };
+        let mx = if inset_x { self.margin } else { 0 };
+        let my = if inset_y { self.margin } else { 0 };
+        if u64::from(mw) + u64::from(mx) > u64::from(bw)
+            || u64::from(mh) + u64::from(my) > u64::from(bh)
+        {
+            return Some(Refusal::DoesNotFit {
+                mark: (mw, mh),
+                margin: mx.max(my),
+                image: (bw, bh),
+            });
+        }
+        if !self.tile && self.scale.is_none() {
+            // u128: an image's area times the cap cannot overflow it.
+            let area = u128::from(bw) * u128::from(bh);
+            if u128::from(self.visible) * 100 > area * u128::from(WATERMARK_COVERAGE_CAP_PERCENT) {
+                return Some(Refusal::CoverageAboveCap {
+                    covered: self.visible,
+                    image: (bw, bh),
+                });
+            }
+        }
+        None
+    }
 }
 
 impl Operation for Watermark {
@@ -1901,37 +1936,7 @@ impl Operation for Watermark {
     /// design, so neither is held to the cap. Opacity changes a mark's
     /// strength, not its footprint, so it does not change the count.
     fn refusal(&self, img: &Image) -> Option<Refusal> {
-        let (bw, bh) = (img.width(), img.height());
-        let Some((mw, mh)) = self.mark_size(bw) else {
-            return Some(Refusal::ScaledMarkTooLarge { image: (bw, bh) });
-        };
-        let (inset_x, inset_y) = if self.tile {
-            (false, false)
-        } else {
-            self.gravity.inset_axes()
-        };
-        let mx = if inset_x { self.margin } else { 0 };
-        let my = if inset_y { self.margin } else { 0 };
-        if u64::from(mw) + u64::from(mx) > u64::from(bw)
-            || u64::from(mh) + u64::from(my) > u64::from(bh)
-        {
-            return Some(Refusal::DoesNotFit {
-                mark: (mw, mh),
-                margin: mx.max(my),
-                image: (bw, bh),
-            });
-        }
-        if !self.tile && self.scale.is_none() {
-            // u128: an image's area times the cap cannot overflow it.
-            let area = u128::from(bw) * u128::from(bh);
-            if u128::from(self.visible) * 100 > area * u128::from(WATERMARK_COVERAGE_CAP_PERCENT) {
-                return Some(Refusal::CoverageAboveCap {
-                    covered: self.visible,
-                    image: (bw, bh),
-                });
-            }
-        }
-        None
+        self.refusal_at(img.width(), img.height())
     }
 
     fn apply(&self, img: Image) -> Result<Image, OperationError> {
@@ -3041,6 +3046,88 @@ mod tests {
         assert_eq!(op.refusal(&img), None, "expected no refusal on {dims:?}");
         let out = op.apply(img).expect("a passing mark must apply");
         assert_eq!((out.width(), out.height()), dims);
+    }
+
+    #[test]
+    fn refusal_at_is_refusal_on_an_image_of_that_size() {
+        let t15 = "© Jane Doe 2026";
+        let t120 = "© 2026 Jane Doe. All rights reserved. This photograph may not be copied, \
+                    shared or reused in any way without my consent.";
+        // (text, size, gravity, margin, width, height, the refusal's text).
+        let rows = [
+            (t15, 64.0, "southeast", 32, 1600, 1071, None),
+            (
+                t15,
+                1.0,
+                "southeast",
+                8,
+                16,
+                400,
+                Some(
+                    "the 9×2 px mark plus its 8 px margin does not fit inside the 16×400 px image",
+                ),
+            ),
+            (
+                t120,
+                1.0,
+                "center",
+                8,
+                16,
+                400,
+                Some("the 56×2 px mark does not fit inside the 16×400 px image"),
+            ),
+            (
+                t120,
+                6.0,
+                "center",
+                8,
+                400,
+                60,
+                Some(
+                    "the mark would cover 5.05 % of the 400×60 px image (1213 of 24000 px); \
+                     the limit is 5 %",
+                ),
+            ),
+            (
+                t15,
+                2.0,
+                "south",
+                32,
+                1600,
+                20,
+                Some(
+                    "the 16×3 px mark plus its 32 px margin does not fit inside the 1600×20 px \
+                     image",
+                ),
+            ),
+        ];
+        for (text, size, gravity, margin, w, h, want) in rows {
+            let mut map = BTreeMap::new();
+            map.insert("text".to_owned(), toml::Value::String(text.to_owned()));
+            map.insert("size".to_owned(), toml::Value::Float(size));
+            map.insert(
+                "gravity".to_owned(),
+                toml::Value::String(gravity.to_owned()),
+            );
+            map.insert("margin".to_owned(), toml::Value::Integer(margin));
+            map.insert(
+                "color".to_owned(),
+                toml::Value::String("#ffffff".to_owned()),
+            );
+            let op = Watermark::from_params(&OperationParams::from_map(map)).unwrap();
+            let at = op.refusal_at(w, h);
+            assert_eq!(
+                at.as_ref().map(ToString::to_string).as_deref(),
+                want,
+                "{text:?} at size {size} on {w}x{h}"
+            );
+            let img = make_image(w, h, |_, _| [90, 90, 90, 255]);
+            assert_eq!(at, op.refusal(&img), "refusal_at is refusal on {w}x{h}");
+            match at {
+                None => assert_applies(&op, img),
+                Some(r) => assert_eq!(assert_refused(&op, img), r),
+            }
+        }
     }
 
     #[test]

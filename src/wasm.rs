@@ -53,7 +53,7 @@ use wasm_bindgen::prelude::*;
 use crate::analysis::decide::{self, BuiltCodecs, Disposition, Mode, Profile};
 use crate::analysis::{Analysis, OptBucket};
 use crate::image::Image;
-use crate::operation::OperationRegistry;
+use crate::operation::{OperationParams, OperationRegistry, Watermark};
 use crate::quality::{self, LossyFormat, SearchConfig};
 use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink;
@@ -167,6 +167,42 @@ pub fn info(input: &[u8]) -> Result<ImageInfo, JsError> {
         format: format_name(i.format),
         has_alpha: i.has_alpha,
     })
+}
+
+/// Whether a text watermark fits an image `width` × `height` px: `None` when the
+/// engine takes it, or the refusal's text (what `crustyimg apply` prints after
+/// `watermark refused: `) when it does not. Nothing is drawn and no image is
+/// allocated, so a page can ask for every size it might use.
+///
+/// The mark is built the way a recipe's `watermark` step builds it, through
+/// [`Watermark::from_params`], so the verdict is the engine's own and never a
+/// copy of its rule. A mark that cannot be built (invisible at that size, or a
+/// parameter out of range) is answered with the error's text: to the caller it
+/// is the same "not this size". Opacity is not a parameter: it changes neither
+/// the mark's footprint nor its visible pixel count.
+#[wasm_bindgen(js_name = watermarkRefusal)]
+pub fn watermark_refusal(
+    text: &str,
+    size: f64,
+    gravity: &str,
+    margin: u32,
+    color: &str,
+    width: u32,
+    height: u32,
+) -> Option<String> {
+    let mut map = std::collections::BTreeMap::new();
+    map.insert("text".to_owned(), toml::Value::String(text.to_owned()));
+    map.insert("size".to_owned(), toml::Value::Float(size));
+    map.insert(
+        "gravity".to_owned(),
+        toml::Value::String(gravity.to_owned()),
+    );
+    map.insert("margin".to_owned(), toml::Value::Integer(i64::from(margin)));
+    map.insert("color".to_owned(), toml::Value::String(color.to_owned()));
+    match Watermark::from_params(&OperationParams::from_map(map)) {
+        Ok(mark) => mark.refusal_at(width, height).map(|r| r.to_string()),
+        Err(e) => Some(e.to_string()),
+    }
 }
 
 /// Decode `input`, run `recipe_toml` over it, and encode the result to

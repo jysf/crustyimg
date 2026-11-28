@@ -289,6 +289,8 @@ const INPUTS = {
   P: "photo_portrait.webp",
   S: "photo_square.webp",
   N: "photo_near_square.webp",
+  // 64×1600: so narrow that a watermark may not fit it, with no crop at all.
+  T: "photo_thin.webp",
 };
 const STORED_SIZE = { width: 1600, height: 1071 };
 const EXT = { png: "png", jpeg: "jpg", webp: "webp", avif: "avif" };
@@ -417,6 +419,8 @@ function checkModules(recipes) {
     "textEms",
     "watermarkSize",
     "planEdit",
+    "FIT_HEADROOM",
+    "fitWatermark",
     "pixelRecipe",
     "cliRecipe",
     "withQuality",
@@ -456,6 +460,8 @@ function checkModules(recipes) {
     "MIN_CROP",
     "cropReducer",
     "sizeLine",
+    "FIT_HEADROOM",
+    "fitWatermark",
   ]) {
     if (!exported.has(name)) problems.push(`recipe.js lacks ${name}`);
   }
@@ -478,6 +484,17 @@ function checkModules(recipes) {
     if (file === "worker.js" && !text.includes("return loadPhoto({ info, transform }, source);")) {
       problems.push("worker.js's load does not return loadPhoto({ info, transform }, source);");
     }
+    // The plan runs in the worker, with the engine's own check, and the page asks the worker
+    // for it: edit.js must not plan on its own thread with no check.
+    const planLine = "return { edit: planEdit(shown, req.form, req.crop, watermarkRefusal) };";
+    if (file === "worker.js" && !text.includes(planLine)) {
+      problems.push(`worker.js's plan is not ${planLine}`);
+    }
+    if (file === "edit.js") {
+      for (const m of imports) {
+        if (/\bplanEdit\b/.test(m[1])) problems.push("edit.js imports planEdit; the worker plans the edit");
+      }
+    }
     for (const name of owned) {
       if (new RegExp(`(function|const|let)\\s+${name}\\b`).test(text)) {
         problems.push(`${file} defines ${name}, which belongs to recipe.js`);
@@ -492,7 +509,7 @@ function checkModules(recipes) {
   return problems;
 }
 
-/// Load the slim wasm package and return its `transform` and `info`.
+/// Load the slim wasm package and return its `transform`, `info` and `watermarkRefusal`.
 async function loadWasm(pkg) {
   const js = join(pkg, "crustyimg.js");
   const wasm = join(pkg, "crustyimg_bg.wasm");
@@ -502,7 +519,12 @@ async function loadWasm(pkg) {
   try {
     const mod = await import(pathToFileURL(js).href);
     mod.initSync({ module: readFileSync(wasm) });
-    return { transform: mod.transform, info: mod.info };
+    // `watermarkRefusal` is the engine's own fit check, the one the page's worker passes to
+    // `planEdit`. It is never replaced by a function written here.
+    if (typeof mod.watermarkRefusal !== "function") {
+      return fatal("the wasm package has no watermarkRefusal export");
+    }
+    return { transform: mod.transform, info: mod.info, refuses: mod.watermarkRefusal };
   } catch (e) {
     return fatal(`wasm package failed to initialise: ${e.message}`);
   }
@@ -531,7 +553,7 @@ function recipeFor(row, ctx) {
   const { recipes } = ctx;
   const photo = photoFor(ctx, row.input);
   const crop = cropFor(recipes, row.crop, photo);
-  const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, crop);
+  const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, crop, ctx.refuses);
   const text =
     row.recipe === "pixel"
       ? recipes.pixelRecipe(edit)
@@ -699,6 +721,19 @@ function cropChecks({ rows: allRows }) {
 // PSNR floor of the row's form.
 //   [input, crop, size, watermark on, output size, watermark [size, capped], factor]
 // The form (aspect or box) is read off the crop; the band off the factor.
+// The texts the fit and replay rows draw. The widths in the literals are the engine's, from native
+// runs. T67's mark at size 1 is 32 px wide ("Not" for "NOT" would make it 31), so the text is part
+// of the literal. T120 is the page's longest text (its `maxlength`).
+const T67 = "© 2026 Jane Doe. All rights reserved. NOT for reuse without consent";
+const T120 =
+  "© 2026 Jane Doe. All rights reserved. This photograph may not be copied, shared or reused in any way without my consent.";
+const SMALL = "0.025";
+const MEDIUM = "0.04";
+const LARGE = "0.06";
+const WM_SMALL_CENTRE = { wmText: T67, wmSize: SMALL, wmGravity: "center" };
+const WM_120_SMALL_CENTRE = { wmText: T120, wmSize: SMALL, wmGravity: "center" };
+const REFUSED_32X2 = "the 32×2 px mark does not fit inside the 31×400 px image";
+
 const REPLAY_ROWS = [
   ["W", preset(1, 1), "pub", false, [1071, 1071], null, 4],
   ["W", preset(4, 5), "pub", false, [1339, 1071], null, 4],
@@ -718,11 +753,19 @@ const REPLAY_ROWS = [
   // A factor that is not a whole number: a 6000×4016 original.
   ["W", BOX_FREE, "600", false, [600, 482], null, 3.75],
   ["W", preset(3, 2), "pub", false, [1600, 1067], null, 3.75],
-].map(([input, crop, size, wm, want, mark, factor], i) => ({
+  // The watermark's fit on a small crop, at a fractional original. The copy takes a size-1 mark
+  // that the CLI refuses on the original, 1 px smaller, so the page must not offer it: the plan
+  // is "blocked". The control is today's recipe on the original: [mark size, the engine's refusal].
+  ["W", { box: [333, 0, 77, 976] }, "400", true, [32, 400], "blocked", 3.75, WM_SMALL_CENTRE, [1, REFUSED_32X2]],
+  ["P", { box: [0, 0, 126, 1600] }, "400", true, [32, 400], "blocked", 3.75, WM_SMALL_CENTRE, [1, REFUSED_32X2]],
+  // A size the CLI takes, because the page chose it with the headroom.
+  ["W", { box: [0, 0, 640, 96] }, "400", true, [400, 60], [5, true], 3.75, WM_120_SMALL_CENTRE, null],
+].map(([input, crop, size, wm, want, mark, factor, over = {}, control = null], i) => ({
   n: `R${i + 1}`,
   input,
   crop,
-  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm },
+  form: { size: size === "pub" ? String(Infinity) : size, wmOn: wm, ...over },
+  control,
   size: want,
   mark,
   factor,
@@ -730,7 +773,7 @@ const REPLAY_ROWS = [
   band: Number.isInteger(factor) ? "integer" : factor >= 2 ? "2x" : "under-2x",
   id: `${input}/${cropLabel(crop)}/${size}/${factor}x`,
 }));
-const REPLAY_ROW_COUNT = 17;
+const REPLAY_ROW_COUNT = 20;
 
 /// The replay originals for one run, made once per input and factor in `dir`. `shift` moves
 /// their content left by round(factor) px (the framing-shift control).
@@ -763,8 +806,28 @@ function replayRows(ctx, { shift = false } = {}) {
     try {
       // Inside the row's try, so a recipe.js that throws fails this row and not the run.
       const photo = photoFor(ctx, row.input);
-      const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, cropFor(recipes, row.crop, photo));
+      const crop = cropFor(recipes, row.crop, photo);
+      const edit = recipes.planEdit(photo, { ...FORM, ...row.form }, crop, ctx.refuses);
       const original = replayOriginal(ctx, dir, row, shift, made);
+      if (row.mark === "blocked") {
+        // Nothing is drawn: the plan is blocked, and the recipe the page would have offered at the
+        // size it asks for today is refused by the CLI on the original (the control).
+        Object.assign(result, { edit, blocked: true });
+        const got = markOf(edit);
+        if (got !== "blocked") {
+          result.reasons.push("mark");
+          result.notes.push(`planEdit's watermark is ${got}, expected blocked`);
+        }
+        const [size, literal] = row.control;
+        const forced = forcedEdit(recipes, photo, { ...FORM, ...row.form }, crop, size);
+        const why = nativeRefusal(bin, dir, row.n, recipes.cliRecipe(forced), original, literal);
+        if (why) {
+          result.reasons.push("control");
+          result.notes.push(`control: ${why}`);
+        }
+        rows.push(result);
+        continue;
+      }
       const pageOut = join(dir, `${row.n}.page.png`);
       const cliOut = join(dir, `${row.n}.cli.png`);
       const recipeFile = join(dir, `${row.n}.toml`);
@@ -786,7 +849,7 @@ function replayRows(ctx, { shift = false } = {}) {
 
   const dims = decode(python, files);
   for (const r of rows) {
-    if (r.error) continue;
+    if (r.error || r.blocked) continue;
     const page = image(dims, r.pageOut);
     const cli = image(dims, r.cliOut);
     const want = r.row.size;
@@ -806,8 +869,7 @@ function replayRows(ctx, { shift = false } = {}) {
       r.notes.push(`planEdit predicts ${r.edit.outW}x${r.edit.outH}, expected ${want.join("x")}`);
     }
     if (r.row.mark) {
-      const wm = r.edit.watermark;
-      const got = wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+      const got = markOf(r.edit);
       const exp = `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`;
       if (got !== exp) {
         r.reasons.push("mark");
@@ -835,10 +897,191 @@ function replayChecks({ rows }) {
 function reportReplay({ rows }) {
   for (const r of rows) {
     const verdict = r.reasons.length === 0 ? "PASS" : "FAIL";
-    const sizes = r.page ? `page ${r.page.width}x${r.page.height} cli ${r.cli.width}x${r.cli.height}` : "did not run";
+    const sizes = r.page
+      ? `page ${r.page.width}x${r.page.height} cli ${r.cli.width}x${r.cli.height}`
+      : r.blocked
+        ? "blocked, nothing drawn"
+        : "did not run";
     console.log(`${verdict} ${r.row.n} ${r.row.id} ${r.row.kind}/${r.row.band} ${sizes}`);
     if (r.error) console.log(`     threw: ${r.error}`);
     for (const note of r.notes) console.log(`     ${note}`);
+  }
+}
+
+// ── the fit rows ─────────────────────────────────────────────────────────────
+//
+// The watermark's fit on a small or thin crop. The page asks the engine, through the real wasm
+// `watermarkRefusal` (`ctx.refuses`), whether each size fits, and takes the largest that does.
+// Every expected side, size and refusal below is a literal from a native run of `apply`, never
+// read from recipe.js or computed here: both sides of this harness load recipe.js, so only a
+// number written here can see a recipe.js that is wrong.
+//
+//   [id, input, box or null, size, text, watermark size, gravity, output size, mark, control]
+// mark: `[size, capped]`, or "blocked" when no size fits. control: null, or `[size, refusal]`,
+// the same edit with the mark forced to the size the page asked for before the check existed.
+// Natively that must be refused with exactly the refusal, and in wasm `transform` must throw it.
+const FIT_ROWS = [
+  // Coverage: today's size 6 covers 5.05 % of the 400×60 copy, whatever the position.
+  ["F1", "W", [0, 0, 640, 96], "400", T120, SMALL, "center", [400, 60], [5, true],
+    [6, "the mark would cover 5.05 % of the 400×60 px image (1213 of 24000 px); the limit is 5 %"]],
+  ["F2", "W", [0, 0, 640, 96], "400", T120, SMALL, "southeast", [400, 60], [5, true],
+    [6, "the mark would cover 5.05 % of the 400×60 px image (1213 of 24000 px); the limit is 5 %"]],
+  // The width plus the margin, on a thin strip, in both orders (the margin is on both axes at a corner).
+  ["F3", "P", [0, 0, 64, 1600], "400", WATERMARK_TEXT, MEDIUM, "southeast", [16, 400], "blocked",
+    [1, "the 9×2 px mark plus its 8 px margin does not fit inside the 16×400 px image"]],
+  ["F4", "W", [0, 0, 1600, 64], "400", WATERMARK_TEXT, MEDIUM, "southeast", [400, 16], [1, true], null],
+  // The upright frame is read, not the stored one.
+  ["F5", "R", [0, 0, 64, 1600], "400", WATERMARK_TEXT, MEDIUM, "southeast", [16, 400], "blocked",
+    [1, "the 9×2 px mark plus its 8 px margin does not fit inside the 16×400 px image"]],
+  // The square, in both orders.
+  ["F6", "S", [0, 0, 64, 1071], "400", WATERMARK_TEXT, MEDIUM, "southeast", [24, 400], [1, true], null],
+  ["F7", "S", [0, 0, 1071, 64], "400", WATERMARK_TEXT, MEDIUM, "southeast", [400, 24], [2, true], null],
+  // The centre has no margin, so the same box takes a size-1 mark that F3 cannot.
+  ["F8", "P", [0, 0, 64, 1600], "400", WATERMARK_TEXT, MEDIUM, "center", [16, 400], [1, true], null],
+  // A mark wider than the copy even at size 1.
+  ["F9", "P", [0, 0, 64, 1600], "400", T120, MEDIUM, "center", [16, 400], "blocked",
+    [1, "the 56×2 px mark does not fit inside the 16×400 px image"]],
+  // No crop: nothing changes.
+  ["F10", "W", null, "1600", WATERMARK_TEXT, MEDIUM, "southeast", [1600, 1071], [64, false], null],
+  ["F11", "P", null, "400", T120, MEDIUM, "southeast", [268, 400], [4, true], null],
+  // An uncropped thin photo, at 400 px and as published.
+  ["F12", "T", null, "400", WATERMARK_TEXT, MEDIUM, "southeast", [16, 400], "blocked",
+    [1, "the 9×2 px mark plus its 8 px margin does not fit inside the 16×400 px image"]],
+  ["F13", "T", null, "1600", WATERMARK_TEXT, MEDIUM, "southeast", [64, 1600], [3, true], null],
+  // The height alone, in both orders.
+  ["F14", "W", [0, 0, 1600, 20], "1600", WATERMARK_TEXT, LARGE, "south", [1600, 20], "blocked",
+    [2, "the 16×3 px mark plus its 32 px margin does not fit inside the 1600×20 px image"]],
+  ["F15", "P", [0, 0, 20, 1600], "1600", WATERMARK_TEXT, LARGE, "south", [20, 1600], [1, true], null],
+];
+const FIT_ROW_COUNT = 15;
+
+const FIT_TABLE = FIT_ROWS.map(([n, input, box, size, text, wmSize, gravity, want, mark, control]) => ({
+  n,
+  input,
+  crop: box ? { box } : null,
+  form: { size, wmOn: true, wmText: text, wmSize, wmGravity: gravity },
+  recipe: "pixel",
+  format: "png",
+  size: want,
+  mark,
+  control,
+  family: "fit",
+  id: `${input}/${box ? `box(${box})` : "whole"}/${size}/${gravity}`,
+}));
+
+/// What `planEdit` made of the watermark, in the rows' own words: `<size>`, `<size> capped`,
+/// `blocked`, or `none`.
+function markOf(edit) {
+  if (edit.blocked) return "blocked";
+  const wm = edit.watermark;
+  return wm ? `${wm.size}${wm.capped ? " capped" : ""}` : "none";
+}
+
+/// The edit the page would have planned before the engine's check: the check accepts every size,
+/// so the plan keeps the ceiling, and `size` is then forced to the control's literal. A control
+/// whose literal is not the ceiling is not a control for today's behaviour: it throws.
+function forcedEdit(recipes, photo, form, crop, size) {
+  const edit = recipes.planEdit(photo, form, crop, () => undefined);
+  if (edit.watermark.size !== size) {
+    throw new Error(`the control's size ${size} is not the size asked for today, ${edit.watermark.size}`);
+  }
+  return edit;
+}
+
+/// Run `recipeText` natively on `input` and compare the failure with the engine's refusal. Returns
+/// null when `apply` stopped with exactly `error: watermark refused: <literal>`, else the reason.
+function nativeRefusal(bin, dir, name, recipeText, input, literal) {
+  const file = join(dir, `${name}.toml`);
+  writeFileSync(file, recipeText);
+  const run = spawnSync(bin, ["apply", "--recipe", file, input, "-o", join(dir, `${name}.control.png`), "-y", "-Q"], {
+    encoding: "utf8",
+  });
+  if (run.error) fatal(`native binary could not run: ${run.error.message}`);
+  const want = `error: watermark refused: ${literal}`;
+  const got = run.stderr.trim();
+  if (run.status !== 0 && got === want) return null;
+  return `native apply exited ${run.status} with ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`;
+}
+
+/// The fit rows. Each one plans with the engine's own check and asserts the output's sides and
+/// the mark as literals. A row that is not blocked runs through wasm and native `apply`, as the
+/// table rows do. A blocked row must make `pixelRecipe` throw. A row with a control runs it.
+/// Returns `{ dir, ran, rows, failures }`, where a failure reads `fit <id> -- <what>`.
+function fitRows(ctx) {
+  const { recipes, transform, bin } = ctx;
+  const dir = mkdtempSync(join(tmpdir(), "ddphotos-fit-"));
+  const drawn = runTable(
+    ctx,
+    FIT_TABLE.filter((r) => r.mark !== "blocked"),
+  );
+  const rows = [];
+  for (const row of FIT_TABLE) {
+    const fail = [];
+    const ran = { ok: false };
+    try {
+      const photo = photoFor(ctx, row.input);
+      const form = { ...FORM, ...row.form };
+      const crop = cropFor(recipes, row.crop, photo);
+      const edit = recipes.planEdit(photo, form, crop, ctx.refuses);
+      ran.ok = true;
+      const exp = row.mark === "blocked" ? "blocked" : `${row.mark[0]}${row.mark[1] ? " capped" : ""}`;
+      if (edit.outW !== row.size[0] || edit.outH !== row.size[1]) {
+        fail.push(`planEdit predicts ${edit.outW}x${edit.outH}, expected ${row.size.join("x")}`);
+      }
+      if (markOf(edit) !== exp) fail.push(`planEdit's watermark is ${markOf(edit)}, expected ${exp}`);
+      if (row.mark === "blocked") {
+        if (edit.blocked) {
+          try {
+            recipes.pixelRecipe(edit);
+            fail.push("pixelRecipe made a recipe from a blocked edit");
+          } catch {
+            /* the refusal the row wants */
+          }
+        } else {
+          // The plan offers a mark the engine refuses: run it, so the engine's own refusal is quoted.
+          try {
+            transform(readFileSync(join(FIXTURES, INPUTS[row.input])), recipes.pixelRecipe(edit), "png");
+          } catch (e) {
+            fail.push(`threw: ${e.message}`);
+          }
+        }
+      } else {
+        // The table run covers the engine's side: both targets succeed at the literal size.
+        const r = drawn.rows.find((d) => d.row.n === row.n);
+        for (const f of r.fail) if (!f.startsWith("planEdit's watermark is")) fail.push(f);
+      }
+      if (row.control) {
+        const [size, literal] = row.control;
+        const forced = forcedEdit(recipes, photo, form, crop, size);
+        const text = recipes.pixelRecipe(forced);
+        const input = join(FIXTURES, INPUTS[row.input]);
+        const why = nativeRefusal(bin, dir, row.n, text, input, literal);
+        if (why) fail.push(`control: ${why}`);
+        try {
+          transform(readFileSync(input), text, "png");
+          fail.push("control: wasm transform accepted the refused mark");
+        } catch (e) {
+          if (!e.message.includes(literal)) {
+            fail.push(`control: wasm threw ${JSON.stringify(e.message)}, expected it to contain ${JSON.stringify(literal)}`);
+          }
+        }
+      }
+    } catch (e) {
+      fail.push(`threw: ${e.message}`);
+    }
+    rows.push({ row, fail });
+  }
+  rmSync(drawn.dir, { recursive: true, force: true });
+  const failures = rows.flatMap((r) => r.fail.map((f) => `fit ${r.row.n} -- ${f}`));
+  if (rows.length !== FIT_ROW_COUNT) failures.push(`fit-count: ${rows.length} rows ran, expected ${FIT_ROW_COUNT}`);
+  return { dir, ran: rows.length, rows, failures };
+}
+
+function reportFit({ rows }) {
+  for (const r of rows) {
+    console.log(`${r.fail.length === 0 ? "PASS" : "FAIL"} fit ${r.row.n} ${r.row.id} -> ${r.row.size.join("x")} ${
+      r.row.mark === "blocked" ? "blocked" : `${r.row.mark[0]}${r.row.mark[1] ? " capped" : ""}`
+    }`);
   }
 }
 
@@ -898,6 +1141,32 @@ function modelChecks(recipes) {
   }
   failures.push(...fractionChecks(recipes));
   failures.push(...minimumSideChecks(recipes));
+  failures.push(...engineCheckChecks(recipes));
+  return failures;
+}
+
+/// With the watermark on, `planEdit` must be given the engine's check, and fails loudly when it
+/// is not; with the watermark off it needs none.
+function engineCheckChecks(recipes) {
+  const failures = [];
+  const label = "planEdit without the engine's check";
+  const photo = { width: 1600, height: 1071 };
+  try {
+    recipes.planEdit(photo, { ...FORM, size: "1600", wmOn: true });
+    failures.push(`${label} -- planEdit with the watermark on and no check did not throw`);
+  } catch (e) {
+    if (e.message !== "planEdit needs the engine's watermark check") {
+      failures.push(`${label} -- threw ${JSON.stringify(e.message)}`);
+    }
+  }
+  try {
+    const edit = recipes.planEdit(photo, { ...FORM, size: "1600", wmOn: false });
+    if (edit.watermark !== null || edit.outW !== 1600 || edit.outH !== 1071) {
+      failures.push(`${label} -- the watermark-off plan is not 1600x1071 with no mark`);
+    }
+  } catch (e) {
+    failures.push(`${label} -- the watermark-off plan threw ${JSON.stringify(e.message)}`);
+  }
   return failures;
 }
 
@@ -1496,16 +1765,21 @@ function selfTest(ctx) {
 // floor alone. Left, not right: an aspect is centred on the copy with its floor and on the
 // original exactly, so the copy's frame always sits half a pixel left of the original's, and a
 // shift to the right would cancel that on some rows.
-const N5_EXPECTED_RED = REPLAY_ROWS.map((r) => r.n);
+// The blocked rows draw nothing, so there is no framing to move: they stay green.
+const N5_EXPECTED_RED = REPLAY_ROWS.filter((r) => r.mark !== "blocked").map((r) => r.n);
 
 function shiftSelfTest(ctx) {
   const replay = replayRows(ctx, { shift: true });
   const red = replay.rows.filter((r) => r.reasons.length > 0).map((r) => r.row.n);
-  const onPsnr = replay.rows.every((r) => r.reasons.length === 1 && r.reasons[0] === "psnr");
-  const same = JSON.stringify(red) === JSON.stringify(N5_EXPECTED_RED) && onPsnr;
+  const drawn = replay.rows.filter((r) => r.row.mark !== "blocked");
+  const blocked = replay.rows.filter((r) => r.row.mark === "blocked");
+  const onPsnr = drawn.every((r) => r.reasons.length === 1 && r.reasons[0] === "psnr");
+  const blockedGreen = blocked.every((r) => r.reasons.length === 0);
+  const same = JSON.stringify(red) === JSON.stringify(N5_EXPECTED_RED) && onPsnr && blockedGreen;
   console.log(
     `${same ? "PASS" : "FAIL"} N5 the original's content moved left: red rows {${red}}, expected {${N5_EXPECTED_RED}}` +
-      `${onPsnr ? ", each on psnr" : ", NOT each on psnr"}`,
+      `${onPsnr ? ", each on psnr" : ", NOT each on psnr"}` +
+      `${blockedGreen ? `, blocked rows {${blocked.map((r) => r.row.n)}} green` : ", a blocked row went red"}`,
   );
   for (const r of replay.rows) {
     console.log(`     ${r.row.n} ${r.psnr === undefined ? "-" : r.psnr.toFixed(2)} dB (${r.row.kind} floor ${PSNR_FLOOR[r.row.kind]}) ${r.reasons.join(",") || "green"}`);
@@ -1729,10 +2003,10 @@ if (problems.length) {
 }
 console.log("PASS modules: edit.js and worker.js parse, and import only what recipe.js exports");
 
-const { transform, info } = await loadWasm(resolve(args.pkg));
+const { transform, info, refuses } = await loadWasm(resolve(args.pkg));
 const bin = resolve(args.bin);
 if (!existsSync(bin)) fatal(`native binary missing: ${bin}`);
-const ctx = { recipes, transform, info, bin, python: args.python };
+const ctx = { recipes, transform, info, refuses, bin, python: args.python };
 
 if (args.selfTest) {
   process.exit(selfTest(ctx) ? 0 : 1);
@@ -1742,6 +2016,8 @@ const table = runTable(ctx, [...TABLE, ...CROP_TABLE]);
 report(table);
 const replay = replayRows(ctx);
 reportReplay(replay);
+const fit = fitRows(ctx);
+reportFit(fit);
 const alpha = alphaRows(ctx);
 const orientation = orientationRows(ctx);
 const mode = modeChecks(ctx);
@@ -1752,6 +2028,7 @@ const failures = [
   ...mode,
   ...placementChecks(ctx),
   ...replayChecks(replay),
+  ...fit.failures,
   ...alpha,
   ...orientation,
 ];
@@ -1764,7 +2041,8 @@ const tableNames = failures.map((f) => f.split(/: | -- /)[0]).join(", ");
 const familyRows = (family) => table.rows.filter((r) => r.row.family === family).length;
 console.log(
   `${familyRows("table")} table rows, ${familyRows("crop")} crop rows, ${replay.rows.length} replay rows, ` +
-    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows, ${mode.ran} crop-mode rows; ` +
+    `${orientation.ran} orientation rows, ${alpha.ran} alpha rows, ${mode.ran} crop-mode rows, ` +
+    `${fit.ran} fit rows; ` +
     `${rowsFailed} row failures, ${failures.length} other failure${failures.length === 1 ? "" : "s"}` +
     `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
 );
@@ -1778,8 +2056,9 @@ for (const r of replay.rows) {
   console.log(`replay ${r.row.n} ${r.row.id}: PSNR ${db} dB, floor ${PSNR_FLOOR[r.row.kind]} (${r.row.kind})`);
 }
 if (rowsFailed > 0 || failures.length > 0) {
-  console.log(`outputs kept in ${table.dir} and ${replay.dir}`);
+  console.log(`outputs kept in ${table.dir}, ${replay.dir} and ${fit.dir}`);
   process.exit(1);
 }
 rmSync(table.dir, { recursive: true, force: true });
 rmSync(replay.dir, { recursive: true, force: true });
+rmSync(fit.dir, { recursive: true, force: true });

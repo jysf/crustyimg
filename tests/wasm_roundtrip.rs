@@ -32,6 +32,7 @@ mod wasm {
     use crustyimg::sink::FAST_LOSSY_QUALITY;
     use crustyimg::wasm::{
         info, is_raw_extension, optimize, optimize_detailed, raw_preview, score, transform,
+        watermark_refusal,
     };
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -1779,6 +1780,70 @@ op = "identity"
             "",
         ] {
             assert!(!is_raw_extension(name), "{name} should NOT be RAW");
+        }
+    }
+
+    /// `watermarkRefusal` answers exactly what native `apply` answers for the same
+    /// text mark on an image of that size: nothing when it takes it, otherwise the
+    /// text native prints after `watermark refused: `. The expected values are
+    /// literals from native runs, one per refusal kind (the height alone, the
+    /// width, the width plus its margin, the coverage cap) and one accepted mark.
+    #[wasm_bindgen_test]
+    fn watermark_refusal_matches_native() {
+        let t15 = "© Jane Doe 2026";
+        let t120 = "© 2026 Jane Doe. All rights reserved. This photograph may not be copied, \
+                    shared or reused in any way without my consent.";
+        // (text, size, gravity, margin, width, height, the literal answer).
+        let rows = [
+            (t15, 64.0, "southeast", 32, 1600, 1071, None),
+            (
+                t15,
+                1.0,
+                "southeast",
+                8,
+                16,
+                400,
+                Some(
+                    "the 9×2 px mark plus its 8 px margin does not fit inside the 16×400 px image",
+                ),
+            ),
+            (
+                t120,
+                1.0,
+                "center",
+                8,
+                16,
+                400,
+                Some("the 56×2 px mark does not fit inside the 16×400 px image"),
+            ),
+            (
+                t120,
+                6.0,
+                "center",
+                8,
+                400,
+                60,
+                Some(
+                    "the mark would cover 5.05 % of the 400×60 px image (1213 of 24000 px); \
+                     the limit is 5 %",
+                ),
+            ),
+            (
+                t15,
+                2.0,
+                "south",
+                32,
+                1600,
+                20,
+                Some(
+                    "the 16×3 px mark plus its 32 px margin does not fit inside the 1600×20 px \
+                     image",
+                ),
+            ),
+        ];
+        for (i, (text, size, gravity, margin, w, h, want)) in rows.into_iter().enumerate() {
+            let got = watermark_refusal(text, size, gravity, margin, "#ffffff", w, h);
+            assert_eq!(got.as_deref(), want, "E{} on {w}x{h}", i + 1);
         }
     }
 }
